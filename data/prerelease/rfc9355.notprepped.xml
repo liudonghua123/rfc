@@ -1,0 +1,411 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std"
+consensus="true" docName="draft-ietf-lsr-ospf-bfd-strict-mode-10" number="9355"
+ipr="trust200902" updates="2328" obsoletes="" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+
+
+  <!-- xml2rfc v2v3 conversion 3.15.0 -->
+  <front>
+
+
+    <title abbrev="OSPF BFD Strict-Mode">OSPF Bidirectional Forwarding
+    Detection (BFD) Strict-Mode</title>
+    <seriesInfo name="RFC" value="9355"/>
+    <author fullname="Ketan Talaulikar" initials="K." role="editor" surname="Talaulikar">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>ketant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Peter Psenak" initials="P." surname="Psenak">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+          <extaddr>Apollo Business Center</extaddr>
+          <street>Mlynske nivy 43</street>
+          <city>Bratislava</city>
+          <code>821 09</code>
+          <country>Slovakia</country>
+        </postal>
+        <email>ppsenak@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Albert Fu" initials="A." surname="Fu">
+      <organization>Bloomberg</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>afu14@bloomberg.net</email>
+      </address>
+    </author>
+
+
+<author fullname="Rajesh M" initials="M." surname="Rajesh">
+      <organization>Juniper Networks</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>mrajesh@juniper.net</email>
+      </address>
+    </author>
+    <date year="2023" month="February"/>
+    <area>rtg</area>
+    <workgroup>lsr</workgroup>
+    <keyword>IGP</keyword>
+    <keyword>OSPF</keyword>
+
+    <abstract>
+      <t>This document specifies the extensions to OSPF that enable an OSPF
+      router to signal the requirement for a Bidirectional Forwarding
+      Detection (BFD) session prior to adjacency formation. Link-Local
+      Signaling (LLS) is used to advertise the requirement for strict-mode BFD
+      session establishment for an OSPF adjacency. If both OSPF neighbors
+      advertise BFD strict-mode, adjacency formation will be blocked until a
+      BFD session has been successfully established.</t>
+      <t>This document updates RFC 2328 by augmenting the OSPF neighbor state
+      machine with a check for BFD session up before progression from Init to
+      2-Way state when operating in OSPF BFD strict-mode.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="INTRO" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Bidirectional Forwarding Detection (BFD) <xref target="RFC5880" format="default"/>
+      enables routers to monitor data plane connectivity and to detect faults
+      in the bidirectional path between them. 
+BFD is leveraged by routing
+      protocols like OSPFv2 <xref target="RFC2328" format="default"/> and OSPFv3 <xref target="RFC5340" format="default"/> to detect connectivity failures for established
+      adjacencies faster than the OSPF Hello dead timer detection and to trigger
+      rerouting of traffic around the failure. The use of BFD for monitoring
+      routing protocol adjacencies is described in <xref target="RFC5882" format="default"/>.</t>
+
+<t>When BFD monitoring is enabled for OSPF adjacencies by the network
+      operator, the BFD session is bootstrapped based on the neighbor address
+      information discovered by the exchange of OSPF Hello packets. Faults in
+      the bidirectional forwarding detected via BFD then result in the OSPF
+      adjacency being brought down. A degraded or poor-quality link may result
+      in intermittent packet drops.  In such scenarios, implementations prior to the extensions specified in this document may still get an OSPF adjacency established over such a link; however, given the more aggressive monitoring intervals supported by BFD, a BFD session may not get established and/or may flap.  The traffic forwarded over such a link would 
+      experience packet drops, and the failure of the BFD session establishment
+      will not enable fast routing convergence.  OSPF adjacency flaps may
+      occur over such links when OSPF brings up the adjacency only for it to be
+      brought down again by BFD.</t>
+      <t>To avoid the routing churn associated with these scenarios, it would
+      be beneficial not to allow OSPF to establish an adjacency until a BFD
+      session is successfully established and has stabilized. 
+      However, this
+      would preclude the OSPF operation in an environment where not all OSPF
+      routers support BFD and have it enabled on the link. A solution is
+      to block OSPF adjacency establishment until a BFD session is established
+      as long as both neighbors advertise such a requirement. Such a mode of
+      OSPF BFD usage is referred to as "strict-mode".   Strict-mode introduces 
+      signaling support in OSPF to achieve the blocking of adjacency formation
+      until BFD session establishment occurs, as described in <xref target="RFC5882" sectionFormat="of" section="4.1"/>.</t>
+      <t>This document specifies the OSPF protocol extensions using Link-Local
+      Signaling (LLS) <xref target="RFC5613" format="default"/> for a router
+      to indicate to its neighbor the willingness to require BFD strict-mode for OSPF
+      adjacency establishment (refer to <xref target="BBIT"
+      format="default"/>).  It also introduces an extension to
+      OSPFv3 LLS of the interface IPv4 address (refer
+      to <xref target="IFADDRTLV" format="default"/>) to be used for the BFD
+      session setup when OSPFv3 is used for an IPv4 Address Family (AF)
+      instance.</t>
+      <t>This document updates <xref target="RFC2328" format="default"/> by augmenting the OSPF
+      neighbor state machine with a check for BFD session up before
+      progression from Init to 2-Way state when operating in OSPF BFD
+      strict-mode.</t>
+      <t>The extensions and procedures for OSPF BFD strict-mode also apply for
+      adjacency over virtual links using BFD multi-hop <xref target="RFC5883" format="default"/> procedures.</t>
+      <t>A similar functionality for IS-IS is specified in <xref target="RFC6213" format="default"/>.</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section anchor="BBIT" numbered="true" toc="default">
+      <name>LLS B-Bit Flag</name>
+      <t>This document defines the B-bit in the LLS Type 1 Extended Options
+      and Flags. This bit is defined for the LLS block that is included
+      in Hello and Database Description (DD) packets. The B-bit indicates that
+      BFD is enabled on the link and that the router requests OSPF BFD
+      strict-mode. <xref target="IANA" format="default"/> describes the
+      position of the B-bit.</t> <t>A router <bcp14>MUST</bcp14> include the
+      LLS block with the B-bit set in the LLS Type 1 Extended Options and
+      Flags in its Hello and DD packets when OSPF BFD strict-mode is
+      enabled on the link.</t>
+    </section>
+    <section anchor="IFADDRTLV" numbered="true" toc="default">
+      <name>Local Interface IPv4 Address TLV</name>
+      <t>The Local Interface IPv4 Address TLV is an LLS TLV defined for OSPFv3
+      IPv4 AF instance <xref target="RFC5838" format="default"/> protocol operation as
+      described in <xref target="OSPFV3AF" format="default"/>.</t>
+
+      <t>It has the following format:</t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[ 
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 Local Interface IPv4 Address                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+      <t>where:</t>
+<dl newline="false" spacing="normal">
+	<dt>Type:</dt>
+        <dd>21</dd>
+        <dt>Length:</dt>
+        <dd>4 octets</dd>
+        <dt>Local Interface IPv4 Address:</dt>
+        <dd>The primary IPv4 address of the local interface.</dd>
+      </dl>
+    </section>
+    <section anchor="PROCEDURES" numbered="true" toc="default">
+      <name>Procedures</name>
+      <t>A router supporting OSPF BFD strict-mode advertises this capability
+      through its Hello packets as described in <xref target="BBIT" format="default"/>. When a
+      router supporting OSPF BFD strict-mode discovers a new neighbor router
+      that also supports OSPF BFD strict-mode, it will establish a BFD session with that neighbor first before bringing up the OSPF adjacency as
+      described further in this section.</t>
+      <t>This document updates the OSPF neighbor state machine as described in
+      <xref target="RFC2328" format="default"/>. Specifically, the operations related to the
+      Init state are modified as described below when OSPF BFD strict-mode is used:</t>
+      <dl newline="true" spacing="normal">
+        <dt>Init (without OSPF BFD strict-mode):</dt>
+        <dd>In this state, a Hello packet has recently been received from the
+          neighbor. However, bidirectional communication has not yet been
+          established with the neighbor (i.e., the router itself did not
+          appear in the neighbor's Hello packet). All neighbors in this state
+          (or higher) are listed in the Hello packets sent from the associated
+          interface.</dd>
+      <dt>Init (with OSPF BFD strict-mode):</dt>
+        <dd>In this state, a Hello packet has recently been received from the
+        neighbor. However, bidirectional communication has not yet been
+        established with the neighbor (i.e., the router itself did not appear
+        in the neighbor's Hello packet). BFD session establishment with the
+        neighbor is requested if it's not already completed (e.g., in the
+        event of transition from 2-Way state).  Neighbors in
+      Init state or higher will be listed in Hello packets associated
+      with the interface if they either have a corresponding BFD session
+      established or have not advertised OSPF BFD strict-mode in the LLS
+      Type 1 Extended Options and Flags advertised in the Hello packet.</dd>
+      </dl>
+      <t>When the neighbor state transitions to Down state, the removal of
+      the BFD session associated with that neighbor is requested by OSPF;
+      subsequent BFD session establishment is similarly requested by OSPF upon
+      transitioning into Init state. 
+      This may result in BFD session deletion and creation, respectively, when OSPF is the only client
+      interested in the BFD session with the neighbor address.</t>
+      <t>An implementation <bcp14>MUST NOT</bcp14> wait for BFD session
+      establishment in Init state unless OSPF BFD strict-mode is enabled by
+      the operator on the interface and the specific neighbor indicates OSPF
+      BFD strict-mode capability via the LLS Type 1 Extended Options and Flags advertised in the Hello packet.  When BFD is
+      enabled, but OSPF BFD strict-mode has not been signaled by both
+      neighbors, an implementation <bcp14>SHOULD</bcp14> start BFD session
+      establishment only in 2-Way or greater state.  This makes it
+      possible for an OSPF router to support BFD operation in both strict-mode
+      and normal mode across different interfaces or even across different neighbors
+      on the same multi-access interface.</t>
+      <t>Once the OSPF state machine has moved beyond the Init state, any
+      change in the B-bit advertised in subsequent Hello packets <bcp14>MUST NOT</bcp14>
+      result in any trigger in either the OSPF adjacency or the BFD session
+      management (i.e., the B-bit is considered only when in Init state).
+
+Disabling BFD (or OSPF BFD strict-mode) on an OSPF interface would
+      result in it not setting the B-bit in the LLS Type 1 Extended Options and Flags advertised in subsequent Hello packets.
+      Disabling OSPF BFD strict-mode has no effect on BFD operations and would
+      not result in the bringing down of any established BFD sessions.  Disabling BFD would result in the BFD session being brought down due to AdminDown State (described in <xref target="RFC5882" sectionFormat="of" section="3.2"/>); hence, it would not bring
+down the OSPF adjacency.</t>
+      <t>When BFD is enabled on an interface over which we already have an
+      existing OSPF adjacency, it would result in the router setting the B-bit
+      in its subsequent Hello packets and the initiation of BFD session
+      establishment to the neighbor. 
+
+If the adjacency is already up (i.e., in
+      its terminal state of Full or 2-Way with routers that are not designated routers on a
+      multi-access interface) with a neighbor that also supports OSPF BFD
+      strict-mode, then an implementation <bcp14>SHOULD NOT</bcp14> bring this adjacency down
+      into the Init state to avoid disruption to routing operations and
+      instead use the OSPF BFD strict-mode wait only after a transition to
+      Init state. However, if the adjacency is not up, then an implementation
+      <bcp14>MAY</bcp14> bring such an adjacency down so it can use the OSPF BFD strict-mode
+      for its adjacency establishment.</t>
+      <section anchor="OSPFV3AF" numbered="true" toc="default">
+        <name>OSPFv3 IPv4 AF Specifics</name>
+        <t>Support for multiple AFs in OSPFv3 <xref target="RFC5838"
+        format="default"/> requires the use of an IPv6 link-local address as
+        the source address for Hello packets, even when forming adjacencies
+        for IPv4 AF instances.	In most deployments of OSPFv3 IPv4 AFs, it is
+        required that BFD is used to monitor and verify IPv4 data plane
+        connectivity between the routers on the link; hence, the BFD session
+        is set up using IPv4 neighbor addresses. 
+	The IPv4 neighbor address on
+        the interface is learned only later in the adjacency formation process
+        when the neighbor's Link-LSA (Link State Advertisement) is received. This
+        results in the setup of the BFD IPv4 session either after the
+        adjacency is established or later in the adjacency formation
+        sequence.</t>
+        <t>To operate in OSPF BFD strict-mode, it is necessary for an OSPF
+        router to learn its neighbor's IPv4 link address during the Init state
+        of adjacency formation (ideally, when it receives the first Hello). The
+        use of the Local Interface IPv4 Address TLV (as defined in <xref
+        target="IFADDRTLV" format="default"/>) in the LLS block advertised in OSPFv3
+        Hello packets for IPv4 AF instances makes this
+        possible. Implementations that support OSPF BFD
+   strict-mode for OSPFv3 IPv4 AF instances <bcp14>MUST</bcp14> include the Local
+   Interface IPv4 Address TLV in the LLS block advertised in their Hello packets
+   whenever the B-bit is also set in the LLS Type 1 Extended Options and Flags. A receiver
+        <bcp14>MUST</bcp14> ignore the B-bit (i.e., not operate in strict-mode
+        for BFD) when the Local Interface IPv4 Address TLV is not present in
+        OSPFv3 Hello messages for OSPFv3 IPv4 AF instances.</t>
+      </section>
+      <section anchor="GR" numbered="true" toc="default">
+        <name>Graceful Restart Considerations</name>
+        <t>An implementation needs to handle scenarios where both graceful
+        restart (GR) and the OSPF BFD strict-mode are deployed together.  The graceful restart aspects related to process restart scenarios discussed in <xref target="RFC5882" sectionFormat="of"
+section="3.3"/> also apply with OSPF BFD strict-mode.  Additionally, since the
+OSPF adjacency formation is delayed until the BFD session establishment in
+OSPF BFD strict-mode, the resultant delay in adjacency formation may affect or
+break the GR-based recovery. In such cases, it is <bcp14>RECOMMENDED</bcp14>
+that the GR timers are set such that they provide sufficient time to allow for
+normal BFD session establishment delays.</t>
+      </section>
+    </section>
+    <section anchor="OPS" numbered="true" toc="default">
+      <name>Operations and Management Considerations</name>
+      <t>An implementation <bcp14>SHOULD</bcp14> report the BFD session status along with the
+      OSPF Init adjacency state when OSPF BFD strict-mode is enabled and
+      support logging operations on neighbor state transitions that include
+      the BFD events. This allows an operator to detect scenarios where an
+      OSPF adjacency may be stuck waiting for BFD session establishment.</t>
+      <t>In network deployments with noisy or degraded links with intermittent
+      packet loss, BFD sessions may flap, resulting in OSPF adjacency flaps.
+      In turn, this may cause routing churn.  The use of OSPF BFD strict-mode
+      along with mechanisms such as hold-down (a delay in bringing up the initial OSPF adjacency following BFD
+session establishment) and/or dampening (a delay in bringing up the OSPF adjacency following failure detected by BFD) may help reduce the
+frequency of adjacency flaps and therefore reduce the associated
+routing churn.  The details of these mechanisms are
+      outside the scope of this document.</t>
+
+      
+      <t><xref target="RFC9129" format="default"/> specifies the base OSPF YANG
+      module. The required configuration and operational elements for this
+      feature are expected to be introduced as augmentation to this base OSPF
+      YANG module.</t>
+    </section>
+    <section anchor="BACKW" numbered="true" toc="default">
+      <name>Backward Compatibility</name>
+      <t>An implementation <bcp14>MUST</bcp14> support OSPF adjacency formation and
+      operations with a neighbor router that does not advertise the OSPF BFD
+      strict-mode capability: both when that neighbor router does not support
+      BFD and when it does support BFD but does not signal the OSPF BFD
+      strict-mode as described in this document. Implementations <bcp14>MAY</bcp14> provide a
+      local configuration option to force BFD operation only in OSPF BFD
+      strict-mode (i.e, adjacency will not come up unless BFD session is
+      established). In this case, an OSPF adjacency with a neighbor that does
+      not support OSPF BFD strict-mode would not be established successfully.
+      Implementations <bcp14>MAY</bcp14> provide a local configuration option to enable BFD
+      without the OSPF BFD strict-mode, which results in the router not
+      advertising the B-bit and BFD operation being performed in the same way
+      as prior to this specification.</t>
+      <t>The signaling specified in this document happens at a link-local
+      level between routers on that link. A router that does not support this
+      specification would ignore the B-bit in the LLS block advertised in Hello packets
+      from its neighbors and continue to establish BFD sessions (if enabled)
+      without delaying the OSPF adjacency formation. Since a router that does
+      not support this specification would not have set the B-bit in the LLS
+      block advertised in its own Hello packets, its neighbor routers supporting this
+      specification would not use OSPF BFD strict-mode with such OSPF routers.
+      As a result, the behavior would be the same as without this
+      specification. Therefore, there are no backward compatibility issues or
+      implementation considerations beyond what is specified herein.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This specification makes the following updates under the "Open
+      Shortest Path First (OSPF) Link Local Signaling (LLS) -
+      Type/Length/Value Identifiers (TLV)" parameters.</t>
+      <ul><li>In the "LLS Type 1 Extended Options and Flags" registry, the B-bit
+      has been assigned the bit position 0x00000010.</li>
+      <li>In the "Link Local Signaling TLV Identifiers (LLS Types)" registry,
+      the Type 21 has been assigned to the Local Interface IPv4 Address TLV.</li>
+      </ul>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The security considerations for "<xref target="RFC5613" format="title"/>" <xref target="RFC5613" format="default"/> also apply to the extension described in this
+      document. 
+
+Inappropriate use of the B-bit in the LLS block of an OSPF Hello message could
+prevent an OSPF adjacency from forming or lead to the failure of detecting
+bidirectional forwarding failures. If authentication is being used in the OSPF
+routing domain <xref target="RFC5709" format="default"/> <xref target="RFC7474"
+format="default"/>, then the Cryptographic Authentication TLV <xref
+target="RFC5613" format="default"/> <bcp14>MUST</bcp14> also be used to
+protect the contents of the LLS block.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2328.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5340.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5882.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5613.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5838.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5880.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5883.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6213.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7474.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5709.xml"/>
+
+<!-- [I-D.ietf-ospf-yang] Published as RFC 9129 -->
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9129.xml"/>
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The authors would like to acknowledge the review and inputs from
+      <contact fullname="Acee Lindem"/>, <contact fullname="Manish Gupta"/>,
+      <contact fullname="Balaji Ganesh"/>, <contact fullname="Les Ginsberg"/>,
+      <contact fullname="Robert Raszuk"/>, <contact fullname="Gyan Mishra"/>,
+      <contact fullname="Muthu Arul Mozhi Perumal"/>, <contact fullname="Russ
+      Housley"/>, and <contact fullname="Wes Hardaker"/>.</t>
+      <t>The authors would like to acknowledge <contact fullname="Dylan van
+      Oudheusden"/> for highlighting the problems in using OSPF BFD
+      strict-mode for BFD sessions for OSPFv3 IPv4 AF instances and
+      <contact fullname="Baalajee S"/> for his suggestions on the approach to
+      address it.</t>
+      <t>The authors would like to thank <contact fullname="John Scudder"/>
+      for his AD review and suggestions to improve the document.</t>
+    </section>    
+  </back>
+</rfc>
+
+

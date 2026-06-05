@@ -1,0 +1,510 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-lamps-nf-eku-05" number="9509" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="EKUs for 5G Network Functions">X.509 Certificate Extended Key Usage (EKU)
+    for 5G Network Functions</title>
+    <seriesInfo name="RFC" value="9509"/>
+    <author fullname="Tirumaleswar Reddy.K" initials="T." surname="Reddy.K">
+      <organization>Nokia</organization>
+      <address>
+        <postal>
+          <street/>
+          <country>India</country>
+        </postal>
+        <email>kondtir@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Jani Ekman" initials="J." surname="Ekman">
+      <organization>Nokia</organization>
+      <address>
+        <postal>
+          <street/>
+          <country>Finland</country>
+        </postal>
+        <email>jani.ekman@nokia.com</email>
+      </address>
+    </author>
+    <author fullname="Daniel Migault" initials="D." surname="Migault">
+      <organization>Ericsson</organization>
+      <address>
+        <postal>
+          <street/>
+          <country>Canada</country>
+        </postal>
+        <email>daniel.migault@ericsson.com</email>
+      </address>
+    </author>
+    <date year="2024" month="March"/>
+    <area>sec</area>
+    <workgroup>lamps</workgroup>
+    <keyword>3GPP</keyword>
+    <abstract>
+      <t>RFC 5280 specifies several extended key purpose identifiers
+      (KeyPurposeIds) for X.509 certificates. This document defines encrypting
+      JSON objects in HTTP messages, using JSON Web Tokens (JWTs), and signing
+      the OAuth 2.0 access tokens KeyPurposeIds for inclusion in the Extended
+      Key Usage (EKU) extension of X.509 v3 public key certificates used by
+      Network Functions (NFs) for the 5G System.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>The operators of 5G ("fifth generation") systems as defined by 3GPP
+      make use of an internal PKI to generate X.509 PKI certificates for the
+      Network Functions (NFs) (Section 6 of <xref target="TS23.501"
+      format="default"/>) in a 5G System. The certificates are used for the
+      following purposes:</t>
+      <ul spacing="normal">
+        <li>Client and Server certificates for NFs in 5G Core (5GC) Service Based
+        Architecture (SBA) (see Section 6.1.3c of <xref target="TS33.310"
+        format="default"/> and Section 6.7.2 of <xref target="TS29.500"
+	format="default"/>)</li>
+        <li>Client Credentials Assertion (CCA) uses JSON Web Tokens (JWTs)
+        <xref target="RFC7519" format="default"/> and is secured with digital
+        signatures based on the JSON Web Signature (JWS) <xref
+        target="RFC7515" format="default"/> (see Section 13.3.8.2 of <xref
+        target="TS33.501" format="default"/>, and Section 6.7.5 of <xref
+        target="TS29.500" format="default"/>).</li>
+        <li>Certificates for encrypting JSON objects in HTTP messages between
+        Security Edge Protection Proxies (SEPPs) using JSON Web Encryption
+        (JWE) <xref target="RFC7516" format="default"/> (see Section 13.2.4.4
+        of <xref target="TS33.501" format="default"/>, Section 6.3.2 of <xref
+        target="TS33.210" format="default"/>, Section 6.7.4 of <xref
+        target="TS29.500" format="default"/>, and Section 5.3.2.1 of <xref
+        target="TS29.573" format="default"/>).</li>
+        <li>Certificates for signing the OAuth 2.0 access tokens for service
+        authorization to grant temporary access to resources provided by NF
+        producers using JWS (see Section 13.4.1 of <xref target="TS33.501"
+        format="default"/> and Section 6.7.3 of <xref target="TS29.500"
+        format="default"/>).</li>
+      </ul>
+      <t><xref target="RFC5280" format="default"/> specifies several key usage
+      extensions, defined via KeyPurposeIds, for X.509 certificates. Key usage
+      extensions added to a certificate are meant to express intent as to the
+      purpose of the named usage, for humans and for complying libraries. In
+      addition, the IANA registry "SMI Security for PKIX Extended Key Purpose"
+      <xref target="RFC7299" format="default"/> contains additional
+      KeyPurposeIds. The use of the anyExtendedKeyUsage KeyPurposeId, as
+      defined in <xref target="RFC5280" sectionFormat="of"
+      section="4.2.1.12"/>, is generally considered a poor practice. This is
+      especially true for publicly trusted certificates, whether they are
+      multi-purpose or single-purpose, within the context of 5G Systems and
+      the 5GC Service Based Architecture.</t>
+      <t>If the purpose of the issued certificates is not restricted, i.e.,
+      the type of operations for which a public key contained in the
+      certificate can be used are not specified, those certificates could be
+      used for another purpose than intended, increasing the risk of
+      cross-protocol attacks. Failure to ensure proper segregation of duties
+      means that a NF that generates the public/private keys and applies for a
+      certificate to the operator certification authority could obtain a
+      certificate that can be misused for tasks that this NF is not entitled
+      to perform. For example, a NF service consumer could potentially
+      impersonate NF service producers using its certificate. Additionally, in
+      cases where the certificate's purpose is intended for use by the NF
+      service consumer as a client certificate, it's essential to ensure that
+      the NF with this client certificate and the corresponding private key
+      are not allowed to sign the Client Credentials Assertion (CCA). When a
+      NF service producer receives the signed CCA from the NF service
+      consumer, the NF should only accept the token if the CCA is signed with
+      a certificate that has been explicitly issued for this purpose.</t>
+      <t>The KeyPurposeId id-kp-serverAuth (<xref target="RFC5280"
+      sectionFormat="of" section="4.2.1.12"/>) can be used to identify that
+      the certificate is for a server (e.g., NF service producer), and the
+      KeyPurposeId id-kp-clientAuth (<xref target="RFC5280"
+      sectionFormat="of" section="4.2.1.12"/>) can be used to identify that
+      the certificate is for a client (e.g., NF service consumer). However,
+      there are currently no KeyPurposeIds for the other usages of
+      certificates in a 5G System. This document addresses the above problem by
+      defining the EKU extension of X.509 public key certificates for signing
+      the JWT Claims Set using JWS, encrypting JSON objects in HTTP messages
+      using JWE, and signing the OAuth 2.0 access tokens using JWS.</t>
+      <t>Vendor-defined KeyPurposeIds used within a PKI governed by the vendor
+      or a group of vendors typically do not pose interoperability concerns,
+      as non-critical extensions can be safely ignored if unrecognized.
+      However, using or misusing KeyPurposeIds outside of their intended
+      vendor-controlled environment can lead to interoperability issues.
+      Therefore, it is advisable not to rely on vendor-defined KeyPurposeIds.
+      Instead, the specification defines standard KeyPurposeIds to ensure
+      interoperability across various implementations.</t>
+      <t>Although the specification focuses on a 5G use case, the standard
+      KeyPurposeIds defined in this document can be used in other
+      deployments.</t>
+    </section>
+    <section anchor="notation" numbered="true" toc="default">
+      <name>Terminology</name>
+        <t> The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+        "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+        NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+        "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+        "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+        are to be interpreted as described in BCP&nbsp;14 <xref
+        target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they
+        appear in all capitals, as shown here.
+        </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Extended Key Purpose for Network Functions</name>
+      <t>This specification defines the KeyPurposeIds id-kp-jwt,
+      id-kp-httpContentEncrypt, and id-kp-oauthAccessTokenSigning
+      and uses these, respectively, for: signing the JWT Claims Set
+      of CCA using JWS, encrypting JSON objects in HTTP messages between
+      Security Edge Protection Proxies (SEPPs) using JWE, and signing the
+      OAuth 2.0 access tokens for service authorization to grant temporary
+      access to resources provided by NF producers using JWS. As described in
+      <xref target="RFC5280" format="default"/>, "[i]f the [Extended Key
+      Usage] extension is present, then the certificate <bcp14>MUST</bcp14>
+      only be used for one of the purposes indicated." <xref target="RFC5280"
+      format="default"/> also notes that "[i]f multiple [key] purposes are
+      indicated the application need not recognize all purposes indicated, as
+      long as the intended purpose is present."</t>
+      <t>Network Functions that verify the signature of a CCA represented as a
+      JWT, decrypt JSON objects in HTTP messages between Security Edge
+      Protection Proxies (SEPPs) using JWE, or verify the signature of an
+      OAuth 2.0 access tokens for service authorization to grant temporary
+      access to resources provided by NF producers using JWS
+      <bcp14>SHOULD</bcp14> require that corresponding
+      KeyPurposeIds be specified by the EKU extension. If the certificate requester knows
+      the certificate users are mandated to use these KeyPurposeIds, it
+      <bcp14>MUST</bcp14> enforce their inclusion. Additionally, such
+      a certificate requester <bcp14>MUST</bcp14> ensure that the KeyUsage
+      extension be set to digitalSignature or nonRepudiation (also designated
+      as contentCommitment) for signature calculation and/or to
+      keyEncipherment for secret key encryption.</t>
+    </section>
+    <section numbered="true" toc="default" anchor="purpose-in-certificates">
+      <name>Including the Extended Key Purpose in Certificates</name>
+      <t><xref target="RFC5280" format="default"/> specifies the EKU X.509
+      certificate extension for use on end entity certificates. The extension
+      indicates one or more purposes for which the certified public key is
+      valid. The EKU extension can be used in conjunction with the key usage
+      extension, which indicates the set of basic cryptographic operations for
+      which the certified key may be used. The EKU extension syntax is
+      repeated here for convenience:</t>
+
+      <sourcecode type="asn.1"><![CDATA[
+ExtKeyUsageSyntax ::= SEQUENCE SIZE (1..MAX) OF KeyPurposeId 
+
+KeyPurposeId ::= OBJECT IDENTIFIER 
+]]></sourcecode>
+
+      <t>As described in <xref target="RFC5280" format="default"/>, the EKU
+      extension may, at the option of the certificate issuer, be either
+      critical or non-critical. The inclusion of KeyPurposeIds id-kp-jwt,
+      id-kp-httpContentEncrypt, and id-kp-oauthAccessTokenSigning in a
+      certificate indicates that the public key encoded in the certificate has
+      been certified for use in the following: </t>
+
+      <ol spacing="normal" type="1">
+	<li>Validating the JWS Signature in JWT. The distinction between JWS
+	and JWE is determined by the Key Usage (KU) that is set to
+	digitalSignature or nonRepudiation for JWS and keyEncipherment for
+	JWE.</li>
+        <li>Encrypting JSON objects in HTTP messages (for example, encrypting
+        the content-encryption key (CEK) with the recipient's public key using
+        the RSAES-OAEP algorithm to produce the JWE Encrypted Key). KU is set
+        to keyEncipherment.</li>
+        <li>Signing OAuth 2.0 access tokens. In this case, KU is set to
+        digitalSignature or nonRepudiation.</li>
+      </ol>
+      <sourcecode type="asn.1"><![CDATA[
+     id-kp  OBJECT IDENTIFIER  ::= {
+       iso(1) identified-organization(3) dod(6) internet(1)
+       security(5) mechanisms(5) pkix(7) kp(3) }
+
+id-kp-jwt OBJECT IDENTIFIER ::= { id-kp 37 }
+id-kp-httpContentEncrypt OBJECT IDENTIFIER ::= { id-kp 38 }
+id-kp-oauthAccessTokenSigning OBJECT IDENTIFIER ::= { id-kp 39 }
+]]></sourcecode>
+    </section>
+    <section anchor="solution" numbered="true" toc="default">
+      <name>Implications for a Certification Authority</name>
+      <t>The procedures and practices employed by a certification authority
+      <bcp14>MUST</bcp14> ensure that the correct values for the EKU extension as well as the
+      KU extension are inserted in each certificate that is issued. The
+      inclusion of the id-kp-jwt, id-kp-httpContentEncrypt, and
+      id-kp-oauthAccessTokenSigning KeyPurposeIds does not preclude the
+      inclusion of other KeyPurposeIds.</t>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The Security Considerations of <xref target="RFC5280"
+      format="default"/> are applicable to this document. This extended key
+      purpose does not introduce new security risks but instead reduces
+      existing security risks by providing the means to identify if the
+      certificate is generated to sign the JWT Claims Set, signing the OAuth
+      2.0 access tokens using JWS, or encrypting the CEK in JWE for encrypting
+      JSON objects in HTTP messages.</t>
+      <t>To reduce the risk of specific cross-protocol attacks, the relying
+      party or the relying party software may additionally prohibit use of
+      specific combinations of KeyPurposeIds. The procedure for allowing or
+      disallowing combinations of KeyPurposeIds using Excluded KeyPurposeId
+      and Permitted KeyPurposeId, as carried out by a relying party, is
+      defined in <xref target="RFC9336" sectionFormat="of"
+      section="4"/>. Examples of Excluded KeyPurposeIds include the presence of
+      the anyExtendedKeyUsage KeyPurposeId or the complete absence of the EKU
+      extension in a certificate. Examples of Permitted KeyPurposeIds include
+      the presence of id-kp-jwt, id-kp-httpContentEncrypt, or
+      id-kp-oauthAccessTokenSigning KeyPurposeIds.</t>
+    </section>
+    <section anchor="Privacy" numbered="true" toc="default">
+      <name>Privacy Considerations</name>
+      <t>In some security protocols, such as TLS 1.2 <xref target="RFC5246"
+      format="default"/>, certificates are exchanged in the clear. In other
+      security protocols, such as TLS 1.3 <xref target="RFC8446"
+      format="default"/>, the certificates are encrypted. The inclusion of the
+      EKU extension can help an observer determine the purpose of the
+      certificate. In addition, if the certificate is issued by a public
+      certification authority, the inclusion of an EKU extension can help an
+      attacker to monitor the Certificate Transparency logs <xref
+      target="RFC9162" format="default"/> to identify the purpose of the
+      certificate.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+
+      <name>IANA Considerations</name>
+      <t>IANA has registered the following OIDs in the "SMI Security
+      for PKIX Extended Key Purpose" registry (1.3.6.1.5.5.7.3). These OIDs
+      are defined in <xref target="purpose-in-certificates"/>.</t>
+
+      <table anchor="iana-table-1" align="left">
+	<thead>
+	  <tr>
+	    <th>Decimal</th>
+	    <th>Description</th>
+	    <th>References</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>37</td>
+	    <td>id-kp-jwt</td>
+	    <td>RFC 9509</td>
+	  </tr>
+	  <tr>
+	    <td>38</td>
+	    <td>id-kp-httpContentEncrypt</td>
+	    <td>RFC 9509</td>
+	  </tr>
+	  <tr>
+	    <td>39</td>
+	    <td>id-kp-oauthAccessTokenSigning</td>
+	    <td>RFC 9509</td>
+	  </tr>
+	</tbody>
+      </table>
+
+      <t>IANA has registered the following ASN.1<xref
+      target="X.680" format="default"/> module OID in the "SMI Security for PKIX Module Identifier" registry (1.3.6.1.5.5.7.0). This OID is defined
+      in <xref target="Appendix" format="default"/>.</t>
+
+      <table anchor="iana-table-2" align="left">
+	<thead>
+	  <tr>
+	    <th>Decimal</th>
+	    <th>Description</th>
+	    <th>References</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>108</td>
+	    <td>id-mod-nf-eku</td>
+	    <td>RFC 9509</td>
+	  </tr>
+	</tbody>
+      </table>
+    </section>
+
+
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7515.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7519.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7516.xml"/>
+
+      <reference anchor="X.680" target="https://www.itu.int/rec/T-REC-X.680">
+          <front>
+            <title>Information technology - Abstract Syntax Notation One
+            (ASN.1): Specification of basic notation</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date month="February" year="2021"/>
+          </front>
+	  <seriesInfo name="ITU-T Recommendation" value="X.680"/>
+        </reference>
+
+        <reference anchor="X.690" target="https://www.itu.int/rec/T-REC-X.690">
+          <front>
+            <title>Information technology - ASN.1 encoding rules:
+            Specification of Basic Encoding Rules (BER), Canonical Encoding
+            Rules (CER) and Distinguished Encoding Rules (DER)</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date month="February" year="2021"/>
+          </front>
+	  <seriesInfo name="ITU-T Recommendation" value="X.690"/>
+        </reference>
+
+      </references>
+
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5246.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7299.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9336.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9162.xml"/>
+
+      <reference anchor="TS29.573" target="https://www.3gpp.org/ftp/Specs/archive/29_series/29.573/29573-i50.zip">
+	<front>
+	  <title>5G System; Public Land Mobile Network (PLMN) Interconnection; Stage 3</title>
+	  <author>
+	    <organization>3GPP</organization>
+	  </author>
+	  <date month="December" year="2023"/>
+	</front>
+	<seriesInfo name="Release" value="18.5.0"/>
+	<seriesInfo name="3GPP TS" value="29.573"/>
+      </reference>
+
+      <reference anchor="TS33.501" target="https://www.3gpp.org/ftp/Specs/archive/33_series/33.501/33501-i40.zip">
+          <front>
+            <title>Security architecture and procedures for 5G system</title>
+            <author>
+              <organization>3GPP</organization>
+            </author>
+            <date  month="December" year="2023"/>
+          </front>
+	  <seriesInfo name="Release" value="18.4.0"/>
+	  <seriesInfo name="3GPP TS" value="33.501"/>
+        </reference>
+
+        <reference anchor="TS33.310" target="https://www.3gpp.org/ftp/Specs/archive/33_series/33.310/33310-i20.zip">
+          <front>
+            <title>Network Domain Security (NDS); Authentication Framework
+            (AF)</title>
+            <author>
+              <organization>3GPP</organization>
+            </author>
+            <date month="December" year="2023"/>
+          </front>
+	  <seriesInfo name="Release" value="18.2.0"/>
+	  <seriesInfo name="3GPP TS" value="33.310"/>
+        </reference>
+
+        <reference anchor="TS33.210" target="https://www.3gpp.org/ftp/Specs/archive/33_series/33.210/33210-h10.zip">
+          <front>
+            <title>Network Domain Security (NDS); IP network layer
+            security</title>
+            <author>
+              <organization>3GPP</organization>
+            </author>
+            <date month="September" year="2022"/>
+          </front>
+	  <seriesInfo name="Release" value="17.1.0"/>
+	  <seriesInfo name="3GPP TS" value="33.210"/>
+        </reference>
+
+
+        <reference anchor="TS23.501" target="https://www.3gpp.org/ftp/Specs/archive/23_series/23.501/23501-i40.zip">
+          <front>
+            <title>System architecture for the 5G System (5GS)</title>
+            <author>
+              <organization>3GPP</organization>
+            </author>
+            <date month="December" year="2023"/>
+          </front>
+	  <seriesInfo name="Release" value="18.4.0"/>
+	  <seriesInfo name="3GPP TS" value="23.501"/>
+        </reference>
+
+	<reference anchor="TS29.500" target="https://www.3gpp.org/ftp/Specs/archive/29_series/29.500/29500-i40.zip">
+	  <front>
+	    <title>5G System; Technical Realization of Service Based Architecture; Stage 3</title>
+	    <author>
+	      <organization>3GPP</organization>
+	    </author>
+	    <date month="December" year="2023"/>
+	  </front>
+	  <seriesInfo name="Release" value="18.4.0"/>
+	  <seriesInfo name="3GPP TS" value="29.500"/>
+	</reference>
+
+      </references>
+    </references>
+
+    <section anchor="Appendix" numbered="true" toc="default">
+      <name>ASN.1 Module</name>
+      <t>The following module adheres to ASN.1 specifications <xref target="X.680" format="default"/> and <xref target="X.690" format="default"/>.</t>
+      <sourcecode name="" type="asn.1" markers="true"><![CDATA[
+NF-EKU
+  { iso(1) identified-organization(3) dod(6) internet(1)
+  security(5) mechanisms(5) pkix(7) id-mod(0)
+  id-mod-nf-eku (108) }
+
+DEFINITIONS IMPLICIT TAGS ::=
+BEGIN
+
+-- OID Arc
+
+id-kp OBJECT IDENTIFIER ::=
+  { iso(1) identified-organization(3) dod(6) internet(1)
+    security(5) mechanisms(5) pkix(7) kp(3) }
+
+-- Extended Key Usage Values
+
+id-kp-jwt OBJECT IDENTIFIER ::= { id-kp 37 }
+id-kp-httpContentEncrypt OBJECT IDENTIFIER ::= { id-kp 38 }
+id-kp-oauthAccessTokenSigning OBJECT IDENTIFIER ::= { id-kp 39 }
+
+END
+]]></sourcecode>
+
+</section>
+
+    <section anchor="acknowledgments" numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>We would like to thank <contact fullname="Corey Bonnell"/>, <contact
+      fullname="Ilari Liusvaara"/>, <contact fullname="Carl Wallace"/>, and
+      <contact fullname="Russ Housley"/> for their useful feedback. Thanks to
+      <contact fullname="Yoav Nir"/> for the secdir review, <contact
+      fullname="Elwyn Davies"/> for the genart review, and <contact
+      fullname="Benson Muite"/> for the intdir review.</t>
+      <t>Thanks to <contact fullname="Paul Wouters"/>, <contact fullname="Lars
+      Eggert"/>, and <contact fullname="Éric Vyncke"/> for the IESG
+      review.</t>
+    </section>
+
+    <section anchor="contrib" numbered="false" toc="default">
+      <name>Contributor</name>
+      <t>The following individual has contributed to this document:</t>      
+      <contact fullname="German Peinado">
+	<organization>Nokia</organization>
+	<address>
+	  <email>german.peinado@nokia.com</email>
+	</address>
+      </contact>
+    </section>
+
+  </back>
+
+</rfc>

@@ -1,0 +1,2237 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-idr-sr-policy-safi-13" number="9830" ipr="trust200902" consensus="true" updates="9012" obsoletes="" submissionType="IETF" xml:lang="en" sortRefs="true" symRefs="true" tocInclude="true" tocDepth="3" version="3">
+
+  <front>
+    <title abbrev="Segment Routing Policies in BGP">Advertising Segment
+    Routing Policies in BGP</title>
+    <seriesInfo name="RFC" value="9830"/>
+    <author fullname="Stefano Previdi" initials="S." surname="Previdi">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <postal>
+          <country>Italy</country>
+        </postal>
+        <email>stefano@previdi.net</email>
+      </address>
+    </author>
+    <author fullname="Clarence Filsfils" initials="C." surname="Filsfils">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <city>Brussels</city>
+          <country>Belgium</country>
+        </postal>
+        <email>cfilsfil@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Ketan Talaulikar" initials="K." role="editor" surname="Talaulikar">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>ketant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Paul Mattes" initials="P." surname="Mattes">
+      <organization>Microsoft</organization>
+      <address>
+        <postal>
+          <street>One Microsoft Way</street>
+          <city>Redmond</city>
+          <region>WA</region>
+          <code>98052</code>
+          <country>United States of America</country>
+        </postal>
+        <email>pamattes@microsoft.com</email>
+      </address>
+    </author>
+    <author fullname="Dhanendra Jain" initials="D." surname="Jain">
+      <organization>Google</organization>
+      <address>
+        <email>dhanendra.ietf@gmail.com</email>
+      </address>
+    </author>
+    <date month="September" year="2025"/>
+    <area>RTG</area>
+    <workgroup>idr</workgroup>
+
+
+
+    <abstract>
+      <t>A Segment Routing (SR) Policy is an ordered list of segments (also
+      referred to as "instructions") that define a source-routed policy. An SR
+      Policy consists of one or more Candidate Paths (CPs), each comprising one or
+      more segment lists. A headend can be provisioned with these CPs using various mechanisms such as Command-Line Interface (CLI), Network Configuration Protocol (NETCONF), Path Computation Element Communication Protocol (PCEP), or BGP.</t>
+      <t>This document specifies how BGP can be used to distribute SR Policy
+      CPs. It introduces a BGP SAFI for advertising a CP of an SR Policy and defines sub-TLVs for the Tunnel Encapsulation
+      Attribute to signal information related to these CPs.</t>
+      <t>Furthermore, this document updates RFC 9012 by extending the Color
+      Extended Community to support additional steering modes over SR
+      Policy.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="INTRO" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Segment Routing (SR) <xref target="RFC8402" format="default"/> allows a headend node
+      to steer a packet flow along a specific path. Intermediate per-path
+      states are eliminated thanks to source routing.</t>
+      <t>The headend node is said to steer a flow into an SR Policy <xref target="RFC9256" format="default"/>.</t>
+      <t>The packets steered into an SR Policy carry an ordered list of
+      segments associated with that SR Policy.</t>
+      <t><xref target="RFC9256" format="default"/> further details the concepts of SR Policy
+      and steering into an SR Policy. These apply equally to the SR-MPLS and
+      Segment Routing over IPv6 (SRv6) data plane instantiations of Segment
+      Routing using SR-MPLS and SRv6 Segment Identifiers (SIDs) as described
+      in <xref target="RFC8402" format="default"/>. <xref target="RFC8660" format="default"/> describes the
+      representation and processing of this ordered list of segments as an
+      MPLS label stack for SR-MPLS. <xref target="RFC8754" format="default"/> and <xref target="RFC8986" format="default"/> describe the same for SRv6 with the use of the
+      Segment Routing Header (SRH).</t>
+      <t>The functionality related to SR Policy described in <xref target="RFC9256" format="default"/> can be conceptually viewed as being incorporated in
+      an SR Policy Module (SRPM). The following is a reminder of the high-level
+      functionality of SRPM: </t>
+      <ul spacing="normal">
+        <li>
+          <t>Learning multiple CPs for an SR Policy via
+          various mechanisms (CLI, NETCONF, PCEP, or BGP).</t>
+        </li>
+        <li>
+          <t>Selection of the best CP for an SR Policy.</t>
+        </li>
+        <li>
+          <t>Associating a Binding SID (BSID) to the selected CP
+          of an SR Policy.</t>
+        </li>
+        <li>
+          <t>Installation of the selected CP and its BSID in the
+          forwarding plane.</t>
+        </li>
+      </ul>
+      <t>This document specifies the use of BGP to distribute one or more of
+      the CPs of an SR Policy to the headend of that SR Policy. The
+      document describes the functionality provided by BGP and, as
+      appropriate, provides references for the functionality, which is outside
+      the scope of BGP (i.e., resides within SRPM on the headend node).</t>
+      <t>This document specifies a way of representing SR Policy CPs in BGP UPDATE messages. BGP can then be used to propagate the SR
+      Policy CPs to the headend nodes in a network. The usual BGP
+      rules for BGP propagation and best-path selection are used. At the
+      headend of a specific SR Policy, this will result in one or more CPs being installed into the "BGP table". These paths are then passed
+      to the SRPM. The SRPM may compare them to CPs learned via
+      other mechanisms and will choose one or more paths to be installed in
+      the data plane. BGP itself does not install SR Policy CPs
+      into the data plane.</t>
+      <t>This document introduces a BGP Subsequent Address Family Identifier (SAFI) for
+      IPv4 and IPv6 address families. In BGP UPDATE messages of those AFI/SAFIs,
+      the Network Layer Reachability Information (NLRI) identifies an SR
+      Policy CP while the attributes encode the segment lists and
+      other details of that SR Policy CP.</t>
+      <t>While, for simplicity, the text in this document states that BGP
+      advertises an SR Policy, it is to be understood that BGP advertises a
+      CP of an SR Policy and that this SR Policy might have
+      several other CPs provided via BGP (via an NLRI with a
+      different distinguisher as defined in <xref target="SRPOLICYSAFI" format="default"/>),
+      PCEP, NETCONF, or local policy configuration.</t>
+      <t>Typically, an SR Policy Controller <xref target="RFC9256" format="default"/> defines
+      the set of policies and advertises them to SR Policy headend routers
+      (typically ingress routers). These SR Policy advertisements use the BGP
+      extensions defined in this document. In most cases, the SR Policy
+      advertisement is tailored for a specific SR Policy headend; consequently,
+      it may be transmitted over a direct BGP session (i.e., without
+      intermediate BGP hops) to that headend and is not propagated any
+      further. In such cases, the SR Policy advertisements will not traverse any
+      Route Reflector (RR) (see <xref target="RFC4456" format="default"/> and <xref target="PROPAGATE" format="default"/>).</t>
+      
+      <t>Alternatively, a BGP egress router may advertise SR Policies that
+      represent paths that terminate on it. In such cases, the router can
+      send these policies directly to each headend over a dedicated BGP
+      session, without necessitating any further propagation of the
+      SR Policy.</t>
+      <t>In some situations, it is undesirable for a controller or BGP egress
+      router to have a BGP session to each SR Policy headend. In these
+      situations, BGP RRs may be used to propagate the
+      advertisements. In certain other deployments, it may be necessary for
+      the advertisement to propagate through a sequence of one or more Autonomous Systems (ASes)
+      within an SR Domain (refer to <xref target="Security" format="default"/> for the
+      associated security considerations). To make this possible, an attribute
+      needs to be attached to the advertisement that enables a BGP speaker to
+      determine whether it is intended to be a headend for the advertised
+      SR Policy. This is done by attaching one or more Route Target extended
+      communities to the advertisement <xref target="RFC4360" format="default"/>.</t>
+      <t>The BGP extensions for the advertisement of SR Policies include
+      following components: </t>
+      <ul spacing="normal">
+        <li>
+          <t>A SAFI whose NLRIs
+          identify an SR Policy CP.</t>
+        </li>
+        <li>
+          <t>A Tunnel Type identifier for SR Policy and a set of sub-TLVs to
+          be inserted into the Tunnel Encapsulation Attribute (as defined in
+          <xref target="RFC9012" format="default"/>) specifying segment lists of the SR Policy
+          CP as well as other information about the SR
+          Policy.</t>
+        </li>
+        <li>
+          <t>One or more IPv4 address-specific format Route Target extended
+          community (<xref target="RFC4360" format="default"/>) attached to the SR Policy
+          CP advertisement that indicates the intended headend
+          of such an SR Policy CP advertisement.</t>
+        </li>
+      </ul>
+      <t>The SR Policy SAFI route updates utilize the Tunnel Encapsulation
+      Attribute to signal an SR Policy, which itself functions as a tunnel.
+      This usage differs notably from the approach described in <xref target="RFC9012" format="default"/>, where the Tunnel Encapsulation Attribute is
+      associated with a BGP route update (e.g., for Internet or VPN routes) to
+      specify the tunnel used for forwarding traffic. This document does not
+      modify or supersede the usage of the Tunnel Encapsulation Attribute for
+      existing AFI/SAFIs as defined in <xref target="RFC9012" format="default"/>. Details
+      regarding the processing of the Tunnel Encapsulation Attribute for the
+      SR Policy SAFI are provided in Sections <xref target="ENCAPSATTR" format="counter"/> and <xref target="ENDCOLOR" format="counter"/>.</t>
+      <t>The northbound advertisement of the operational state of the SR
+      Policy CPs as part of BGP - Link State (BGP-LS) <xref target="RFC9552" format="default"/>
+      topology information is specified in <xref target="I-D.ietf-idr-bgp-ls-sr-policy" format="default"/>.</t>
+      <t>The signaling of Dynamic and Composite CPs (Sections
+      <xref target="RFC9256" sectionFormat="bare" section="5.2"/> and <xref
+      target="RFC9256" sectionFormat="bare" section="5.3"/>, respectively, of
+      <xref target="RFC9256" format="default"/>) is outside the scope of this
+      document.</t>
+      <t>The Color Extended Community (as defined in <xref target="RFC9012"
+      format="default"/>) is used to steer traffic into an SR Policy, as
+      described in <xref target="RFC9256" sectionFormat="of"
+      section="8.8"/>. <xref target="EXTCOLOR" format="default"/> of this
+      document updates <xref target="RFC9012" format="default"/> with
+      modifications to the format of the Flags field of the Color Extended
+      Community by using the two leftmost bits of that field.</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section anchor="ENCODING" numbered="true" toc="default">
+      <name>SR Policy Encoding</name>
+      <section anchor="SRPOLICYSAFI" numbered="true" toc="default">
+        <name>SR Policy SAFI and NLRI</name>
+        <t>The SR Policy SAFI with
+        code point 73 is introduced in this document. The AFI used <bcp14>MUST</bcp14> be IPv4(1) or IPv6(2).</t>
+        <t>The SR Policy SAFI uses the NLRI format defined as follows: </t>
+
+<figure>
+  <name>SR Policy SAFI Format</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
++------------------+
+|  NLRI Length     | 1 octet
++------------------+
+|  Distinguisher   | 4 octets
++------------------+
+|  Color           | 4 octets
++------------------+
+|  Endpoint        | 4 or 16 octets
++------------------+
+]]></artwork>
+	</figure>
+
+	<t>Where:</t>
+        <dl spacing="normal">
+          <dt>NLRI Length:</dt><dd>1 octet indicating the length expressed in bits as
+          defined in <xref target="RFC4760" format="default"/>. When AFI = 1,
+          the value <bcp14>MUST</bcp14> be 96; when AFI = 2, the value
+          <bcp14>MUST</bcp14> be 192.</dd>
+
+	  
+          <dt>Distinguisher:</dt><dd><t>4-octet value uniquely identifying the SR Policy in
+          the context of &lt;Color, Endpoint&gt; tuple. The distinguisher has
+          no semantic value.  It is used by the SR Policy originator to form
+          unique NLRIs the following situations:</t>
+	  <ul spacing="normal">
+	    <li>to differentiate multiple CPs
+            of the same SR Policy</li>
+	    <li>to differentiate CPs meant for different headends but having the same Color and Endpoint</li>
+	  </ul>
+<t>The distinguisher is
+          the discriminator of the SR Policy CP as specified in
+          <xref target="RFC9256" sectionFormat="of" section="2.5"/>.</t></dd>
+          <dt>Color:</dt><dd>4 octets that carry an unsigned non-zero integer
+          value indicating the Color of the SR Policy as specified in <xref
+          target="RFC9256" sectionFormat="of" section="2.1"/>. The Color is
+          used to match the Color of the destination prefixes to steer traffic
+          into the SR Policy as specified in <xref target="RFC9256"
+          sectionFormat="of" section="8"/>.</dd>
+          <dt>Endpoint:</dt><dd>a value that identifies the Endpoint of an SR Policy. The
+          Endpoint may represent a single node or a set of nodes (e.g., an
+          anycast address). The Endpoint is an IPv4 (4-octet) address or an
+          IPv6 (16-octet) address according to the AFI of the NLRI. The
+          address can be either unicast or an unspecified address (0.0.0.0
+          for IPv4, :: for IPv6), known as a null Endpoint as specified in
+          <xref target="RFC9256" sectionFormat="of" section="2.1"/>.</dd>
+        </dl>
+
+        <t>The Color and Endpoint are used to automate the steering of BGP
+        service routes on an SR Policy as described in <xref target="RFC9256" sectionFormat="of" section="8"/>.</t>
+        <t>The NLRI containing an SR Policy CP is carried in a BGP
+        UPDATE message <xref target="RFC4271" format="default"/> using BGP multiprotocol
+        extensions <xref target="RFC4760" format="default"/> with an AFI of 1 or 2 (IPv4 or
+        IPv6) and with a SAFI of 73. The fault management and error handling
+        in the encoding of the NLRI are specified in <xref target="ERROR" format="default"/>.</t>
+        <t>A BGP UPDATE message that carries the MP_REACH_NLRI or MP_UNREACH_NLRI
+        attribute with the SR Policy SAFI <bcp14>MUST</bcp14> also carry the BGP mandatory
+        attributes. In addition, the BGP UPDATE message <bcp14>MAY</bcp14> also contain any
+        of the BGP optional attributes.</t>
+        <t>The next-hop network address field in SR Policy SAFI (73) updates
+        may be either a 4-octet IPv4 address or a 16-octet IPv6 address,
+        independent of the SR Policy AFI. The Length field of the next-hop
+        address specifies the next-hop address family. If the next-hop length
+        is 4, then the next-hop is an IPv4 address. If the next-hop length is
+        16, then it is a global IPv6 address.  If the next-hop length is 32,
+        then it has a global IPv6 address followed by a link-local IPv6
+        address. The setting of the next-hop field and its attendant
+        processing is governed by standard BGP procedures as described in
+        <xref target="RFC4760" sectionFormat="of" section="3"/> and <xref target="RFC2545" sectionFormat="of" section="3"/>.</t>
+        <t>It is important to note that at any BGP speaker receiving BGP
+        updates with SR Policy NLRIs, the SRPM processes only the best path as
+        per the BGP best-path selection algorithm. In other words, this
+        document leverages the existing BGP propagation and best-path
+        selection rules. Details of the procedures are described in <xref target="OPERATIONS" format="default"/>.</t>
+        <t>It has to be noted that if several CPs of the same SR
+        Policy (Endpoint, Color) are signaled via BGP to a headend, then it is
+        <bcp14>RECOMMENDED</bcp14> that each NLRI use a different distinguisher. If BGP has
+        installed into the BGP table two advertisements whose respective NLRIs
+        have the same Color and Endpoint, but different distinguishers, both
+        advertisements are passed to the SRPM as different CPs
+        along with their respective originator information (i.e., Autonomous System Number (ASN) and BGP
+        Router-ID) as described in <xref target="RFC9256" sectionFormat="of" section="2.4"/>.
+        The ASN would be the ASN of the origin and the BGP Router-ID is
+        determined in the following order:</t>
+        <ul spacing="normal">
+          <li>
+            <t>From the Route Origin Community <xref target="RFC4360" format="default"/> if
+            present and carrying an IP Address, or</t>
+          </li>
+          <li>
+	    
+            <t>As the BGP ORIGINATOR_ID <xref target="RFC4456" format="default"/> if present,
+            or</t>
+          </li>
+          <li>
+            <t>As the BGP Router-ID of the peer from which the update was
+            received as a last resort.</t>
+          </li>
+        </ul>
+        <t><xref target="RFC9256" sectionFormat="of" section="2.9"/> specifies the selection
+        of the active CP of the SR Policy by the SRPM based on the
+        information provided to it by BGP.</t>
+      </section>
+      <section anchor="ENCAPSATTR" numbered="true" toc="default">
+        <name>SR Policy and Tunnel Encapsulation Attribute</name>
+
+        <t>The content of the SR Policy CP is encoded in the
+        Tunnel Encapsulation Attribute defined in <xref target="RFC9012" format="default"/>
+        using a Tunnel Type called the "SR Policy" type with code point 15. The use
+        of the SR Policy Tunnel Type is applicable only for the AFI/SAFI pairs of
+        (1/73, 2/73). This document specifies the use of the Tunnel
+        Encapsulation Attribute with the SR Policy Tunnel Type and the use of
+        any other Tunnel Type with the SR Policy SAFI <bcp14>MUST</bcp14> be considered
+        malformed and handled by the "treat-as-withdraw" strategy <xref target="RFC7606" format="default"/>.</t>
+        <t>The SR Policy Encoding structure is as follows: </t>
+
+	<figure>
+	  <name>SR Policy Encoding</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+SR Policy SAFI NLRI: <Distinguisher, Color, Endpoint>
+Attributes:
+   Tunnel Encapsulation Attribute (23)
+      Tunnel Type: SR Policy (15)
+          Binding SID
+          Preference
+          Priority
+          SR Policy Name
+          SR Policy Candidate Path Name
+          Explicit NULL Label Policy (ENLP)
+          Segment List
+              Weight
+              Segment
+              Segment
+              ...
+          ...
+]]></artwork>
+	</figure>
+
+	<t>Where:</t>
+        <ul spacing="normal">
+	  <li>
+            <t>The SR Policy SAFI NLRI is defined in <xref target="SRPOLICYSAFI" format="default"/>.</t>
+          </li>
+          <li>
+            <t>The Tunnel Encapsulation Attribute is defined in <xref target="RFC9012" format="default"/>.</t>
+          </li>
+          <li>
+            <t>The Tunnel Type is set to 15.</t>
+          </li>
+          <li>
+            <t>Preference, Binding SID, Priority, SR Policy Name, SR Policy
+            Candidate Path Name, ENLP, Segment-List, Weight, and Segment
+            sub-TLVs are defined in <xref target="SRPOLICYTLV" format="default"/>.</t>
+          </li>
+          <li>
+            <t>Additional sub-TLVs may be defined in the future.</t>
+          </li>
+        </ul>
+
+        <t>A Tunnel Encapsulation Attribute <bcp14>MUST NOT</bcp14> contain more than one TLV
+        of type "SR Policy"; such updates <bcp14>MUST</bcp14> be considered malformed and
+        handled by the "treat-as-withdraw" strategy <xref target="RFC7606" format="default"/>.</t>
+        <t>BGP does not need to perform the validation of the tunnel (i.e., SR
+        Policy) itself as indicated in <xref target="RFC9012" sectionFormat="of" section="6"/>.
+        The validation of the SR Policy information that is advertised using
+        the sub-TLVs specified in <xref target="SRPOLICYTLV" format="default"/> is performed by
+        the SRPM.</t>
+      </section>
+      <section anchor="ENDCOLOR" numbered="true" toc="default">
+        <name>Applicability of Tunnel Encapsulation Attribute Sub-TLVs</name>
+        <t>The Tunnel Egress Endpoint and Color sub-TLVs of the Tunnel
+        Encapsulation Attribute, as defined in <xref target="RFC9012" format="default"/>, are
+        not utilized for SR Policy encodings. Consequently, their values are
+        not relevant within the context of the SR Policy SAFI NLRI. If these
+        sub-TLVs are present, a BGP speaker <bcp14>MUST</bcp14> ignore them and <bcp14>MAY</bcp14> remove
+        them from the Tunnel Encapsulation Attribute during propagation.</t>
+        <t>Similarly, any other sub-TLVs, including those specified in <xref target="RFC9012" format="default"/>, that do not have explicitly defined applicability
+        to the SR Policy SAFI <bcp14>MUST</bcp14> be ignored by the BGP speaker and <bcp14>MAY</bcp14> be
+        removed from the Tunnel Encapsulation Attribute during
+        propagation.</t>
+      </section>
+      <section anchor="SRPOLICYTLV" numbered="true" toc="default">
+        <name>SR Policy Sub-TLVs</name>
+        <t>This section specifies the sub-TLVs defined for encoding the
+        information about the SR Policy Candidate Path.</t>
+        <t>Preference, Binding SID, SRv6 Binding SID, Segment-List, Priority,
+        SR Policy Name, SR Policy Candidate Path Name, and Explicit NULL Label
+        Policy are all optional sub-TLVs introduced for the BGP Tunnel
+        Encapsulation Attribute <xref target="RFC9012" format="default"/> being defined in this
+        section.</t>
+        <t>Weight and Segment are sub-TLVs of the Segment-List sub-TLV
+        mentioned above.</t>
+        <t>An early draft version of this document included only the Binding SID
+        sub-TLV that could be used for both SR-MPLS and SRv6 BSIDs. The
+        SRv6 Binding SID TLV was introduced in later versions to support the
+        advertisement of additional SRv6 capabilities without affecting
+        backward compatibility for early implementations.</t>
+        <t>The fault management and error handling in the encoding of the
+        sub-TLVs defined in this section are specified in <xref target="ERROR" format="default"/>. For the TLVs/sub-TLVs that are specified as single
+        instance, only the first instance of that TLV/sub-TLV is used: the
+        other instances <bcp14>MUST</bcp14> be ignored and <bcp14>MUST NOT</bcp14> considered to be
+        malformed.</t>
+        <t>None of the sub-TLVs defined in the following subsections have any
+        effect on the BGP best-path selection or propagation procedures. These
+        sub-TLVs are not used by the BGP path selection process and are
+        instead passed on to SRPM as SR Policy Candidate Path information for
+        further processing as described in <xref target="RFC9256" sectionFormat="of" section="2"/>.</t>
+        <t>The use of SR Policy sub-TLVs is applicable only for the AFI/SAFI
+        pairs of (1/73, 2/73). Future documents may extend their applicability
+        to other AFI/SAFI.</t>
+        <section anchor="PREFTLV" numbered="true" toc="default">
+          <name>Preference Sub-TLV</name>
+          <t>The Preference sub-TLV is used to carry the Preference of an SR
+          Policy CP. The contents of this sub-TLV are used by the
+          SRPM as described in <xref target="RFC9256" sectionFormat="of" section="2.7"/>.</t>
+          <t>The Preference sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST NOT</bcp14> appear more
+          than once in the SR Policy encoding.</t>
+          <t>The Preference sub-TLV has the following format: </t>
+
+	  <figure>
+	    <name>Preference Sub-TLV</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Preference (4 octets)                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	  </figure>
+	  
+	  <t>Where:</t>
+          <dl spacing="normal">
+            
+              <dt>Type:</dt><dd>12</dd>
+            
+            <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets. The value
+              <bcp14>MUST</bcp14> be 6.</dd>
+           
+            
+              <dt>Flags:</dt><dd>1 octet of flags. No flags are defined in this
+              document. The Flags field <bcp14>MUST</bcp14> be set to zero on transmission
+              and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+              <dt>Preference:</dt><dd>a 4-octet value indicating the Preference of the
+              SR Policy CP as described in <xref target="RFC9256" sectionFormat="of" section="2.7"/>.</dd>
+          
+          </dl>
+
+        </section>
+        <section anchor="BINDINGSIDTLV" numbered="true" toc="default">
+          <name>Binding SID Sub-TLV</name>
+          <t>The Binding SID sub-TLV is used to signal the BSID-related
+          information of the SR Policy CP. The contents of this
+          sub-TLV are used by the SRPM as described in <xref target="RFC9256" sectionFormat="of" section="6"/>.</t>
+          <t>The Binding SID sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST NOT</bcp14> appear more
+          than once in the SR Policy encoding.</t>
+          <t>When the Binding SID sub-TLV is used to signal an SRv6 SID, the
+          selection of the corresponding SRv6 Endpoint Behavior <xref target="RFC8986" format="default"/> to be instantiated is determined by the headend
+          node. It is <bcp14>RECOMMENDED</bcp14> that the SRv6 Binding SID sub-TLV, as
+          defined in <xref target="SRV6BINDINGSIDTLV" format="default"/>, be used when signaling an SRv6 BSID
+          for an SR Policy CP. The support for the use of this
+          Binding SID sub-TLV for the signaling of an SRv6 BSID is retained
+          primarily for backward compatibility with implementations that
+          followed early draft versions of this document that had not defined the
+          SRv6 Binding SID sub-TLV.</t>
+          <t>The Binding SID sub-TLV has the following format: </t>
+
+	  <figure>
+	    <name>Binding SID Sub-TLV</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Binding SID (variable, optional)                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+	  <t>Where:</t>
+          <dl spacing="normal">
+              <dt>Type:</dt><dd>13</dd>
+              <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets. The value
+              <bcp14>MUST</bcp14> be 18 when a SRv6 BSID is present, 6 when an SR-MPLS
+              BSID is present, or 2 when no BSID is present.</dd>
+              <dt>Flags:</dt><dd><t>1 octet of flags. The following flags are defined in
+              the registry "SR Policy Binding SID Flags" as described in <xref target="IANABSIDFLAGS" format="default"/>:</t>
+
+<figure>
+  <name>SR Policy Binding SID Flags</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|S|I|           |
++-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+              <t>Where:</t>
+              <ul spacing="normal">
+                
+                  <li>The S-Flag encodes the "Specified-BSID-Only"
+                  behavior. It is used by SRPM as described in <xref
+                  target="RFC9256" sectionFormat="of" section="6.2.3"/>.</li>
+                  <li>The I-Flag encodes the "Drop-Upon-Invalid" 
+                  behavior. It is used by SRPM as described in <xref
+                  target="RFC9256" sectionFormat="of" section="8.2"/> to
+                  define a specific SR Policy forwarding behavior. The flag
+                  indicates that the SR Policy is to perform the "Drop-Upon-Invalid" behavior when no valid CP is
+                  available for this SR Policy. In this situation, the CP with
+                  the highest preference amongst those with the "Drop-Upon-Invalid" behavior is made active to drop traffic steered over
+                  the SR Policy.</li>
+                
+                
+                  <li>The unassigned bits in the Flags field <bcp14>MUST</bcp14> be set to zero
+                  upon transmission and <bcp14>MUST</bcp14> be ignored upon receipt.
+                </li>
+              </ul></dd>
+
+            
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. <bcp14>MUST</bcp14> be set to zero on
+              transmission and <bcp14>MUST</bcp14> be ignored on receipt.
+            </dd>
+            
+              <dt>Binding SID:</dt><dd><t>If the length is 2, then no BSID is
+              present. If the length is 6, then the BSID is encoded in 4
+              octets using the format below. Traffic Class (TC), S, and TTL
+              (Total of 12 bits) are RESERVED and <bcp14>MUST</bcp14> be set to zero and <bcp14>MUST</bcp14>
+              be ignored.</t>
+
+<figure>
+  <name>Binding SID Label Encoding</name>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Label                        | TC  |S|       TTL     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+              <t>The Label field is validated by the SRPM but <bcp14>MUST
+              NOT</bcp14> contain the reserved MPLS label values (0-15). If the length
+              is 18, then the BSID contains a 16-octet SRv6 SID.</t>
+            </dd>
+          </dl>
+        </section>
+        <section anchor="SRV6BINDINGSIDTLV" numbered="true" toc="default">
+          <name>SRv6 Binding SID Sub-TLV</name>
+          <t>The SRv6 Binding SID sub-TLV is used to signal the SRv6-BSID-related information of an SR Policy CP. It enables
+          the specification of the SRv6 Endpoint Behavior <xref
+          target="RFC8986" format="default"/> to be instantiated on the
+          headend node. The contents of this sub-TLV are used by the SRPM as
+          described in <xref target="RFC9256" sectionFormat="of"
+          section="6"/>.</t>
+          <t>The SRv6 Binding SID sub-TLV is <bcp14>OPTIONAL</bcp14>. More than one SRv6
+          Binding SID sub-TLV <bcp14>MAY</bcp14> be signaled in the same SR Policy encoding
+          to indicate one or more SRv6 SIDs, each with potentially different
+          SRv6 Endpoint Behaviors to be instantiated.</t>
+          <t>The SRv6 Binding SID sub-TLV has the following format:</t>
+
+<figure>
+  <name>SRv6 Binding SID Sub-TLV</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 SRv6 Binding SID (16 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//     SRv6 Endpoint Behavior and SID Structure (optional)     //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+
+	  <t>Where:</t>
+          <dl spacing="normal">
+            
+              <dt>Type:</dt><dd>20</dd>
+           
+              <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets. The value
+              <bcp14>MUST</bcp14> be 26 when the SRv6 Endpoint Behavior and SID Structure is
+              present; else, it <bcp14>MUST</bcp14> be 18.</dd>
+           
+              <dt>Flags:</dt><dd><t>1 octet of flags. The following flags are defined in
+              the registry "SR Policy SRv6 Binding SID Flags" as described in
+              <xref target="IANASRV6BSIDFLAGS" format="default"/>:</t>
+
+<figure>
+  <name>SR Policy SRv6 Binding SID Flags</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|S|I|B|         |
++-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+              <t>Where:</t>
+              <ul spacing="normal">
+                  <li>The S-Flag encodes the "Specified-BSID-Only"
+                  behavior. It is used by SRPM as described
+                  in <xref target="RFC9256" sectionFormat="of" section="6.2.3"/>.</li>
+                
+                
+                  <li>The I-Flag encodes the "Drop-Upon-Invalid"
+                  behavior. It is used by SRPM as described in 
+                  <xref target="RFC9256" sectionFormat="of" section="8.2"/>.</li>
+              
+                  <li>The B-Flag, when set, indicates the presence of
+                  the "SRv6 Endpoint Behavior &amp; SID Structure" encoding
+                  specified in <xref target="BEHAVIORSTRUCT" format="default"/>.</li>
+               
+               
+                  <li>The unassigned bits in the Flags field <bcp14>MUST</bcp14> be set to zero
+                  upon transmission and <bcp14>MUST</bcp14> be ignored upon receipt.</li>
+                
+              </ul></dd>
+            
+          
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+           
+              <dt>SRv6 Binding SID:</dt><dd>Contains a 16-octet SRv6 SID. The value 0
+              <bcp14>MAY</bcp14> be used when the controller wants to indicate the desired
+              SRv6 Endpoint Behavior, SID Structure, or flags without
+              specifying the BSID.</dd>
+            
+            
+              <dt>SRv6 Endpoint Behavior and SID Structure:</dt><dd>Optional, as
+              defined in <xref target="BEHAVIORSTRUCT" format="default"/>. The SRv6 Endpoint
+              Behavior and SID Structure <bcp14>MUST NOT</bcp14> be included when the SRv6
+              SID has not been included.</dd>
+            
+          </dl>
+        </section>
+        <section anchor="SLTLV" numbered="true" toc="default">
+          <name>Segment List Sub-TLV</name>
+          <t>The Segment List sub-TLV encodes a single explicit path towards
+          the Endpoint as described in <xref target="RFC9256"
+          sectionFormat="of" section="5.1"/>. The Segment List sub-TLV
+          includes the elements of the paths (i.e., segments) as well as an
+          optional Weight sub-TLV.</t>
+          <t>The Segment List sub-TLV may exceed 255 bytes in length due to a
+          large number of segments. A 2-octet length is thus required.
+          According to <xref target="RFC9012" sectionFormat="of" section="2"/>, the sub-TLV type
+          defines the size of the Length field. Therefore, for the Segment
+          List sub-TLV, a code point of 128 or higher is used.</t>
+          <t>The Segment List sub-TLV is <bcp14>OPTIONAL</bcp14> and <bcp14>MAY</bcp14> appear multiple
+          times in the SR Policy encoding. The ordering of Segment List
+          sub-TLVs does not matter since each sub-TLV encodes a Segment
+          List.</t>
+          <t>The Segment List sub-TLV contains zero or more Segment sub-TLVs
+          and <bcp14>MAY</bcp14> contain a Weight sub-TLV.</t>
+          <t>The Segment List sub-TLV has the following format: </t>
+
+<figure>
+  <name>Segment List Sub-TLV</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |             Length            |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//                           sub-TLVs                          //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal">
+            
+              <dt>Type:</dt><dd>128</dd>
+            
+            
+              <dt>Length:</dt><dd>The total length (not including the Type and Length
+              fields) of the sub-TLVs encoded within the Segment List sub-TLV
+              in terms of octets.</dd>
+            
+            
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+           
+              <dt>sub-TLVs currently defined: </dt><dd>
+              <ul spacing="normal">
+                <li>
+                  <t>An optional single Weight sub-TLV</t>
+                </li>
+                <li>
+                  <t>Zero or more Segment sub-TLVs</t>
+                </li>
+              </ul>
+            </dd>
+          </dl>
+
+          <t>Validation of an explicit path encoded by the Segment List
+          sub-TLV is beyond the scope of BGP and performed by the SRPM as
+          described in <xref target="RFC9256" sectionFormat="of" section="5"/>.</t>
+          <section anchor="WEIGHTTLV" numbered="true" toc="default">
+            <name>Weight Sub-TLV</name>
+            <t>The Weight sub-TLV specifies the weight associated with a given
+            segment list. The contents of this sub-TLV are used only by the
+            SRPM as described in <xref target="RFC9256" sectionFormat="of" section="2.11"/>.</t>
+            <t>The Weight sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST NOT</bcp14> appear more than
+            once inside the Segment List sub-TLV.</t>
+            <t>The Weight sub-TLV has the following format: </t>
+
+<figure>
+  <name>Weight Sub-TLV</name>
+            <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                              Weight                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	    </figure>
+
+	    <t>Where:</t>
+            <dl spacing="normal">
+              
+                <dt>Type:</dt><dd>9</dd>
+              
+            
+                <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+                including Type and Length fields) in terms of octets. The
+                value <bcp14>MUST</bcp14> be 6.</dd>
+             
+                <dt>Flags:</dt><dd>1 octet of flags. No flags are defined in this
+                document. The Flags field <bcp14>MUST</bcp14> be set to zero on transmission
+                and <bcp14>MUST</bcp14> be ignored on receipt.
+              </dd>
+              
+                <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set
+                to zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+
+		
+                <dt>Weight:</dt><dd>4 octets carrying an unsigned integer value indicating the
+                weight associated with a segment list as described in
+                <xref target="RFC9256" sectionFormat="of" section="2.11"/>. A weight value of zero is
+                invalid.</dd>
+              
+            </dl>
+          </section>
+          <section anchor="SEGMENTTLV" numbered="true" toc="default">
+            <name>Segment Sub-TLVs</name>
+            <t>A Segment sub-TLV describes a single segment in a segment list
+            (i.e., a single element of the explicit path). One or more Segment
+            sub-TLVs constitute an explicit path of the SR Policy CP. The contents of these sub-TLVs are used only by the SRPM as
+            described in <xref target="RFC9256" sectionFormat="of" section="4"/>.</t>
+            <t>The Segment sub-TLVs are <bcp14>OPTIONAL</bcp14> and <bcp14>MAY</bcp14> appear multiple times
+            in the Segment List sub-TLV.</t>
+            <t><xref target="RFC9256" sectionFormat="of" section="4"/> defines several Segment
+            Types:</t>
+<dl>
+
+<dt>Type A:</dt><dd>SR-MPLS Label</dd>
+<dt>Type B:</dt><dd>SRv6 SID</dd>
+<dt>Type C:</dt><dd>IPv4 Prefix with optional SR Algorithm</dd>
+<dt>Type D:</dt><dd>IPv6 Global Prefix with optional SR Algorithm for SR-MPLS</dd>
+<dt>Type E:</dt><dd>IPv4 Prefix with Local Interface ID</dd>
+<dt>Type F:</dt><dd>IPv4 Addresses for link endpoints as Local, Remote pair</dd>
+<dt>Type G:</dt><dd>IPv6 Prefix and Interface ID for link endpoints as Local, Remote pair for SR-MPLS</dd>
+<dt>Type H:</dt><dd>IPv6 Addresses for link endpoints as Local, Remote pair for SR-MPLS</dd>
+<dt>Type I:</dt><dd>IPv6 Global Prefix with optional SR Algorithm for SRv6</dd>
+<dt>Type J:</dt><dd>IPv6 Prefix and Interface ID for link endpoints as Local, Remote pair for SRv6</dd>
+<dt>Type K:</dt><dd>IPv6 Addresses for link endpoints as Local, Remote pair for SRv6</dd>
+</dl>
+
+            <t>The following subsections specify the sub-TLVs used for
+            Segment Types A and B. The other segment types are specified in
+            <xref target="RFC9831" format="default"/>. As specified in
+            <xref target="RFC9256"  sectionFormat="of" section="5.1"/>, a mix of SR-MPLS and SRv6
+            segments make the segment-list invalid.</t>
+            <section anchor="TYPEA" numbered="true" toc="default">
+              <name>Segment Type A</name>
+              <t>The Type A Segment sub-TLV encodes a single SR-MPLS SID. The
+              format is as follows and is used to encode MPLS Label fields as
+              specified in <xref target="RFC3032" format="default"/> and <xref target="RFC5462" format="default"/>:
+              </t>
+
+<figure>
+  <name>Type A Segment Sub-TLV</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Label                        | TC  |S|       TTL     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+
+	      <t>Where:</t>
+              <dl spacing="normal">
+                
+                  <dt>Type:</dt><dd>1</dd>
+                
+                
+                  <dt>Length:</dt><dd>Specifies the length of the value field (i.e.,
+                  not including Type and Length fields) in terms of octets.
+                  The value <bcp14>MUST</bcp14> be 6.</dd>
+               
+                  <dt>Flags:</dt><dd>1 octet of flags as defined in <xref target="SEGMENTFLAGS" format="default"/>.</dd>
+                
+                
+                  <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be
+                  set to zero on transmission and <bcp14>MUST</bcp14> be ignored on
+                  receipt.</dd>
+                
+                
+                  <dt>Label:</dt><dd>20 bits of label value.</dd>
+                  <dt>TC:</dt><dd>3 bits of traffic class.</dd>
+                
+                
+                  <dt>S:</dt><dd>1 bit of bottom-of-stack.</dd>
+               
+                  <dt>TTL:</dt><dd>1 octet of TTL.</dd>
+                
+              </dl>
+              <t>The following applies to the Type-1 Segment sub-TLV:</t>
+              <ul spacing="normal">
+                <li>
+                  <t>The S bit <bcp14>MUST</bcp14> be zero upon transmission and <bcp14>MUST</bcp14> be
+                  ignored upon reception.</t>
+                </li>
+                <li>
+                  <t>If the originator wants the receiver to choose the TC
+                  value, it sets the TC field to zero.</t>
+                </li>
+                <li>
+                  <t>If the originator wants the receiver to choose the TTL
+                  value, it sets the TTL field to 255.</t>
+                </li>
+                <li>
+                  <t>If the originator wants to recommend a value for these
+                  fields, it puts those values in the TC and/or TTL
+                  fields.</t>
+                </li>
+                <li>
+                  <t>The receiver <bcp14>MAY</bcp14> override the originator's values for
+                  these fields. This would be determined by local policy at
+                  the receiver. One possible policy would be to override the
+                  fields only if the fields have the default values specified
+                  above.</t>
+                </li>
+              </ul>
+            </section>
+            <section anchor="TYPEB" numbered="true" toc="default">
+              <name>Segment Type B</name>
+              <t>The Type B Segment sub-TLV encodes a single SRv6 SID. The
+              format is as follows: </t>
+
+<figure>
+<name>Type B Segment Sub-TLV</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//                       SRv6 SID (16 octets)                  //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//           SRv6 Endpoint Behavior and SID Structure          //
+//                    (optional, 8 octets)                     //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+
+<t>Where:</t>
+              <dl spacing="normal">
+              
+                  <dt>Type:</dt><dd>13</dd>
+                
+                  <dt>Length:</dt><dd>Specifies the length of the value field (i.e.,
+                  not including Type and Length fields) in terms of octets.
+                  The value <bcp14>MUST</bcp14> be 26 when the SRv6 Endpoint Behavior and SID
+                  Structure is present; else, it <bcp14>MUST</bcp14> be 18.
+                </dd>
+                
+                  <dt>Flags:</dt><dd>1 octet of flags as defined in <xref target="SEGMENTFLAGS" format="default"/>.</dd>
+                
+                
+                  <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be
+                  set to zero on transmission and <bcp14>MUST</bcp14> be ignored on
+                  receipt.</dd>
+                
+                
+                  <dt>SRv6 SID:</dt><dd>16 octets of IPv6 address.</dd>
+                
+                
+                  <dt>SRv6 Endpoint Behavior and SID Structure:</dt><dd>Optional, as
+                  defined in <xref target="BEHAVIORSTRUCT" format="default"/>. The SRv6
+                  Endpoint Behavior and SID Structure <bcp14>MUST NOT</bcp14> be included
+                  when the SRv6 SID has not been included.</dd>
+               
+              </dl>
+              <t>The sub-TLV code point 2 defined for the advertisement of
+              Segment Type B in the earlier draft versions of this document has been
+              deprecated to avoid backward compatibility issues.</t>
+            </section>
+            <section anchor="SEGMENTFLAGS" numbered="true" toc="default">
+              <name>SR Policy Segment Flags</name>
+              <t>The Segment Type sub-TLVs described above may contain the
+              following SR Policy Segment Flags in their Flags field. Also
+              refer to <xref target="IANASIDFLAGS" format="default"/>: </t>
+
+<figure>
+  <name>SR Policy Segment Flags</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|V|   |B|       |
++-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+              <t>Where:</t>
+              <ul spacing="normal">
+                
+                  <li> When the V-Flag is set, it is used by SRPM for "SID
+                  verification" as described in <xref target="RFC9256" sectionFormat="of" section="5.1"/>.</li>
+                
+                
+                  <li>When the B-Flag is set, it indicates the presence of
+                  the "SRv6 Endpoint Behavior &amp; SID Structure" encoding
+                  specified in <xref target="BEHAVIORSTRUCT" format="default"/>.</li>
+                
+                
+                  <li>The unassigned bits in the Flags field <bcp14>MUST</bcp14> be set to zero
+                  upon transmission and <bcp14>MUST</bcp14> be ignored upon receipt.</li>
+                
+              </ul>
+
+              <t>The following applies to the Segment Flags:</t>
+
+              <ul spacing="normal">
+                <li>
+                  V-Flag applies to all Segment Types.
+                </li>
+                <li>
+                  B-Flag applies to Segment Type B. If B-Flag appears with
+                  Segment Type A, it <bcp14>MUST</bcp14> be ignored.
+                </li>
+              </ul>
+            </section>
+            <section anchor="BEHAVIORSTRUCT" numbered="true" toc="default">
+              <name>SRv6 Endpoint Behavior and SID Structure</name>
+              <t>The Segment Type sub-TLVs described above <bcp14>MAY</bcp14> contain the
+              SRv6 Endpoint Behavior and SID Structure <xref target="RFC8986" format="default"/> encoding as described below: </t>
+
+<figure>
+  <name>SRv6 Endpoint Behavior and SID Structure</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|       Endpoint Behavior       |            Reserved           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|    LB Length  |  LN Length    | Fun. Length   |  Arg. Length  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+              <t>Where:</t>
+              <dl spacing="normal">
+                
+                  <dt>Endpoint Behavior:</dt><dd>2 octets. It carries the SRv6 Endpoint
+                  Behavior code point for this SRv6 SID as defined in <xref
+                  target="RFC8986" sectionFormat="of" section="10.2"/>. When
+                  set with the value 0xFFFF (i.e., Opaque), the choice of SRv6
+                  Endpoint Behavior is left to the headend.</dd>
+                
+                
+                  <dt>Reserved:</dt><dd>2 octets of reserved bits. This field <bcp14>MUST</bcp14> be
+                  set to zero on transmission and <bcp14>MUST</bcp14> be ignored on
+                  receipt.</dd>
+
+                
+                  <dt>Locator Block Length:</dt><dd>1 octet. SRv6 SID Locator Block
+                  length in bits.</dd>
+               
+                  <dt>Locator Node Length:</dt><dd>1 octet. SRv6 SID Locator Node
+                  length in bits.</dd>
+                
+                
+                  <dt>Function Length:</dt><dd>1 octet. SRv6 SID Function length in
+                  bits.</dd>
+                
+                
+                  <dt>Argument Length:</dt><dd>1 octet. SRv6 SID Arguments length in
+                  bits.</dd>
+                
+              </dl>
+
+              <t>The total of the locator block, locator node, function, and
+              argument lengths <bcp14>MUST</bcp14> be less than or equal to 128.</t>
+            </section>
+          </section>
+        </section>
+        <section anchor="ENLPTLV" numbered="true" toc="default">
+          <name>Explicit NULL Label Policy Sub-TLV</name>
+          <t>To steer an unlabeled IP packet into an SR Policy for the MPLS
+          data plane, it is necessary to push a label stack of one or more
+          labels on that packet.</t>
+          <t>The Explicit NULL Label Policy (ENLP) sub-TLV is used to indicate
+          whether an Explicit NULL Label <xref target="RFC3032" format="default"/> must be
+          pushed on an unlabeled IP packet before any other labels.</t>
+          <t>If an ENLP sub-TLV is not present, the decision of whether to
+          push an Explicit NULL label on a given packet is a matter of local
+          configuration.</t>
+          <t>The ENLP sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST NOT</bcp14> appear more than
+          once in the SR Policy encoding.</t>
+          <t>The contents of this sub-TLV are used by the SRPM as described in
+          <xref target="RFC9256" sectionFormat="of" section="4.1"/>.</t>
+
+<figure>
+  <name>ENLP Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |     Flags     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     ENLP      |
++-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+          <t>Where:</t>
+          <dl spacing="normal">
+            
+              <dt>Type:</dt><dd>14</dd>
+          
+              <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets. The value
+              <bcp14>MUST</bcp14> be 3.</dd>
+           
+           
+              <dt>Flags:</dt><dd>1 octet of flags. No flags are defined in this
+              document. The Flags field <bcp14>MUST</bcp14> be set to zero on transmission
+              and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+            
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+           
+           
+              <dt>ENLP (Explicit NULL Label Policy):</dt><dd><t>Indicates whether Explicit
+              NULL labels are to be pushed on unlabeled IP packets that are
+              being steered into a given SR Policy. The following values have
+              been currently defined for this field:</t>
+	      
+              <dl spacing="normal" indent="6">
+               
+                  <dt>1:</dt><dd>Push an IPv4 Explicit NULL label on an unlabeled IPv4
+                  packet but do not push an IPv6 Explicit NULL label on an
+                  unlabeled IPv6 packet.</dd>
+               
+                  <dt>2:</dt><dd>Push an IPv6 Explicit NULL label on an unlabeled IPv6
+                  packet but do not push an IPv4 Explicit NULL label on an
+                  unlabeled IPv4 packet.</dd>
+                
+                
+                  <dt>3:</dt><dd>Push an IPv4 Explicit NULL label on an unlabeled IPv4
+                  packet and push an IPv6 Explicit NULL label on an unlabeled
+                  IPv6 packet.</dd>
+                
+                
+                  <dt>4:</dt><dd>Do not push an Explicit NULL label.</dd></dl>
+		
+		
+              
+              <t>This field can have one of the values as specified in <xref
+              target="IANAENLP" format="default"/>. The ENLP unassigned values
+              may be used for future extensions. Implementations adhering to
+              this document <bcp14>MUST</bcp14> ignore the ENLP sub-TLV with
+              unrecognized values (viz. other than 1 through 4). The behavior
+              signaled in this sub-TLV <bcp14>MAY</bcp14> be overridden by
+              local configuration by the network operator based on their
+              deployment requirements. <xref target="RFC9256"
+              sectionFormat="of" section="4.1"/> describes the behavior on the
+              headend for the handling of the Explicit NULL label.</t></dd>
+            
+          </dl>
+        </section>
+        <section anchor="POLICYPRIORITY" numbered="true" toc="default">
+          <name>SR Policy Priority Sub-TLV</name>
+          <t>An operator <bcp14>MAY</bcp14> set the SR Policy Priority sub-TLV to indicate the
+          order in which the SR policies are recomputed upon topological
+          change. The contents of this sub-TLV are used by the SRPM as
+          described in <xref target="RFC9256"  sectionFormat="of" section="2.12"/>.</t>
+          <t>The Priority sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST NOT</bcp14> appear more than
+          once in the SR Policy encoding.</t>
+          <t>The Priority sub-TLV has the following format:</t>
+
+<figure>
+  <name>Priority Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length      |  Priority     |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+          <t>Where:</t>
+          <dl spacing="normal">
+           
+              <dt>Type:</dt><dd>15</dd>
+            
+              <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets.  The value
+              <bcp14>MUST</bcp14> be 2.</dd>
+            
+              <dt>Priority:</dt><dd>A 1-octet value indicating the priority as
+              specified in <xref target="RFC9256" sectionFormat="of" section="2.12"/>.</dd>
+         
+         
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+          </dl>
+        </section>
+        <section anchor="POLICYCPNAME" numbered="true" toc="default">
+          <name>SR Policy Candidate Path Name Sub-TLV</name>
+          <t>An operator <bcp14>MAY</bcp14> set the SR Policy Candidate Path Name sub-TLV to
+          attach a symbolic name to the SR Policy CP.</t>
+          <t>Usage of the SR Policy Candidate Path Name sub-TLV is described in
+          <xref target="RFC9256" sectionFormat="of" section="2.6"/>.</t>
+          <t>The SR Policy Candidate Path Name sub-TLV may exceed 255 bytes in
+          length due to a long name. A 2-octet length is thus required.
+          According to <xref target="RFC9012" sectionFormat="of" section="2"/>, the sub-TLV type
+          defines the size of the Length field. Therefore, for the SR Policy
+          Candidate Path Name sub-TLV, a code point of 128 or higher is
+          used.</t>
+          <t>It is <bcp14>RECOMMENDED</bcp14> that the size of the symbolic name for the
+          CP be limited to 255 bytes. Implementations <bcp14>MAY</bcp14> choose
+          to truncate long names to 255 bytes when signaling via BGP.</t>
+          <t>The SR Policy Candidate Path Name sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST
+          NOT</bcp14> appear more than once in the SR Policy encoding.</t>
+          <t>The SR Policy Candidate Path Name sub-TLV has the following format:</t>
+
+<figure>
+  <name>SR Policy Candidate Path Name Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length                      |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//            SR Policy Candidate Path Name                     //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+          <t>Where:</t>
+          <dl spacing="normal">
+            
+              <dt>Type:</dt><dd>129</dd>
+          
+          
+              <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets. The value
+              is variable.</dd>
+            
+            
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+              <dt>SR Policy Candidate Path Name:</dt><dd>Symbolic name for the SR Policy
+              CP without a NULL terminator with encoding as
+              specified in <xref target="RFC9256" sectionFormat="of" section="2.6"/>.</dd>
+            
+          </dl>
+        </section>
+        <section anchor="POLICYNAME" numbered="true" toc="default">
+          <name>SR Policy Name Sub-TLV</name>
+          <t>An operator <bcp14>MAY</bcp14> set the SR Policy Name sub-TLV to associate a
+          symbolic name with the SR Policy for which the CP is
+          being advertised via the SR Policy NLRI.</t>
+          <t>Usage of the SR Policy Name sub-TLV is described in <xref target="RFC9256" sectionFormat="of" section="2.1"/>.</t>
+          <t>The SR Policy Name sub-TLV may exceed 255 bytes in length due to a
+          long SR Policy name. A 2-octet length is thus required. According to
+          <xref target="RFC9012" sectionFormat="of" section="2"/>, the sub-TLV
+          type defines the size of the Length field. Therefore, for the SR Policy
+          Name sub-TLV, a code point of 128 or higher is used.</t>
+          <t>It is <bcp14>RECOMMENDED</bcp14> that the size of the symbolic name for the SR
+          Policy be limited to 255 bytes. Implementations <bcp14>MAY</bcp14> choose to
+          truncate long names to 255 bytes when signaling via BGP.</t>
+          <t>The SR Policy Name sub-TLV is <bcp14>OPTIONAL</bcp14>; it <bcp14>MUST NOT</bcp14> appear more
+          than once in the SR Policy encoding.</t>
+          <t>The SR Policy Name sub-TLV has the following format:</t>
+
+<figure>
+  <name>SR Policy Name Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |   Length                      |   RESERVED    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//                      SR Policy Name                          //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+          <t>Where:</t>
+          <dl spacing="normal">
+           
+              <dt>Type:</dt><dd>130</dd>
+          
+              <dt>Length:</dt><dd>Specifies the length of the value field (i.e., not
+              including Type and Length fields) in terms of octets. The value
+              is variable.</dd>
+           
+              <dt>RESERVED:</dt><dd>1 octet of reserved bits. This field <bcp14>MUST</bcp14> be set to
+              zero on transmission and <bcp14>MUST</bcp14> be ignored on receipt.</dd>
+            
+            
+              <dt>SR Policy Name:</dt><dd>Symbolic name for the SR Policy without a NULL
+              terminator with encoding as specified in <xref target="RFC9256" sectionFormat="of" section="2.1"/>.</dd>
+            
+          </dl>
+
+        </section>
+      </section>
+    </section>
+    <section anchor="EXTCOLOR" numbered="true" toc="default">
+      <name>Color Extended Community</name>
+      <t>The Color Extended Community <xref target="RFC9012" format="default"/> is used to
+      steer traffic corresponding to BGP routes into an SR Policy with
+      matching Color value. The Color Extended Community <bcp14>MAY</bcp14> be carried in any
+      BGP UPDATE message whose AFI/SAFI is 1/1 (IPv4 Unicast), 2/1 (IPv6
+      Unicast), 1/4 (IPv4 Labeled Unicast), 2/4 (IPv6 Labeled Unicast), 1/128
+      (VPN-IPv4 Labeled Unicast), 2/128 (VPN-IPv6 Labeled Unicast), or 25/70
+      (Ethernet VPN, usually known as EVPN). Use of the Color Extended
+      Community in BGP UPDATE messages of other AFI/SAFIs is not covered by
+      <xref target="RFC9012" format="default"/>; hence, it is outside the scope of this document
+      as well.</t>
+      <t>Two bits from the Flags field of the Color Extended Community are
+      used as follows to support the requirements of Color-Only steering as
+      specified in <xref target="RFC9256" sectionFormat="of" section="8.8"/>: </t>
+
+<figure>
+  <name>Color Extended Community Flags</name>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+                     1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|C O|        Unassigned         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+</figure>
+
+      <t>The C and O bits together form the Color-Only Type field, which
+      indicates the various matching criteria between the BGP Next Hop (NH) and the SR Policy
+      Endpoint in addition to the matching of the Color value. The following types
+      are defined:</t>
+      <dl spacing="normal">
+     
+          <dt>Type 0 (bits 00):</dt><dd>Specific Endpoint Match. Request a match for the
+          Endpoint that is the BGP NH.</dd>
+       
+          <dt>Type 1 (bits 01):</dt><dd>Specific or Null Endpoint Match. Request a match
+          for either the Endpoint that is the BGP NH or a null Endpoint (e.g.,
+          a default gateway).</dd>
+       
+          <dt>Type 2 (bits 10):</dt><dd>Specific, Null, or Any Endpoint Match. Request
+          a match for either the Endpoint that is the BGP NH or a null or
+          any Endpoint.</dd>
+     
+          <dt>Type 3 (bits 11):</dt><dd>Reserved for future use and <bcp14>SHOULD NOT</bcp14> be used.
+          Upon reception, an implementation <bcp14>MUST</bcp14> treat it like Type 0.</dd>
+     
+      </dl>
+      <t>The details of the SR Policy steering mechanisms based on these
+      Color-Only types are specified in <xref target="RFC9256" sectionFormat="of" section="8.8"/>.</t>
+      <t>One or more Color Extended Communities <bcp14>MAY</bcp14> be
+      associated with a BGP route update. Sections <xref target="RFC9256"
+      sectionFormat="bare" section="8.4.1"/>, <xref target="RFC9256"
+      sectionFormat="bare" section="8.5.1"/>, and <xref target="RFC9256"
+      sectionFormat="bare" section="8.8.2"/> of <xref target="RFC9256"
+      format="default"/> specify the steering behaviors over SR Policies when
+      multiple Color Extended Communities are associated with a BGP route.</t>
+    </section>
+    <section anchor="OPERATIONS" numbered="true" toc="default">
+      <name>SR Policy Operations</name>
+      <t>As mentioned in <xref target="INTRO" format="default"/>, BGP is not the actual
+      consumer of an SR Policy NLRI. BGP is in charge of the origination and
+      propagation of the SR Policy NLRI, but its installation and use are
+      outside the scope of BGP. The details of SR Policy installation and use
+      are specified in <xref target="RFC9256" format="default"/>.</t>
+      <section anchor="CONFIG" numbered="true" toc="default">
+        <name>Advertisement of SR Policies</name>
+        <t>Typically, but not limited to, an SR Policy is computed by a
+        controller or a Path Computation Engine (PCE) and originated by a BGP
+        speaker on its behalf.</t>
+        <t>Multiple SR Policy NLRIs may be present with the same &lt;Color,
+        Endpoint&gt; tuple but with different distinguishers when these SR
+        policies are intended for different headends.</t>
+        <t>The distinguisher of each SR Policy NLRI prevents undesired BGP
+        route selection among these SR Policy NLRIs and allows their
+        propagation across RRs <xref target="RFC4456" format="default"/>.</t>
+        <t>Moreover, one or more route targets <bcp14>SHOULD</bcp14> be attached to the
+        advertisement, where each route target identifies one or more intended
+        headends for the advertised SR Policy update.</t>
+        <t>If no route target is attached to the SR Policy NLRI, then it is
+        assumed that the originator sends the SR Policy update directly (e.g.,
+        through a BGP session) to the intended receiver. In such a case, the
+        NO_ADVERTISE community <xref target="RFC1997" format="default"/> <bcp14>MUST</bcp14> be attached to
+        the SR Policy update (see further details in <xref target="PROPAGATE" format="default"/>).</t>
+      </section>
+      <section anchor="RECEPT" numbered="true" toc="default">
+        <name>Reception of an SR Policy NLRI</name>
+        <t>On reception of an SR Policy NLRI, a BGP speaker first determines
+        if it is valid as described in <xref target="ACCEPT"
+        format="default"/>; then, the BGP speaker performs the decision process for
+        selection of the best route (<xref target="RFC4271" sectionFormat="of"
+        section="9.1"/>). The key difference from the base BGP decision
+        process is that BGP does not download the selected best routes of the SR
+        Policy SAFI into the forwarding; instead, it considers them "usable"
+        for passing on to the SRPM for further processing as described in
+        <xref target="USABLE" format="default"/>. The selected best route is
+        "propagated" (<xref target="RFC4271" sectionFormat="of"
+        section="9.1.3"/>) as described in <xref target="PROPAGATE"
+        format="default"/>, irrespective of its "usability" by the local
+        router.</t>
+        <section anchor="ACCEPT" numbered="true" toc="default">
+          <name>Validation of an SR Policy NLRI</name>
+          <t>When a BGP speaker receives an SR Policy NLRI from a neighbor, it
+          <bcp14>MUST</bcp14> first perform validation based on the following rules in
+          addition to the validation described in <xref target="ERROR" format="default"/>:
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>The SR Policy NLRI <bcp14>MUST</bcp14> include a distinguisher, Color, and
+              Endpoint field that implies that the length of the NLRI <bcp14>MUST</bcp14> be
+              either 12 or 24 octets (depending on the address family of the
+              Endpoint).</t>
+            </li>
+            <li>
+              <t>The SR Policy update <bcp14>MUST</bcp14> have either the NO_ADVERTISE
+              community, at least one Route Target extended community in
+              IPv4-address format, or both. If a router supporting this
+              specification receives an SR Policy update with no Route Target
+              extended communities and no NO_ADVERTISE community, the update
+              <bcp14>MUST</bcp14> be considered to be malformed.</t>
+            </li>
+            <li>
+              <t>The Tunnel Encapsulation Attribute <bcp14>MUST</bcp14> be attached to the
+              BGP UPDATE message and <bcp14>MUST</bcp14> have a Tunnel Type TLV set to SR Policy
+              (code point is 15).</t>
+            </li>
+          </ul>
+          <t>A router that receives an SR Policy update that is not valid
+          according to these criteria <bcp14>MUST</bcp14> treat the update as malformed, and
+          the SR Policy CP <bcp14>MUST NOT</bcp14> be passed to the SRPM.</t>
+        </section>
+        <section anchor="USABLE" numbered="true" toc="default">
+          <name>Eligibility for Local Use of an SR Policy NLRI</name>
+          <t>An SR Policy NLRI update that does not have a Route Target extended
+          community but does have the NO_ADVERTISE community is considered
+          usable.</t>
+          <t>If one or more route targets are present, then at least one route
+          target <bcp14>MUST</bcp14> match the BGP Identifier of the receiver for the update
+          to be considered usable. The BGP Identifier is defined in <xref target="RFC4271" format="default"/> as a 4-octet IPv4 address and is updated by <xref target="RFC6286" format="default"/> as a 4-octet, unsigned, non-zero integer.
+          Therefore, the Route Target extended community <bcp14>MUST</bcp14> be of the same
+          format.</t>
+	  
+	  
+          <t>If one or more route targets are present, and none matches the
+          local BGP Identifier, then, while the SR Policy NLRI is valid, the SR Policy NLRI is
+          not usable on the receiver node.</t>
+          <t>When the SR Policy tunnel type includes any sub-TLV that is
+          unrecognized or unsupported, the update <bcp14>SHOULD NOT</bcp14> be considered
+          usable. An implementation <bcp14>MAY</bcp14> provide an option for ignoring
+          unsupported sub-TLVs.</t>
+          <t>Once BGP on the receiving node has determined that the SR Policy
+          NLRI is usable, it passes the SR Policy CP to the SRPM.
+          Note that, along with the CP details, BGP also passes
+          the originator information for breaking ties in the CP
+          selection process as described in <xref target="RFC9256" sectionFormat="of" section="2.4"/>.</t>
+          <t>When an update for an SR Policy NLRI results in its becoming
+          unusable, BGP <bcp14>MUST</bcp14> delete its corresponding SR Policy CP
+          from the SRPM.</t>
+          <t>The SRPM applies the rules defined in <xref target="RFC9256"
+          sectionFormat="of" section="2"/> to determine whether the SR Policy
+          CP is valid and to select the active CP for
+          a given SR Policy.</t>
+        </section>
+        <section anchor="PROPAGATE" numbered="true" toc="default">
+          <name>Propagation of an SR Policy</name>
+          <t>SR Policy NLRIs that have the NO_ADVERTISE community attached to
+          them <bcp14>MUST NOT</bcp14> be propagated.</t>
+          <t>By default, a BGP node receiving an SR Policy NLRI <bcp14>MUST NOT</bcp14>
+          propagate it to any External BGP (EBGP) neighbor. An implementation <bcp14>MAY</bcp14> provide an
+          explicit configuration to override this and enable the propagation
+          of valid SR Policy NLRIs to specific EBGP neighbors where the SR
+          domain comprises multiple ASes within a single service provider
+          domain (see <xref target="Security" format="default"/> for details).</t>
+          <t>A BGP node advertises a received SR Policy NLRI to its Internal BGP (IBGP)
+          neighbors according to normal IBGP propagation rules.</t>
+          <t>By default, a BGP node receiving an SR Policy NLRI <bcp14>SHOULD NOT</bcp14>
+          remove the Route Target extended community before propagation. An
+          implementation <bcp14>MAY</bcp14> provide support for configuration to filter
+          and/or remove the Route Target extended community before
+          propagation.</t>
+          <t>A BGP node <bcp14>MUST NOT</bcp14> alter the SR Policy information carried in
+          the Tunnel Encapsulation Attribute during propagation.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="ERROR" numbered="true" toc="default">
+      <name>Error Handling and Fault Management</name>
+      <t>This section describes the error-handling actions, as described in
+      <xref target="RFC7606" format="default"/>, that are to be performed for the handling of
+      the BGP UPDATE messages for the BGP SR Policy SAFI.</t>
+      <t>A BGP speaker <bcp14>MUST</bcp14> perform the following syntactic validation of the
+      SR Policy NLRI to determine if it is malformed. This includes the
+      validation of the length of each NLRI and the total length of the
+      MP_REACH_NLRI and MP_UNREACH_NLRI attributes. It also includes the
+      validation of the consistency of the NLRI length with the AFI and the
+      endpoint address as specified in <xref target="SRPOLICYSAFI" format="default"/>.</t>
+      <t>When the error determined allows for the router to skip the malformed
+      NLRI(s) and continue the processing of the rest of the BGP UPDATE message,
+      then it <bcp14>MUST</bcp14> handle such malformed NLRIs as 'treat-as-withdraw'. In
+      other cases, where the error in the NLRI encoding results in the
+      inability to process the BGP UPDATE message (e.g., length-related
+      encoding errors), then the router <bcp14>SHOULD</bcp14> handle such malformed NLRIs as
+      "AFI/SAFI disable" when other AFI/SAFIs besides SR Policy are being
+      advertised over the same session. Alternately, the router <bcp14>MUST</bcp14> perform
+      "session reset" when the session is only being used for SR Policy or
+      when a "AFI/SAFI disable" action is not possible.</t>
+      <t>The validation of the TLVs/sub-TLVs introduced in this document and
+      defined in their respective subsections of <xref target="SRPOLICYTLV" format="default"/>
+      <bcp14>MUST</bcp14> be performed to determine if they are malformed or invalid. The
+      validation of the Tunnel Encapsulation Attribute itself and the other
+      TLVs/sub-TLVs specified in <xref target="RFC9012" sectionFormat="of" section="13"/> <bcp14>MUST</bcp14>
+      be done as described in that document. In case of any error detected,
+      either at the attribute or its TLV/sub-TLV level, the
+      "treat-as-withdraw" strategy <bcp14>MUST</bcp14> be applied. This is because an SR
+      Policy update without a valid Tunnel Encapsulation Attribute (comprised
+      of all valid TLVs/sub-TLVs) is not usable.</t>
+      <t>An SR Policy update that is determined not to be valid (and, therefore,
+      malformed) based on the rules described in <xref target="ACCEPT" format="default"/> <bcp14>MUST</bcp14> be
+      handled by the "treat-as-withdraw" strategy.</t>
+      <t>The validation of the individual fields of the TLVs/sub-TLVs defined
+      in <xref target="SRPOLICYTLV" format="default"/> are beyond the scope of BGP as they are
+      handled by the SRPM as described in the individual TLV/sub-TLV
+      subsections. A BGP implementation <bcp14>MUST NOT</bcp14> perform semantic
+      verification of such fields nor consider the SR Policy update to be
+      invalid or not usable based on such validation.</t>
+      <t>An implementation <bcp14>SHOULD</bcp14> log any errors found during the above
+      validation for further analysis.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      
+      <t>This document uses code point allocations from the following existing
+      registries in the "Subsequent Address Family Identifiers (SAFI) Parameters" registry group:</t>
+      <ul spacing="normal">
+        <li>
+          <t>The "SAFI Values" registry</t>
+        </li>
+      </ul>
+      <t>This document uses code point allocations from the following existing registries in the "Border Gateway Protocol (BGP) Tunnel Encapsulation" registry group:</t>
+      <ul spacing="normal">
+        <li>
+          <t>The "BGP Tunnel Encapsulation Attribute Tunnel Types" registry</t>
+        </li>
+        <li>
+          <t>The "BGP Tunnel Encapsulation Attribute Sub-TLVs" registry</t>
+        </li>
+        <li>
+          <t>The "Color Extended Community Flags" registry</t>
+        </li>
+      </ul>
+      <t>This document creates the following new
+      registries in the "Border Gateway Protocol (BGP) Tunnel Encapsulation" registry group: </t>
+      <ul spacing="normal">
+        <li>
+          <t>The "SR Policy Segment List Sub-TLVs" registry</t>
+        </li>
+        <li>
+          <t>The "SR Policy Binding SID Flags" registry</t>
+        </li>
+        <li>
+          <t>The "SR Policy SRv6 Binding SID Flags" registry</t>
+        </li>
+        <li>
+          <t>The "SR Policy Segment Flags" registry</t>
+        </li>
+        <li>
+          <t>The "Color Extended Community Color-Only Types" registry</t>
+      </li></ul>
+      <t>This document creates the following new registry in the "Segment Routing" registry group:</t>
+      <ul spacing="normal">
+        <li>
+          <t>The "SR Policy ENLP Values" registry</t>
+        </li>
+      </ul>
+
+      
+      
+      <section anchor="IANASAFI" numbered="true" toc="default">
+        <name>Subsequent Address Family Identifiers (SAFI) Parameters</name>
+        <t>This document registers a SAFI code point in the "SAFI Values" registry of the "Subsequent Address
+        Family Identifiers (SAFI) Parameters" registry group as follows:</t>
+
+	<table>
+	  <name>BGP SAFI Code Point</name>
+	  <thead>
+	    <tr>
+	      <th>Value</th><th>Description</th><th>Reference</th>
+	    </tr>
+	  </thead>
+	  <tbody>
+	    <tr>
+	      <td>73</td><td>SR Policy SAFI</td><td>RFC 9830</td>
+	    </tr>
+	  </tbody>
+	</table>
+
+      </section>
+      <section anchor="IANATUNNEL" numbered="true" toc="default">
+        <name>BGP Tunnel Encapsulation Attribute Tunnel Types</name>
+        <t>This document registers a Tunnel Type code point in the "BGP Tunnel
+        Encapsulation Attribute Tunnel Types" registry under the "Border Gateway Protocol (BGP) Tunnel Encapsulation" registry group.</t>
+
+	<table>
+	  <name>Tunnel Type Code Point</name>
+	  <thead>
+	    <tr>
+	      <th>Value</th><th>Description</th><th>Reference</th>
+	    </tr>
+	  </thead>
+	  <tbody>
+	    <tr>
+	      <td>15</td><td>SR Policy</td><td>RFC 9830</td>
+	    </tr>
+	  </tbody>
+	</table>
+
+      </section>
+
+
+
+      <section anchor="IANATUNNSUBTLV" numbered="true" toc="default">
+        <name>BGP Tunnel Encapsulation Attribute Sub-TLVs</name>
+        <t>This document defines sub-TLVs in the "BGP Tunnel
+        Encapsulation Attribute Sub-TLVs" registry under the "Border Gateway Protocol (BGP) Tunnel Encapsulation" registry group.</t>
+
+<table>
+  <name>BGP Tunnel Encapsulation Attribute Sub-TLV Code Points</name>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Description</th>
+      <th>Reference</th>
+      <th>Change Controller</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>12</td>
+      <td>Preference sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>Binding SID sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td>ENLP sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>Priority sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>SRv6 Binding SID sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>128</td>
+      <td>Segment List sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>129</td>
+      <td>SR Policy Candidate Path Name sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+    <tr>
+      <td>130</td>
+      <td>SR Policy Name sub-TLV</td>
+      <td>RFC 9830</td>
+      <td>IETF</td>
+    </tr>
+</tbody>
+</table>
+
+      </section>
+      <section anchor="IANAEXTCOM" numbered="true" toc="default">
+        <name>Color Extended Community Flags</name>
+        <t>This document defines the use of 2 bits in the
+        "Color Extended Community Flags" registry under the "Border Gateway Protocol (BGP) Tunnel Encapsulation"
+        registry group.</t>
+
+<table>
+  <name>Color Extended Community Flag Bits</name>
+  <thead>
+    <tr><th>Bit Position</th><th>Description</th><th>Reference</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>0-1</td><td>Color-only Types Field</td><td>RFC 9830</td></tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="IANASIDLIST" numbered="true" toc="default">
+        <name>SR Policy Segment List Sub-TLVs</name>
+        <t>This document creates a new registry called "SR
+        Policy Segment List Sub-TLVs" under the "Border Gateway Protocol (BGP) Tunnel Encapsulation"
+        registry group. The registration policy of this registry is "IETF Review"
+        (see <xref target="RFC8126" format="default"/>).</t>
+        <t>The following initial sub-TLV code points are assigned by this
+        document:</t>
+
+<table>
+  <name>SR Policy Segment List Sub-TLV Code Points</name>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>Reserved</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Type A Segment sub-TLV</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Deprecated</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>3-8</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>Weight sub-TLV</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>10</td>
+      <td>Deprecated</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>Deprecated</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>Deprecated</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>Type B Segment sub-TLV</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>14-255</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="IANABSIDFLAGS" numbered="true" toc="default">
+        <name>SR Policy Binding SID Flags</name>
+        <t>This document creates a new registry called "SR
+        Policy Binding SID Flags" under the "Border Gateway Protocol (BGP) Tunnel Encapsulation"
+        registry group. The registration policy of this registry is "Standards Action"
+        (see <xref target="RFC8126" format="default"/>).</t>
+        <t>The following flags are defined:</t>
+
+<table>
+  <name>SR Policy Binding SID Flags</name>
+  <thead>
+    <tr>
+      <th>Bit</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>Specified-BSID-Only Flag (S-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>  
+      <td>1</td>
+      <td>Drop-Upon-Invalid Flag (I-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>2-7</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="IANASRV6BSIDFLAGS" numbered="true" toc="default">
+        <name>SR Policy SRv6 Binding SID Flags</name>
+        <t>This document creates a new registry called "SR
+        Policy SRv6 Binding SID Flags" under the "Border Gateway Protocol (BGP) Tunnel Encapsulation"
+        registry group. The registration policy of this registry is "Standards Action"
+        (see <xref target="RFC8126" format="default"/>).</t>
+        <t>The following flags are defined:</t>
+
+<table>
+  <name>SR Policy SRv6 Binding SID Flags</name>
+  <thead>
+    <tr>
+      <th>Bit</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>Specified-BSID-Only Flag (S-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Drop-Upon-Invalid Flag (I-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>SRv6 Endpoint Behavior &amp; SID Structure Flag (B-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>3-7</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="IANASIDFLAGS" numbered="true" toc="default">
+        <name>SR Policy Segment Flags</name>
+        <t>This document creates a new registry called "SR
+        Policy Segment Flags" under the "Border Gateway Protocol (BGP) Tunnel Encapsulation" registry group.
+        The registration policy of this registry is "IETF Review" (see <xref target="RFC8126" format="default"/>).</t>
+        <t>The following flags are defined:</t>
+
+
+<table>
+  <name>SR Policy Segment Flags</name>
+  <thead>
+    <tr>
+      <th>Bit</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>Segment Verification Flag (V-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>1-2</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>SRv6 Endpoint Behavior &amp; SID Structure Flag (B-Flag)</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>4-7</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="IANAEXTCOMCOFIELD" numbered="true" toc="default">
+        <name>Color Extended Community Color-Only Types</name>
+        <t>This document creates a new registry called "Color
+        Extended Community Color-Only Types" under the "Border Gateway Protocol (BGP) Tunnel
+        Encapsulation" registry group for assignment of code points (values 0 through
+        3) in the Color-Only Type field of the Color Extended Community Flags
+        field. The registration policy of this registry is "Standards Action"
+        (see <xref target="RFC8126" format="default"/>).</t>
+        <t>The following types are defined:</t>
+
+<table>
+  <name>Color Extended Community Color-Only Types</name>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>Specific Endpoint Match</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Specific or Null Endpoint Match</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>2</td>    
+      <td>Specific, Null, or Any Endpoint Match</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Unassigned</td>
+      <td>RFC 9830</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="IANAENLP" numbered="true" toc="default">
+        <name>SR Policy ENLP Values</name>
+        <t>IANA will maintain a new registry under the
+        "Segment Routing" registry group with the registration policy of
+        "Standards Action" (see <xref target="RFC8126" format="default"/>). The new registry is
+        called "SR Policy ENLP Values" and contains the code points allocated
+        to the ENLP field defined in <xref target="ENLPTLV" format="default"/>. The registry
+        contains the following code points:</t>
+
+	
+<table>
+  <name>SR Policy ENLP Values</name>
+  <thead>
+    <tr>
+      <th>Code Point</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td>
+      <td>Reserved</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>1</td>
+      <td>Push an IPv4 Explicit NULL label on an unlabeled IPv4 packet but do not push an IPv6 Explicit NULL label on an unlabeled IPv6 packet</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>Push an IPv6 Explicit NULL label on an unlabeled IPv6 packet but do not push an IPv4 Explicit NULL label on an unlabeled IPv4 packet</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Push an IPv6 Explicit NULL label on an unlabeled IPv6 packet and push an IPv4 Explicit NULL label on an unlabeled IPv4 packet</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Do not push an Explicit NULL label</td>
+      <td>RFC 9830</td>
+    </tr>
+    <tr>
+      <td>5-255</td>
+      <td colspan="2">Unassigned</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The security mechanisms of the base BGP security model apply to the
+      extensions described in this document as well. See the Security
+      Considerations section of <xref target="RFC4271" format="default"/> for a discussion of
+      BGP security. Also, refer to <xref target="RFC4272" format="default"/> and <xref target="RFC6952" format="default"/> for analysis of security issues for BGP.</t>
+
+      
+      <t>The BGP SR Policy extensions specified in this document enable
+      traffic engineering and service programming use cases within an SR
+      domain as described in <xref target="RFC9256" format="default"/>. SR operates within a
+      trusted SR domain <xref target="RFC8402" format="default"/>; its security
+      considerations also apply to BGP sessions when carrying SR Policy
+      information. The SR Policies distributed by BGP are expected to be used
+      entirely within this trusted SR domain, which comprises a single AS or
+      multiple ASes / domains within a single provider network. Therefore,
+      precaution is necessary to ensure that the SR Policy information
+      advertised via BGP sessions is limited to nodes in a secure manner
+      within this trusted SR domain. BGP peering sessions for address families
+      other than those that use the SR Policy SAFI may be set up to routers outside the SR
+      domain. The isolation of BGP SR Policy SAFI peering sessions may be used
+      to ensure that the SR Policy information is not advertised by accident
+      or in error to an EBGP peering session outside the SR domain.</t>
+      <t>Additionally, it may be a consideration that the export of SR Policy
+      information, as described in this document, constitutes a risk to
+      confidentiality of mission-critical or commercially sensitive
+      information about the network (more specifically endpoint/node
+      addresses, SR SIDs, and the SR Policies deployed). BGP peerings are not
+      automatic and require configuration; thus, it is the responsibility of
+      the network operator to ensure that only trusted nodes (that include
+      both routers and controller applications) within the SR domain are
+      configured to receive such information.</t>
+    </section>
+    <section anchor="Manageability" numbered="true" toc="default">
+      <name>Manageability Considerations</name>
+      <t>The specification of BGP models is an ongoing work based on <xref target="I-D.ietf-idr-bgp-model" format="default"/>; its future extensions are expected
+      to cover the SR Policy SAFI. Existing BGP operational procedures also
+      apply to the SAFI specified in this document. The management,
+      operations, and monitoring of BGP speakers and the SR Policy SAFI
+      sessions between them are not very different from other BGP sessions and
+      can be managed using the same data models.</t>
+      <t>The YANG data model for the operation and management of SR Policies <xref target="I-D.ietf-spring-sr-policy-yang" format="default"/> reports the SR Policies
+      provisioned via BGP SR Policy SAFI along with their operational
+      states.</t>
+    </section>
+ 
+  </middle>
+  <back>
+
+    <displayreference target="I-D.ietf-idr-bgp-model" to="BGP-YANG-MODEL"/>
+    <displayreference target="I-D.ietf-idr-bgp-ls-sr-policy" to="BGP-LS-SR-POLICY"/>
+ <displayreference target="I-D.ietf-spring-sr-policy-yang" to="SR-POLICY-YANG"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1997.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2545.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5462.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4760.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4271.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6286.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4360.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7606.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3032.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9012.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8402.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8660.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8754.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9256.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8986.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4272.xml"/>
+
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-idr-bgp-model.xml"/>
+
+
+
+<reference anchor="I-D.ietf-idr-bgp-ls-sr-policy" target="https://datatracker.ietf.org/doc/html/draft-ietf-idr-bgp-ls-sr-policy-17">
+   <front>
+      <title>Advertisement of Segment Routing Policies using BGP Link-State</title>
+      <author initials="S." surname="Previdi" fullname="Stefano Previdi">
+         <organization>Individual</organization>
+      </author>
+      <author initials="K." surname="Talaulikar" fullname="Ketan Talaulikar" role="editor">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="J." surname="Dong" fullname="Jie Dong">
+         <organization>Huawei Technologies</organization>
+      </author>
+      <author initials="H." surname="Gredler" fullname="Hannes Gredler">
+         <organization>RtBrick Inc.</organization>
+      </author>
+      <author initials="J." surname="Tantsura" fullname="Jeff Tantsura">
+         <organization>Nvidia</organization>
+      </author>
+      <date month="March" day="6" year="2025" />
+   </front>
+   <seriesInfo name="Internet-Draft" value="draft-ietf-idr-bgp-ls-sr-policy-17" />
+   
+</reference>
+
+
+<reference anchor="I-D.ietf-spring-sr-policy-yang" target="https://datatracker.ietf.org/doc/html/draft-ietf-spring-sr-policy-yang-05">
+   <front>
+      <title>YANG Data Model for Segment Routing Policy</title>
+      <author initials="K." surname="Raza" fullname="Syed Kamran Raza" role="editor">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="T." surname="Saleh" fullname="Tarik Saleh">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="Z." surname="Shunwan" fullname="Zhuang Shunwan">
+         <organization>Huawei Technologies</organization>
+      </author>
+      <author initials="D." surname="Voyer" fullname="Daniel Voyer">
+         <organization>Bell Canada</organization>
+      </author>
+      <author initials="M." surname="Durrani" fullname="Muhammad Durrani">
+         <organization>Equinix</organization>
+      </author>
+      <author initials="S." surname="Matsushima" fullname="Satoru Matsushima">
+         <organization>SoftBank</organization>
+      </author>
+      <author initials="V." surname="Beeram" fullname="Vishnu Pavan Beeram">
+         <organization>Juniper Networks</organization>
+      </author>
+      <date month="May" day="25" year="2025" />
+   </front>
+   <seriesInfo name="Internet-Draft" value="draft-ietf-spring-sr-policy-yang-05" />
+   
+</reference>
+
+
+
+<reference anchor="RFC9831" target="https://www.rfc-editor.org/info/rfc9831">
+   <front>
+      <title>Segment Type Extensions for BGP Segment Routing (SR) Policy</title>
+      <author initials="K." surname="Talaulikar" fullname="Ketan Talaulikar" role="editor">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="C." surname="Filsfils" fullname="Clarence Filsfils">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="S." surname="Previdi" fullname="Stefano Previdi">
+         <organization>Huawei Technologies</organization>
+      </author>
+      <author initials="P." surname="Mattes" fullname="Paul Mattes">
+         <organization>Microsoft</organization>
+      </author>
+      <author initials="D." surname="Jain" fullname="Dhanendra Jain">
+         <organization>Google</organization>
+      </author>
+      <date month="September" year="2025" />
+   </front>
+   <seriesInfo name="RFC" value="9831" />
+   <seriesInfo name='DOI' value='10.17487/RFC9831'/>
+   
+</reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4456.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6952.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9552.xml"/>
+      </references>
+    </references>
+
+    <section numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>The authors of this document would like to thank <contact
+      fullname="Shyam Sethuram"/>, <contact fullname="John Scudder"/>,
+      <contact fullname="Przemyslaw Krol"/>, <contact fullname="Alex
+id      Bogdanov"/>, <contact fullname="Nandan Saha"/>, <contact fullname="Bruno
+      Decraene"/>, <contact fullname="Gurusiddesh Nidasesi"/>, <contact
+      fullname="Kausik Majumdar"/>, <contact fullname="Zafar Ali"/>, <contact
+      fullname="Swadesh Agarwal"/>, <contact fullname="Jakob Heitz"/>,
+      <contact fullname="Viral Patel"/>, <contact fullname="Peng Shaofu"/>,
+      <contact fullname="Cheng Li"/>, <contact fullname="Martin Vigoureux"/>,
+      <contact fullname="John Scudder"/>, <contact fullname="Vincent Roca"/>,
+      <contact fullname="Brian Haberman"/>, <contact fullname="Mohamed
+      Boucadair"/>, <contact fullname="Shunwan Zhuang"/>, <contact
+      fullname="Andrew Alston"/>, <contact fullname="Jeffrey (Zhaohui)
+      Zhang"/>, <contact fullname="Nagendra Nainar"/>, <contact
+      fullname="Rajesh Melarcode Venkateswaran"/>, <contact fullname="Nat
+      Kao"/>, <contact fullname="Boris Hassanov"/>, <contact fullname="Vincent
+      Roca"/>, <contact fullname="Russ Housley"/>, and <contact fullname="Dan
+      Romascanu"/> for their comments and review of this document. The authors
+      would like to thank <contact fullname="Susan Hares"/> for her detailed
+      shepherd review that helped in improving the document.</t>
+    </section>
+    <section anchor="Contributors" numbered="false" toc="default">
+      <name>Contributors</name>
+
+    <contact fullname="Eric Rosen">
+      <organization>Juniper Networks</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>erosen@juniper.net</email>
+      </address>
+    </contact>
+
+    <contact fullname="Arjun Sreekantiah">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>asreekan@cisco.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Acee Lindem">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>acee@cisco.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Siva Sivabalan">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>msiva@cisco.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Imtiyaz Mohammad">
+      <organization>Arista Networks</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>imtiyaz@arista.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Gaurav Dawra">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>gdawra.ietf@gmail.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Peng Shaofu">
+      <organization>ZTE Corporation</organization>
+      <address>
+        <postal>
+          <country>China</country>
+        </postal>
+        <email>peng.shaofu@zte.com.cn</email>
+      </address>
+    </contact>
+
+    <contact fullname="Steven Lin">
+      <organization>Calix</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>steven.lin@calix.com</email>
+      </address>
+    </contact>
+
+    </section>
+  </back>
+</rfc>

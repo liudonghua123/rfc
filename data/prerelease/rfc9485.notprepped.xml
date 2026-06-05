@@ -1,0 +1,486 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-jsonpath-iregexp-08" number="9485" submissionType="IETF" category="std" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" updates="" obsoletes="" xml:lang="en" version="3">
+
+
+  
+  <front>
+    <title abbrev="I-Regexp">I-Regexp: An Interoperable Regular Expression Format</title>
+    <seriesInfo name="RFC" value="9485"/>
+    <author initials="C." surname="Bormann" fullname="Carsten Bormann">
+      <organization>Universität Bremen TZI</organization>
+      <address>
+        <postal>
+          <street>Postfach 330440</street>
+          <city>Bremen</city>
+          <code>D-28359</code>
+          <country>Germany</country>
+        </postal>
+        <phone>+49-421-218-63921</phone>
+        <email>cabo@tzi.org</email>
+      </address>
+    </author>
+    <author initials="T." surname="Bray" fullname="Tim Bray">
+      <organization>Textuality</organization>
+      <address>
+        <postal>
+          <country>Canada</country>
+        </postal>
+        <email>tbray@textuality.com</email>
+      </address>
+    </author>
+    <date year="2023" month="October"/>
+    <area>art</area>
+    <workgroup>jsonpath</workgroup>
+
+<keyword>Regexp</keyword>
+<keyword>Regex</keyword>
+
+    <abstract>
+
+<t>This document specifies I-Regexp, a flavor of regular expression that is
+limited in scope with the goal of interoperation across many different
+regular expression libraries.</t>
+    </abstract>
+
+  </front>
+  <middle>
+
+<section anchor="intro">
+      <name>Introduction</name>
+      <t>This specification describes an interoperable regular expression (abbreviated as "regexp") flavor, I-Regexp.</t>
+      <t>I-Regexp does not provide advanced regular expression features such as capture groups, lookahead, or backreferences.
+It supports only a Boolean matching capability, i.e., testing whether a given regular expression matches a given piece of text.</t>
+      <t>I-Regexp supports the entire repertoire of Unicode characters (Unicode
+scalar values); both the I-Regexp strings themselves and the strings
+they are matched against are sequences of Unicode scalar values (often
+represented in UTF-8 encoding form <xref target="STD63"/> for interchange).</t>
+      <t>I-Regexp is a subset of XML Schema Definition (XSD) regular expressions <xref target="XSD-2"/>.</t>
+      <t>This document includes guidance for converting I-Regexps for use with several well-known regular expression idioms.</t>
+      <t>The development of I-Regexp was motivated by the work of the JSONPath Working Group (WG). The WG wanted to include support for the use of regular expressions in JSONPath filters 
+in its specification <xref target="I-D.ietf-jsonpath-base"/>, but was unable to find a useful
+specification for regular expressions that would be interoperable across the popular libraries.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <t>This document uses the abbreviation "regexp" for what is usually
+called a "regular expression" in programming.
+The term "I-Regexp" is used as a noun meaning a character string (sequence of
+Unicode scalar values) that conforms to the requirements
+in this specification; the plural is "I-Regexps".</t>
+        <t>This specification uses Unicode terminology; a good entry point is provided by <xref target="UNICODE-GLOSSARY"/>.</t>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+<t>The grammatical rules in this document are to be interpreted as ABNF,
+as described in <xref target="RFC5234"/> and <xref target="RFC7405"/>, where the "characters" of
+<xref section="2.3" sectionFormat="of" target="RFC5234"/> are Unicode scalar values.</t>
+      </section>
+    </section>
+    <section anchor="objectives">
+      <name>Objectives</name>
+      <t>I-Regexps should handle the vast majority of practical cases where a
+matching regexp is needed in a data-model specification or a query-language expression.</t>
+      <t>At the time of writing, an editor of this document conducted a survey of the regexp syntax
+used in recently published RFCs. All examples found there should be covered by I-Regexps,
+both syntactically and with their intended semantics.
+The exception is the use of multi-character escapes, for which
+workaround guidance is provided in <xref target="mapping"/>.</t>
+    </section>
+    <section anchor="defn">
+      <name>I-Regexp Syntax</name>
+      <t>An I-Regexp <bcp14>MUST</bcp14> conform to the ABNF specification in
+<xref target="iregexp-abnf"/>.</t>
+      <figure anchor="iregexp-abnf">
+        <name>I-Regexp Syntax in ABNF</name>
+        <sourcecode type="abnf"><![CDATA[
+i-regexp = branch *( "|" branch )
+branch = *piece
+piece = atom [ quantifier ]
+quantifier = ( "*" / "+" / "?" ) / range-quantifier
+range-quantifier = "{" QuantExact [ "," [ QuantExact ] ] "}"
+QuantExact = 1*%x30-39 ; '0'-'9'
+
+atom = NormalChar / charClass / ( "(" i-regexp ")" )
+NormalChar = ( %x00-27 / "," / "-" / %x2F-3E ; '/'-'>'
+ / %x40-5A ; '@'-'Z'
+ / %x5E-7A ; '^'-'z'
+ / %x7E-D7FF ; skip surrogate code points
+ / %xE000-10FFFF )
+charClass = "." / SingleCharEsc / charClassEsc / charClassExpr
+SingleCharEsc = "\" ( %x28-2B ; '('-'+'
+ / "-" / "." / "?" / %x5B-5E ; '['-'^'
+ / %s"n" / %s"r" / %s"t" / %x7B-7D ; '{'-'}'
+ )
+charClassEsc = catEsc / complEsc
+charClassExpr = "[" [ "^" ] ( "-" / CCE1 ) *CCE1 [ "-" ] "]"
+CCE1 = ( CCchar [ "-" CCchar ] ) / charClassEsc
+CCchar = ( %x00-2C / %x2E-5A ; '.'-'Z'
+ / %x5E-D7FF ; skip surrogate code points
+ / %xE000-10FFFF ) / SingleCharEsc
+catEsc = %s"\p{" charProp "}"
+complEsc = %s"\P{" charProp "}"
+charProp = IsCategory
+IsCategory = Letters / Marks / Numbers / Punctuation / Separators /
+    Symbols / Others
+Letters = %s"L" [ ( %s"l" / %s"m" / %s"o" / %s"t" / %s"u" ) ]
+Marks = %s"M" [ ( %s"c" / %s"e" / %s"n" ) ]
+Numbers = %s"N" [ ( %s"d" / %s"l" / %s"o" ) ]
+Punctuation = %s"P" [ ( %x63-66 ; 'c'-'f'
+ / %s"i" / %s"o" / %s"s" ) ]
+Separators = %s"Z" [ ( %s"l" / %s"p" / %s"s" ) ]
+Symbols = %s"S" [ ( %s"c" / %s"k" / %s"m" / %s"o" ) ]
+Others = %s"C" [ ( %s"c" / %s"f" / %s"n" / %s"o" ) ]
+]]></sourcecode>
+      </figure>
+      <t>As an additional restriction, <tt>charClassExpr</tt> is not allowed to
+match <tt>[^]</tt>, which, according to this grammar, would parse as a
+positive character class containing the single character <tt>^</tt>.</t>
+<t>This is essentially an XSD regexp without:</t>
+<ul><li>character class
+subtraction,</li>
+<li>multi-character escapes such as <tt>\s</tt>,
+<tt>\S</tt>, and <tt>\w</tt>, and </li><li>Unicode blocks.</li></ul>
+
+      <t>An I-Regexp implementation <bcp14>MUST</bcp14> be a complete implementation of this
+limited subset.
+In particular, full support for the Unicode functionality defined in
+      this specification is <bcp14>REQUIRED</bcp14>. The implementation:</t>
+      <ul><li>
+<bcp14>MUST NOT</bcp14> limit itself to 7- or 8-bit character sets such as ASCII, and</li>
+<li><bcp14>MUST</bcp14> support the Unicode character property set in character classes.</li></ul>
+      <section anchor="checking">
+        <name>Checking Implementations</name>
+	
+        <t>A <em>checking</em> I-Regexp implementation is one that checks a supplied
+regexp for compliance with this specification and reports any problems.
+Checking implementations give their users confidence that they didn't
+accidentally insert syntax that is not interoperable, so checking is <bcp14>RECOMMENDED</bcp14>.
+Exceptions to this rule may be made for low-effort implementations
+that map I-Regexp to another regexp library by simple steps such as
+performing the mapping operations discussed in <xref target="mapping"/>.  Here, the
+effort needed to do full checking might dwarf the rest of the
+implementation effort.
+Implementations <bcp14>SHOULD</bcp14> document whether or not they are checking.</t>
+        <t>Specifications that employ I-Regexp may want to define in which
+cases their implementations can work with a non-checking I-Regexp
+implementation and when full checking is needed, possibly in the
+process of defining their own implementation classes.</t>
+      </section>
+    </section>
+    <section anchor="i-regexp-semantics">
+      <name>I-Regexp Semantics</name>
+      <t>This syntax is a subset of that of <xref target="XSD-2"/>.
+Implementations that interpret I-Regexps <bcp14>MUST</bcp14>
+yield Boolean results as specified in <xref target="XSD-2"/>.
+(See also <xref target="xsd-regexps"/>.)</t>
+    </section>
+    <section anchor="mapping">
+      <name>Mapping I-Regexp to Regexp Dialects</name>
+      <t>The material in this section is not normative; it is provided as guidance
+to developers who want to use I-Regexps in the context of other
+regular expression dialects.</t>
+      <section anchor="multi-character-escapes">
+        <name>Multi-Character Escapes</name>
+        <t>I-Regexp does not support common multi-character escapes (MCEs) and character classes built around them.  These can usually
+be replaced as shown by the examples in <xref target="tbl-sub"/>.</t>
+        <table anchor="tbl-sub" align="center">
+          <name>Example Substitutes for Multi-Character Escapes</name>
+          <thead>
+            <tr>
+              <th align="left">MCE/class:</th>
+              <th align="left">Replace with:</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>\S</tt></td>
+              <td align="left">
+                <tt>[^ \t\n\r]</tt></td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>[\S ]</tt></td>
+              <td align="left">
+                <tt>[^\t\n\r]</tt></td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>\d</tt></td>
+              <td align="left">
+                <tt>[0-9]</tt></td>
+            </tr>
+          </tbody>
+        </table>
+        <t>Note that the semantics of <tt>\d</tt> in XSD regular expressions
+        is that of <tt>\p{Nd}</tt>; however, this would include all Unicode
+        characters that are digits in various writing systems, which is almost
+        certainly not what is required in IETF publications.</t>
+        <t>The construct <tt>\p{IsBasicLatin}</tt> is essentially a reference to legacy
+ASCII; it can be replaced by the character class <tt>[\u0000-\u007f]</tt>.</t>
+      </section>
+      <section anchor="xsd-regexps">
+        <name>XSD Regexps</name>
+        <t>Any I-Regexp is also an XSD regexp <xref target="XSD-2"/>, so the mapping is an identity
+	function.</t>
+	
+        <t>Note that a few errata for <xref target="XSD-2"/> have been fixed in <xref target="XSD-1.1-2"/>; therefore, it
+is also included in the <xref target="norm">Normative References</xref>.
+XSD 1.1 is less widely implemented than XSD 1.0, and implementations
+of XSD 1.0 are likely to include these bugfixes; for the intents
+and purposes of this specification, an implementation of XSD 1.0
+regexps is equivalent to an implementation of XSD 1.1 regexps.</t>
+      </section>
+      <section anchor="toESreg">
+        <name>ECMAScript Regexps</name>
+        <t>Perform the following steps on an I-Regexp to obtain an ECMAScript
+regexp <xref target="ECMA-262"/>:</t>
+        <ul spacing="normal">
+          <li>For any unescaped dots (<tt>.</tt>) outside character classes
+          (first alternative of <tt>charClass</tt> production), replace the dot with
+          <tt>[^\n\r]</tt>.</li>
+          <li>Envelope the result in <tt>^(?:</tt> and <tt>)$</tt>.</li>
+        </ul>
+        <t>The ECMAScript regexp is to be interpreted as a Unicode pattern ("u"
+flag; see Section 21.2.2 "Pattern Semantics" of <xref target="ECMA-262"/>).</t>
+        <t>Note that where a regexp literal is required,
+the actual regexp needs to be enclosed in <tt>/</tt>.</t>
+      </section>
+      <section anchor="pcre-re2-ruby-regexps">
+        <name>PCRE, RE2, and Ruby Regexps</name>
+
+	
+        <t>To obtain a valid regexp in Perl Compatible Regular Expressions
+   (PCRE) <xref target="PCRE2"/>, the Go programming language's RE2 regexp library <xref target="RE2"/>, and the Ruby
+programming language, perform the same steps as in <xref target="toESreg"/>, except that the last step is:</t>
+        <ul spacing="normal">
+          <li>Enclose the regexp in <tt>\A(?:</tt> and <tt>)\z</tt>.</li>
+        </ul>
+      </section>
+    </section>
+    
+    <section anchor="background">
+      <name>Motivation and Background</name>
+      <t>While regular expressions originally were intended to describe a
+formal language to support a Boolean matching function, they
+have been enhanced with parsing functions that support the extraction
+and replacement of arbitrary portions of the matched text. With this
+accretion of features, parsing-regexp libraries have become
+more susceptible to bugs and surprising performance degradations that
+can be exploited in denial-of-service attacks by
+an attacker who controls the regexp submitted for
+processing. I-Regexp is designed to offer interoperability and to be
+less vulnerable to such attacks, with the trade-off that its only
+function is to offer a Boolean response as to whether a character
+sequence is matched by a regexp.</t>
+      <section anchor="subsetting">
+        <name>Implementing I-Regexp</name>
+        <t>XSD regexps are relatively easy to implement or map to widely
+implemented parsing-regexp dialects, with these notable
+exceptions:</t>
+        <ul spacing="normal">
+          <li>Character class subtraction.  This is a very useful feature in
+          many specifications, but it is unfortunately mostly absent from
+          parsing-regexp dialects. Thus, it is omitted from I-Regexp.</li>
+          <li>Multi-character escapes.  <tt>\d</tt>, <tt>\w</tt>, <tt>\s</tt>
+          and their uppercase complement classes exhibit a large amount of
+          variation between regexp flavors.  Thus, they are omitted from
+          I-Regexp.</li>
+          <li>Not all regexp implementations support access to Unicode
+          tables that enable executing constructs such as <tt>\p{Nd}</tt>,
+          although the <tt>\p</tt>/<tt>\P</tt> feature in general is now quite
+          widely available. While, in principle, it is possible to translate
+          these into character-class matches, this also requires access to
+          those tables. Thus, regexp libraries in severely constrained
+          environments may not be able to support I-Regexp conformance.</li>
+        </ul>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>While technically out of the scope of this specification, Section <xref target="RFC3629" section="10" sectionFormat="bare"> "Security Considerations"</xref> of RFC 3629 <xref target="STD63"/> applies to implementations.
+Particular note needs to be taken of the last paragraph of Section <xref target="RFC3629" section="3" sectionFormat="bare"> "UTF-8 definition" </xref> of RFC 3629 <xref target="STD63"/>; an I-Regexp implementation may need to
+mitigate limitations of the platform implementation in this regard.</t>
+      <t>As discussed in <xref target="background"/>, more complex regexp libraries may
+contain exploitable bugs, which can lead to crashes and remote code
+execution.  There is also the problem that such libraries often have
+performance characteristics that are hard to predict, leading to attacks
+that overload an implementation by matching against an expensive
+attacker-controlled regexp.</t>
+      <t>I-Regexps have been designed to allow implementation in a way that is
+resilient to both threats; this objective needs to be addressed
+throughout the implementation effort. Non-checking implementations (see <xref target="checking"/>) are likely to expose
+security limitations of any regexp engine they use, which may be less
+problematic if that engine has been built with security considerations
+in mind (e.g., <xref target="RE2"/>).  In any case, a checking implementation is still <bcp14>RECOMMENDED</bcp14>.</t>
+      <t>Implementations that specifically implement the I-Regexp subset can,
+with care, be designed to generally run in linear time and space in
+the input and to detect when that would not be the case (see below).</t>
+      <t>Existing regexp engines should be able to easily handle most I-Regexps
+(after the adjustments discussed in <xref target="mapping"/>), but may consume
+excessive resources for some types of I-Regexps or outright reject
+them because they cannot guarantee efficient execution.
+(Note that different versions of the same regexp library may be more or
+      less vulnerable to excessive resource consumption for these cases.)</t>
+      
+      <t>Specifically, range quantifiers (as in <tt>a{2,4}</tt>) provide particular
+challenges for both existing and I-Regexp focused implementations.
+Implementations may therefore limit range quantifiers in composability
+(disallowing nested range quantifiers such as <tt>(a{2,4}){2,4}</tt>) or
+range (disallowing very large ranges such as <tt>a{20,200000}</tt>), or detect
+and reject any excessive resource consumption caused by range quantifiers.</t>
+      <t>I-Regexp implementations that are used to evaluate regexps from
+untrusted sources need to be robust in these cases.
+Implementers using existing regexp libraries are encouraged:</t>
+
+<ul>
+  <li>to check
+their documentation to see if mitigations are configurable, such as
+  limits in resource consumption, and</li>
+  <li>to document their own degree of
+robustness resulting from employing such mitigations.</li></ul>
+    </section>
+  </middle>
+  <back>
+
+    <displayreference target="I-D.ietf-jsonpath-base" to="JSONPATH-BASE"/>
+
+    <references>
+      <name>References</name>
+      <references anchor="norm">
+        <name>Normative References</name>
+
+        <reference anchor="XSD-2" target="https://www.w3.org/TR/2004/REC-xmlschema-2-20041028/">
+          <front>
+            <title>XML Schema Part 2: Datatypes Second Edition</title>
+            <author fullname="Paul Biron" role="editor"/>
+            <author fullname="Ashok Malhotra" role="editor"/>
+            <date day="28" month="October" year="2004"/>
+          </front>
+          <seriesInfo name="W3C REC" value="REC-xmlschema-2-20041028"/>
+          <seriesInfo name="W3C" value="REC-xmlschema-2-20041028"/>
+        </reference>
+
+        <reference anchor="XSD-1.1-2" target="https://www.w3.org/TR/2012/REC-xmlschema11-2-20120405/">
+          <front>
+            <title>W3C XML Schema Definition Language (XSD) 1.1 Part 2: Datatypes</title>
+            <author fullname="David Peterson" role="editor"/>
+            <author fullname="Shudi Gao" role="editor"/>
+            <author fullname="Ashok Malhotra" role="editor"/>
+            <author fullname="C. M. Sperberg-McQueen" role="editor"/>
+            <author fullname="Henry Thompson" role="editor"/>
+            <author fullname="Paul Biron" role="editor"/>
+            <date day="5" month="April" year="2012"/>
+          </front>
+          <seriesInfo name="W3C REC" value="REC-xmlschema11-2-20120405"/>
+          <seriesInfo name="W3C" value="REC-xmlschema11-2-20120405"/>
+        </reference>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7405.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+<referencegroup anchor="STD63" target="https://www.rfc-editor.org/info/std63">
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3629.xml"/>
+</referencegroup>
+
+<!-- [I-D.ietf-jsonpath-base] Edit state as of 10/9/23; long form to include "Ed." roles.  -->
+
+<reference anchor="I-D.ietf-jsonpath-base" target="https://datatracker.ietf.org/doc/html/draft-ietf-jsonpath-base-20">
+<front>
+<title>JSONPath: Query expressions for JSON</title>
+<author initials="S." surname="Gössner" fullname="Stefan Gössner" role="editor">
+<organization>Fachhochschule Dortmund</organization>
+</author>
+<author initials="G." surname="Normington" fullname="Glyn Normington" role="editor"> 
+</author>
+<author initials="C." surname="Bormann" fullname="Carsten Bormann" role="editor">
+<organization>Universität Bremen TZI</organization>
+</author>
+<date month="August" day="25" year="2023"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-ietf-jsonpath-base-20"/>
+</reference>
+
+        <reference anchor="UNICODE-GLOSSARY" target="https://unicode.org/glossary/">
+          <front>
+            <title>Glossary of Unicode Terms</title>
+            <author>
+              <organization>Unicode, Inc.</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+
+
+        <reference anchor="RE2" target="https://github.com/google/re2">
+          <front>
+            <title>RE2 is a fast, safe, thread-friendly alternative to
+            backtracking regular expression engines like those used in PCRE,
+            Perl, and Python. It is a C++ library.</title>
+            <author>
+              <organization/>
+            </author>
+          </front>
+	  <refcontent>commit 73031bb</refcontent>
+        </reference>
+
+        <reference anchor="PCRE2" target="http://pcre.org/current/doc/html/">
+          <front>
+            <title>Perl-compatible Regular Expressions (revised API: PCRE2)</title>
+            <author>
+              <organization/>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="ECMA-262" target="https://www.ecma-international.org/wp-content/uploads/ECMA-262.pdf">
+          <front>
+            <title>ECMAScript 2020 Language Specification</title>
+            <author>
+              <organization>Ecma International</organization>
+            </author>
+            <date year="2020" month="June"/>
+          </front>
+          <refcontent>Standard ECMA-262, 11th Edition</refcontent>
+        </reference>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7493.xml"/>
+
+      </references>
+    </references>
+
+    <section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t>Discussion in the IETF
+      JSONPATH WG about whether to include a regexp mechanism into the
+      JSONPath query expression specification and previous
+      discussions about the YANG <tt>pattern</tt> and Concise Data
+   Definition Language (CDDL) <tt>.regexp</tt>
+      features motivated this specification.</t>
+      <t>The basic approach for this specification was inspired by "<xref
+      target="RFC7493" format="title"></xref>" <xref target="RFC7493" format="default"/>.</t>
+    </section>
+  </back>
+</rfc>

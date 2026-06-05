@@ -1,0 +1,2289 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-lsr-flex-algo-26" number="9350" ipr="trust200902"
+obsoletes="" updates="" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.15.1 -->
+  <front>
+    <title abbrev="IGP Flexible Algorithm">IGP Flexible Algorithm</title>
+    <seriesInfo name="RFC" value="9350"/>
+    <author fullname="Peter Psenak" initials="P." role="editor" surname="Psenak">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+          <extaddr>Apollo Business Center</extaddr>
+          <street>Mlynske nivy 43</street>
+          <city>Bratislava</city>
+          <code>82109</code>
+          <country>Slovakia</country>
+          <code/>
+        </postal>
+        <email>ppsenak@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Shraddha Hegde" initials="S" surname="Hegde">
+      <organization>Juniper Networks, Inc.</organization>
+      <address>
+        <postal>
+          <extaddr>Embassy Business Park</extaddr>
+          <street/>
+          <city>Bangalore</city>
+	  <region>KA</region>
+          <code>560093</code>
+          <country>India</country>
+          <code/>
+        </postal>
+        <email>shraddha@juniper.net</email>
+      </address>
+    </author>
+    <author fullname="Clarence Filsfils" initials="C." surname="Filsfils">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+          <street/>
+          <city>Brussels</city>
+          <region/>
+          <code/>
+          <country>Belgium</country>
+        </postal>
+        <email>cfilsfil@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Ketan Talaulikar" initials="K." surname="Talaulikar">
+      <organization>Cisco Systems, Inc</organization>
+      <address>
+        <postal>
+          <street/>
+          <city/>
+          <code/>
+          <country>India</country>
+        </postal>
+        <email>ketant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Arkadiy Gulko" initials="A." surname="Gulko">
+      <organization>Edward Jones</organization>
+      <address>
+        <postal>
+          <street/>
+          <city/>
+          <region/>
+          <code/>
+          <country/>
+        </postal>
+        <email>arkadiy.gulko@edwardjones.com</email>
+      </address>
+    </author>
+    <date year="2023" month="February"/>
+     <area>rtg</area>
+     <workgroup>lsr</workgroup>
+         <abstract>
+      <t>IGP protocols historically compute the best paths over the network based
+      on the IGP metric assigned to the links. Many network deployments use
+      RSVP-TE or Segment Routing - Traffic Engineering (SR-TE) to steer
+      traffic over a path that is computed using different metrics or
+      constraints than the shortest IGP path. This document specifies a
+      solution that allows IGPs themselves to compute constraint-based paths
+      over the network. This document also specifies a way of using Segment
+      Routing (SR) Prefix-SIDs and SRv6 locators to steer packets along the
+      constraint-based paths.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>An IGP-computed path based on the shortest IGP metric is often
+      replaced by a traffic-engineered path due to requirements
+      that are not reflected by the IGP metric. Some networks engineer the
+      IGP metric assignments in a way that the IGP metric reflects the link
+      bandwidth or delay. If, for example, the IGP metric reflects the
+      bandwidth on the link and user traffic is delay sensitive,
+      the best IGP path may not reflect the best path from such a user's perspective.</t>
+      <t>To overcome this limitation, various sorts of Traffic Engineering
+      have been deployed, including RSVP-TE and SR-TE, in which case the TE
+      component is responsible for computing paths based on additional metrics
+      and/or constraints. Such paths need to be installed in the forwarding
+      tables in addition to, or as a replacement for, the original paths
+      computed by IGPs. Tunnels are often used to represent the engineered
+      paths and mechanisms, like the one described in <xref target="RFC3906"
+      format="default"/>, and are
+      used to replace the original IGP paths with such tunnel paths.</t>
+      <t>This document specifies a set of extensions to IS-IS, OSPFv2, and
+      OSPFv3 that enable a router to advertise TLVs that (a) identify a
+      calculation-type, (b) specify a metric-type, and (c) describe a set of
+      constraints on the topology that are to be used to compute the best
+      paths along the constrained topology. A given combination of
+      calculation-type, metric-type, and constraints is known as a "Flexible
+      Algorithm Definition". A router that sends such a set of TLVs also
+      assigns a Flex-Algorithm value to the specified combination of
+      calculation-type, metric-type, and constraints.</t>
+      <t>This document also specifies a way for a router to use IGPs to
+      associate one or more Segment Routing with the MPLS Data Plane (SR-MPLS)
+      Prefix-SIDs <xref target="RFC8660" format="default"/> or Segment Routing over IPv6 (SRv6) 
+      locators <xref target="RFC8986" format="default"/> with a particular Flex-Algorithm. Each 
+      such Prefix-SID or SRv6 locator then represents a path that is computed 
+      according to the identified Flex-Algorithm. In SRv6, it is the locator, not the Segment Identifier (SID),
+      that holds the binding to the algorithm.</t>
+    </section>
+    <section anchor="reqlang" numbered="true" toc="default">
+      <name>Requirements Language</name>
+      <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+      "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>", "<bcp14>MAY</bcp14>", and
+      "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as described in BCP 14
+      <xref target="RFC2119" format="default"/> <xref target="RFC8174" format="default"/> when, and only when,
+      they appear in all capitals, as shown here.</t>
+    </section>
+    <section anchor="TERMINOLOGY" numbered="true" toc="default">
+      <name>Terminology</name>
+      <t>This section defines terms that are often used in this document.</t>
+      <dl newline="false" spacing="normal">      
+	<dt>Flexible Algorithm Definition (FAD):</dt>
+	<dd>the set consisting of (a) a
+      calculation-type, (b) a metric-type, and (c) a set of constraints.</dd>
+	<dt>Flex-Algorithm:</dt>
+	<dd>a numeric identifier in the range 128-255 that
+	is associated via configuration with the Flexible Algorithm
+	Definition.</dd>
+	<dt>Flexible Algorithm Participation:</dt>
+	<dd>per the data plane configuration
+	state that expresses whether the node is participating in a particular
+	Flexible Algorithm. Not all routers in a given network need to participate 
+	in a given Flexible Algorithm. The Flexible Algorithm(s) that a given router 
+  	participates in is determined by configuration.</dd>
+	<dt>IGP Algorithm:</dt>
+	<dd>value from the IANA "IGP Algorithm Types" registry
+	defined under the "Interior Gateway Protocol (IGP) Parameters"
+	registry group. IGP Algorithms represent the triplet (calculation-type,
+	metric-type, and constraints), where the second and third elements of the triplet
+	<bcp14>MAY</bcp14> be unspecified.</dd>
+	<dt>ABR:</dt>
+	<dd>Area Border Router. In IS-IS terminology, it is also known as the
+	Level 1 (L1) / Level 2 (L2) router.</dd>
+	<dt>ASBR:</dt>
+	<dd>Autonomous System Border Router.</dd>
+      </dl>
+    </section>
+    <section anchor="FLEXALG" numbered="true" toc="default">
+      <name>Flexible Algorithm</name>
+      <t>Many possible constraints may be used to compute a path over a
+      network. Some networks are deployed as multiple planes. A simple form of
+      constraint may be to use a particular plane. A more sophisticated form
+      of constraint can include some extended metric, as described in <xref target="RFC8570" format="default"/>. Constraints that restrict paths to links with
+      specific affinities or avoid links with specific affinities are also
+      possible. Combinations of these are also possible.</t>
+      <t>To provide maximum flexibility, a mechanism is provided that
+      allows a router to identify a particular calculation-type and
+      metric-type, describe a particular set of constraints, and
+      assign a numeric identifier, referred to as Flex-Algorithm, to the
+      combination of that calculation-type, metric-type, and those
+      constraints. The mapping between the Flex-Algorithm and its
+      meaning is flexible and defined by the user. As long as all routers
+      in the domain have a common understanding as to what a particular
+      Flex-Algorithm represents, the resulting routing computation is
+      consistent and traffic is not subject to any looping.</t>
+      <t>The set consisting of (a) a calculation-type, (b) a metric-type, and (c)
+      a set of constraints is referred to as a Flexible Algorithm
+      Definition.</t>
+      <t>The Flex-Algorithm is a numeric identifier in the range 128-255 that
+      is associated via configuration with the Flexible Algorithm
+      Definition.</t>
+      <t>The IANA "IGP Algorithm Types" registry defines the set of values for IGP
+      Algorithms. The following values are allocated by IANA from this registry for
+      Flex-Algorithms: </t>
+      <t indent="3">128-255 - Flex-Algorithms</t>
+    </section>
+    <section anchor="FLEXALGDEF" numbered="true" toc="default">
+      <name>Flexible Algorithm Definition Advertisement</name>
+      <t>To guarantee loop-free forwarding for paths computed for a
+      particular Flex-Algorithm, all routers that (a) are configured to
+      participate in a particular Flex-Algorithm and (b) are in the same
+      Flex-Algorithm Definition advertisement scope <bcp14>MUST</bcp14> agree on the
+      definition of the Flex-Algorithm. The following procedures
+  	  ensure this condition is fulfilled.</t>
+      <section anchor="ISISFLEXALGTLV" numbered="true" toc="default">
+        <name>IS-IS Flexible Algorithm Definition Sub-TLV</name>
+        <t>The IS-IS Flexible Algorithm Definition (FAD) sub-TLV is
+        used to advertise the definition of the Flex-Algorithm.</t>
+        <t>The IS-IS FAD sub-TLV is advertised as a sub-TLV of the IS-IS Router
+        CAPABILITY TLV-242, which is defined in <xref target="RFC7981" format="default"/>.</t>
+        <t>The IS-IS FAD sub-TLV has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |Flex-Algorithm |  Metric-Type  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   Calc-Type   |    Priority   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Sub-TLVs                             |
++                                                               +
+|                            ...                                |
+
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	    <dt>where:</dt>
+            <dd><dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>26</dd>
+              <dt>Length:</dt>
+              <dd>variable number of octets, dependent on the included sub-TLVs.</dd>
+              <dt>Flex-Algorithm:</dt>
+              <dd>Flexible Algorithm number. Single octet value between 
+              128 and 255 inclusive.</dd>
+              <dt>Metric-Type:</dt>
+              <dd>
+		<t>type of metric from the IANA "IGP Metric-Type" registry
+		(<xref target="IGPMETRICTYPE" format="default"/>) to be used during the
+		calculation. The following values are defined: </t>
+		<dl newline="false" spacing="normal">
+		  <dt>0:</dt>
+		  <dd>IGP Metric</dd>
+		  <dt>1:</dt>
+		  <dd>Min Unidirectional Link Delay, as defined in <xref target="RFC8570" section="4.2" sectionFormat="of" format="default"/>, encoded as an application-specific link attribute, as specified in <xref target="RFC8919"
+		  format="default"/> and <xref target="FLEXALGLINKATTR"
+		  format="default"/> of this document.</dd>
+		  <dt>2:</dt>
+		  <dd>Traffic Engineering Default Metric, as defined in <xref target="RFC5305" section="3.7" sectionFormat="of" format="default"/>, encoded as an
+		  application-specific link attribute, as specified in <xref
+		  target="RFC8919" format="default"/> and <xref target="FLEXALGLINKATTR"
+		  format="default"/> of this document.</dd>
+		</dl>
+              </dd>
+              <dt>Calc-Type:</dt>
+              <dd>calculation-type. Value from 0-127 inclusive from the IANA "IGP
+              Algorithm Types" registry defined under the "Interior Gateway Protocol
+              (IGP) Parameters" registry. IGP Algorithms in the range of
+              0-127 have a defined triplet (calculation-type, metric-type,
+              constraints). When used to specify the calculation-type in the FAD
+              sub-TLV, only the calculation-type defined for the specified IGP
+              Algorithm is used. The Metric/Constraints <bcp14>MUST NOT</bcp14> be
+	      inherited.
+              If the required calculation-type is Shortest Path First, the value
+              0 <bcp14>MUST</bcp14> appear in this field.</dd>
+              <dt>Priority:</dt>
+              <dd>value between 0 and 255 inclusive that specifies the
+              priority of the advertisement. Numerically greater values are preferred.
+              Usage of the priority is described in <xref target="COMMONLEXALGTLV" format="default"/>.</dd>
+              <dt>Sub-TLVs:</dt>
+              <dd>optional sub-TLVs.</dd>
+	    </dl>
+	    </dd>
+	</dl>
+        <t>The IS-IS FAD sub-TLV <bcp14>MAY</bcp14> be advertised in a Label Switched Path (LSP) of any number. 
+        The IS-IS router <bcp14>MAY</bcp14> advertise more than one IS-IS FAD sub-TLV for a given
+        Flexible Algorithm (see <xref target="ISISFADLTLVS" format="default"/>).</t>
+        <t>The IS-IS FAD sub-TLV has an area/level scope. The Router Capability TLV
+        in which the FAD sub-TLV is present <bcp14>MUST</bcp14> have the S bit clear.</t>
+        <t>An IS-IS L1/L2 router <bcp14>MAY</bcp14> be configured to regenerate the winning FAD
+        from level 2, without any modification to it, to the level 1 area. The
+        regeneration of the FAD sub-TLV from level 2 to level 1 is determined
+        by the L1/L2 router, not by the originator of the FAD advertisement in
+        level 2. In such a case, the regenerated FAD sub-TLV will be
+        advertised in the level 1 Router Capability TLV originated by the
+        L1/L2 router.</t>
+        <t>An L1/L2 router <bcp14>MUST NOT</bcp14> regenerate any FAD sub-TLV from level 1 to
+        level 2.</t>
+      </section>
+      <section anchor="OSPFFLEXALGTLV" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm Definition TLV</name>
+        <t>The OSPF FAD TLV is advertised as a top-level TLV of the Router Information (RI)
+        Link State Advertisement (LSA), which is defined in <xref target="RFC7770" format="default"/>.</t>
+        <t>The OSPF FAD TLV has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Flex-Algorithm |   Metric-Type |   Calc-Type   |    Priority   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                            Sub-TLVs                           |
++                                                               +
+|                               ...                             |
+
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  ]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>16</dd>
+              <dt>Length:</dt>
+              <dd>variable number of octets, dependent on the included sub-TLVs.</dd>
+              <dt>Flex-Algorithm:</dt>
+              <dd>Flexible Algorithm number. Single octet value between 
+              128 and 255 inclusive.</dd>
+              <dt>Metric-Type: </dt>
+              <dd>
+		<t>type of metric from the IANA "IGP Metric-Type" registry
+		(<xref target="IGPMETRICTYPE" format="default"/>) to be used during the
+		calculation. The following values are defined: </t>
+            <dl newline="false" spacing="normal">
+              <dt>0:</dt>
+              <dd>IGP Metric</dd>
+              <dt>1:</dt>
+              <dd>Min Unidirectional Link Delay, as defined in <xref target="RFC7471"
+	      section="4.2" sectionFormat="of" format="default"/>, encoded as an
+	      application-specific link attribute, as specified in <xref target="RFC8920"
+	      format="default"/> and <xref target="FLEXALGLINKATTR" format="default"/> of
+              this document.</dd>
+              <dt>2:</dt>
+              <dd>Traffic Engineering Metric, as defined in <xref target="RFC3630"
+	      section="2.5.5" sectionFormat="of" format="default"/>, encoded as an
+	      application-specific link attribute, as specified in <xref target="RFC8920"
+	      format="default"/> and <xref target="FLEXALGLINKATTR" format="default"/> of
+              this document.</dd>
+            </dl>
+              </dd>
+              <dt>Calc-Type:</dt>
+              <dd>as described in <xref target="ISISFLEXALGTLV" format="default"/>.</dd>
+              <dt>Priority: </dt>
+              <dd>as described in <xref target="ISISFLEXALGTLV" format="default"/>.</dd>
+              <dt>Sub-TLVs:</dt>
+          <dd>optional sub-TLVs.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>When multiple OSPF FAD TLVs, for the same Flexible Algorithm, are
+        received from a given router, the receiver <bcp14>MUST</bcp14> use the first
+        occurrence of the TLV in the RI LSA. If the OSPF FAD
+        TLV, for the same Flex-Algorithm, appears in multiple RI
+        LSAs that have different flooding scopes, the OSPF FAD TLV
+        in the RI LSA with the area-scoped flooding scope <bcp14>MUST</bcp14>
+        be used. If the OSPF FAD TLV, for the same algorithm, appears in
+        multiple RI LSAs that have the same flooding scope,
+        the OSPF FAD TLV in the RI LSA with the
+        numerically smallest Instance ID <bcp14>MUST</bcp14> be used and subsequent
+	instances of the OSPF FAD TLV <bcp14>MUST</bcp14> be ignored.</t>
+        <t>The RI LSA can be advertised at any of the defined opaque flooding
+        scopes (link, area, or Autonomous System (AS)). For the purpose of
+        OSPF FAD TLV advertisement, area-scoped flooding is <bcp14>REQUIRED</bcp14>. The
+        AS flooding scope <bcp14>SHOULD NOT</bcp14> be used unless
+        local configuration policy on the originating router indicates domain-wide
+	flooding.</t>
+      </section>
+      <section anchor="COMMONLEXALGTLV" numbered="true" toc="default">
+        <name>Common Handling of the Flexible Algorithm Definition TLV</name>
+        <t>This section describes the protocol-independent handling of the FAD
+        TLV (OSPF) or FAD sub-TLV (IS-IS). We will refer to it as FAD TLV in
+        this section, even though, in the case of IS-IS, it is a sub-TLV.</t>
+        <t>The value of the Flex-Algorithm <bcp14>MUST</bcp14> be between 128 and 255
+        inclusive. If it is not, the FAD TLV <bcp14>MUST</bcp14> be ignored.</t>
+        <t>Only a subset of the routers participating in the particular
+        Flex-Algorithm need to advertise the definition of the
+        Flex-Algorithm.</t>
+        <t>Every router that is configured to participate in a particular
+        Flex-Algorithm <bcp14>MUST</bcp14> select the Flex-Algorithm Definition based on the
+        following ordered rules. This allows for the consistent Flex-Algorithm
+        Definition selection in cases where different routers advertise
+        different definitions for a given Flex-Algorithm: </t>
+        <ol spacing="normal" type="1">
+          <li>From the advertisements of the FAD in the area (including
+            both locally generated advertisements and received advertisements),
+            select the one(s) with the numerically greatest priority value.</li>
+          <li>If there are multiple advertisements of the FAD with the
+          same numerically greatest priority, select the one that is originated from
+	  the router with the numerically greatest System-ID, in the case of IS-IS, or
+	  Router ID, in the case of OSPFv2 and OSPFv3. For IS-IS, the System-ID is
+          described in <xref target="ISO10589" format="default"/>. For OSPFv2 and OSPFv3,
+          the standard Router ID is described in <xref target="RFC2328"
+	  format="default"/> and <xref target="RFC5340" format="default"/>,
+	  respectively.</li>
+        </ol>
+        <t>The FAD selected according to these rules is also known as the 
+  		"winning FAD".</t>
+        <t>A router that is not configured to participate in a particular
+        Flex-Algorithm <bcp14>MUST</bcp14> ignore FAD sub-TLV advertisements for such
+        Flex-Algorithm.</t>
+        <t>A router that is not participating in a particular Flex-Algorithm
+        <bcp14>MAY</bcp14> advertise the FAD for such Flex-Algorithm. Receiving routers
+        <bcp14>MUST</bcp14> consider a received FAD advertisement regardless of the Flex-Algorithm
+        participation of that FAD advertisement's originator.</t>
+        <t>Any change in the Flex-Algorithm Definition may result in a temporary
+        disruption of traffic that is forwarded based on such Flex-Algorithm
+        paths. The impact is similar to any other event that requires
+        network-wide convergence.</t>
+        <t>If a node is configured to participate in a particular
+        Flexible Algorithm, but there is no valid Flex-Algorithm Definition available for
+        it or the selected Flex-Algorithm Definition includes calculation-type, metric-type, 
+        constraint, flag, or sub-TLV that is not supported by the node, it <bcp14>MUST</bcp14> stop 
+        participating in such Flexible Algorithm. That implies that it <bcp14>MUST NOT</bcp14> announce
+        participation for such Flexible Algorithm, as specified in <xref target="FLEXALGPART" format="default"/>, and it <bcp14>MUST</bcp14> remove any forwarding state
+        associated with it.</t>
+        <t>The Flex-Algorithm Definition is topology independent. It applies to
+        all topologies that a router participates in.</t>
+      </section>
+    </section>
+    <section anchor="ISISFADLTLVS" numbered="true" toc="default">
+      <name>Sub-TLVs of IS-IS FAD Sub-TLV</name>
+      <t>One of the limitations of IS-IS <xref target="ISO10589" format="default"/> is that the length of 
+    a TLV/sub-TLV is limited to a maximum of 255 octets. For the FAD sub-TLV, there are 
+    a number of sub-sub-TLVs (defined below) that are supported. For a given 
+    Flex-Algorithm, it is possible that the total number of octets required to 
+    completely define a FAD exceeds the maximum length supported by a single FAD sub-TLV. 
+    In such cases, the FAD <bcp14>MAY</bcp14> be split into multiple such sub-TLVs, and the content of 
+    the multiple FAD sub-TLVs are combined to provide a complete FAD for the Flex-Algorithm. 
+    In such a case, the fixed portion of the FAD (see <xref target="ISISFLEXALGTLV" format="default"/>) 
+    <bcp14>MUST</bcp14> be identical in all FAD sub-TLVs for a given Flex-Algorithm from a given IS. 
+    In case the fixed portion of such FAD sub-TLVs differ, the values
+    in the fixed portion in the FAD sub-TLV in the first occurrence in the lowest-numbered LSP from a given IS <bcp14>MUST</bcp14> be used.</t>
+      <t>Any specification that introduces a new IS-IS FAD sub-sub-TLV <bcp14>MUST</bcp14> specify whether 
+    the FAD sub-TLV may appear multiple times in the set of FAD sub-TLVs for a given 
+    Flex-Algorithm from a given IS and how to handle them if multiple are allowed.</t>
+      <section anchor="ISISFLEXALGEXLTLV" numbered="true" toc="default">
+        <name>IS-IS Flexible Algorithm Exclude Admin Group Sub-TLV</name>
+        <t>The Flexible Algorithm Definition can specify "colors" that are
+        used by the operator to exclude links during the Flex-Algorithm path
+        computation.</t>
+        <t>The IS-IS Flexible Algorithm Exclude Admin Group (FAEAG) sub-TLV is used to
+        advertise the exclude rule that is used during the Flex-Algorithm path
+        calculation, as specified in <xref target="FLEXALGPATHCALC" format="default"/>.</t>
+        <t>The IS-IS FAEAG sub-TLV
+        is a sub-TLV of the IS-IS FAD sub-TLV. It has the following
+        format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Extended Admin Group                     |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>1</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on the size of the Extended Admin
+              Group. <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+              <dt>Extended Administrative Group:</dt>
+              <dd>Extended Administrative Group, as
+              defined in <xref target="RFC7308" format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The IS-IS FAEAG sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in a single IS-IS
+        FAD sub-TLV. If it appears more than once, the IS-IS FAD sub-TLV <bcp14>MUST</bcp14>
+        be ignored by the receiver.</t>
+        <t>The IS-IS FAEAG sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in the set of FAD 
+        sub-TLVs for a given Flex-Algorithm from a given IS. If it appears more than once 
+        in such a set, the IS-IS FAEAG sub-TLV in the first occurrence in the lowest-numbered 
+        LSP from a given IS <bcp14>MUST</bcp14> be used, and any other occurrences <bcp14>MUST</bcp14> be ignored.</t>
+      </section>
+      <section anchor="ISISFLEXALGINCANYTLV" numbered="true" toc="default">
+        <name>IS-IS Flexible Algorithm Include-Any Admin Group Sub-TLV</name>
+        <t>The Flexible Algorithm Definition can specify "colors" that are
+        used by the operator to include links during the Flex-Algorithm path
+        computation.</t>
+        <t>The IS-IS Flexible Algorithm Include-Any Admin Group sub-TLV is used
+        to advertise the include-any rule that is used during the Flex-Algorithm
+        path calculation, as specified in <xref target="FLEXALGPATHCALC" format="default"/>.</t>
+        <t>The IS-IS Flexible Algorithm Include-Any Admin Group
+        sub-TLV is a sub-TLV of the IS-IS FAD sub-TLV. It has the following
+        format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Extended Admin Group                     |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type: </dt>
+              <dd>2</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on the size of the Extended Admin
+              Group. <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+              <dt>Extended Administrative Group:</dt>
+              <dd>Extended Administrative Group, as
+              defined in <xref target="RFC7308" format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The IS-IS Flexible Algorithm Include-Any Admin Group sub-TLV <bcp14>MUST
+        NOT</bcp14> appear more than once in a single IS-IS FAD sub-TLV. If it appears more
+        than once, the IS-IS FAD sub-TLV <bcp14>MUST</bcp14> be ignored by the receiver.</t>
+        <t>The IS-IS Flexible Algorithm Include-Any Admin Group sub-TLV <bcp14>MUST NOT</bcp14> appear 
+        more than once in the set of FAD sub-TLVs for a given Flex-Algorithm from a given IS. 
+        If it appears more than once in such a set, the IS-IS Flexible Algorithm 
+        Include-Any Admin Group sub-TLV in the first occurrence in the lowest-numbered 
+        LSP from a given IS <bcp14>MUST</bcp14> be used, and any other occurrences <bcp14>MUST</bcp14> be ignored.</t>
+      </section>
+      <section anchor="ISISFLEXALGINCALLTLV" numbered="true" toc="default">
+        <name>IS-IS Flexible Algorithm Include-All Admin Group Sub-TLV</name>
+        <t>The Flexible Algorithm Definition can specify "colors" that are
+        used by the operator to include links during the Flex-Algorithm path
+        computation.</t>
+        <t>The IS-IS Flexible Algorithm Include-All Admin Group sub-TLV is used
+        to advertise the include-all rule that is used during the Flex-Algorithm
+        path calculation, as specified in <xref target="FLEXALGPATHCALC" format="default"/>.</t>
+        <t>The IS-IS Flexible Algorithm Include-All Admin Group
+        sub-TLV is a sub-TLV of the IS-IS FAD sub-TLV. It has the following
+        format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Extended Admin Group                     |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>3</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on the size of the Extended Admin
+              Group. <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+              <dt>Extended Administrative Group:</dt>
+              <dd>Extended Administrative Group, as
+              defined in <xref target="RFC7308" format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The IS-IS Flexible Algorithm Include-All Admin Group sub-TLV <bcp14>MUST
+        NOT</bcp14> appear more than once in a single IS-IS FAD sub-TLV. If it appears more
+        than once, the IS-IS FAD sub-TLV <bcp14>MUST</bcp14> be ignored by the receiver.</t>
+        <t>The IS-IS Flexible Algorithm Include-All Admin Group sub-TLV <bcp14>MUST NOT</bcp14> appear 
+        more than once in the set of FAD sub-TLVs for a given Flex-Algorithm from a given IS. 
+        If it appears more than once in such a set, the IS-IS Flexible Algorithm Include-All Admin Group 
+        sub-TLV in the first occurrence in the lowest-numbered LSP from a given IS <bcp14>MUST</bcp14> 
+        be used, and any other occurrences <bcp14>MUST</bcp14> be ignored.</t>
+      </section>
+      <section anchor="ISISFLEXALGFLAG" numbered="true" toc="default">
+        <name>IS-IS Flexible Algorithm Definition Flags Sub-TLV</name>
+        <t>The IS-IS Flexible Algorithm Definition Flags (FADF) sub-TLV
+        is a sub-TLV of the IS-IS FAD sub-TLV. It has the following format:
+        </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Flags                             |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>4</dd>
+              <dt>Length:</dt>
+              <dd>variable, number of octets of the Flags field.</dd>
+              <dt>Flags:</dt>
+          <dd>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+              0 1 2 3 4 5 6 7...
+             +-+-+-+-+-+-+-+-+...
+             |M| | |          ...
+             +-+-+-+-+-+-+-+-+...
+            ]]></artwork>
+            <dl newline="false" spacing="normal">
+              <dt>M-flag:</dt>
+              <dd>when set, the Flex-Algorithm-specific prefix metric
+              <bcp14>MUST</bcp14> be used for inter-area and external prefix calculation.
+              This flag is not applicable to prefixes advertised as SRv6
+              locators.</dd>
+            </dl>
+          </dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>A new IANA "IGP Flexible Algorithm Definition Flags" registry is
+        defined for allocation of bits in the Flags field -- 
+        see <xref target="IANAFADFLGAS" format="default"/>.</t>
+        <t>Bits are defined/sent starting with bit 0 defined above. Additional
+        bit definitions that may be defined in the future <bcp14>SHOULD</bcp14> be assigned
+        in ascending bit order to minimize the number of bits that will
+        need to be transmitted.</t>
+        <t>Undefined bits <bcp14>MUST</bcp14> be transmitted as 0.</t>
+        <t>Bits that are not transmitted <bcp14>MUST</bcp14> be treated as if they are set to
+        0 on receipt.</t>
+        <t>The IS-IS FADF sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in a single IS-IS FAD
+        sub-TLV. If it appears more than once, the IS-IS FAD sub-TLV <bcp14>MUST</bcp14> be
+        ignored by the receiver.</t>
+        <t>The IS-IS FADF sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in the set of FAD 
+        sub-TLVs for a given Flex-Algorithm from a given IS. If it appears more than once
+        in such a set, the IS-IS FADF sub-TLV in the first occurrence in the lowest-numbered LSP from a given IS <bcp14>MUST</bcp14> be used, and any other occurrences <bcp14>MUST</bcp14> be ignored.</t>
+        <t>If the IS-IS FADF sub-TLV is not present inside the IS-IS FAD
+        sub-TLV, all the bits are assumed to be set to 0.</t>
+        <t>If a node is configured to participate in a particular Flexible Algorithm, 
+        but the selected Flex-Algorithm Definition includes a bit in the IS-IS FADF sub-TLV
+        that is not supported by the node, it <bcp14>MUST</bcp14> stop participating in such
+        Flexible Algorithm.</t>
+        <t>New flag bits may be defined in the future. Implementations <bcp14>MUST</bcp14> check all 
+        advertised flag bits in the received IS-IS FADF sub-TLV -- not just the subset 
+        currently defined.</t>
+        <t>The M-flag <bcp14>MUST</bcp14> not be used when calculating prefix reachability for the SRv6 
+        Locator prefix.</t>
+      </section>
+      <section anchor="ISISFLEXALGEXSRLGTLV" numbered="true" toc="default">
+        <name>IS-IS Flexible Algorithm Exclude SRLG Sub-TLV</name>
+        <t>The Flexible Algorithm Definition can specify Shared Risk Link
+        Groups (SRLGs) that the operator wants to exclude during the
+        Flex-Algorithm path computation.</t>
+        <t>The IS-IS Flexible Algorithm Exclude SRLG (FAESRLG) sub-TLV is used
+        to advertise the exclude rule that is used during the Flex-Algorithm
+        path calculation, as specified in <xref target="FLEXALGPATHCALC" format="default"/>.</t>
+        <t>The IS-IS FAESRLG sub-TLV is a sub-TLV of the IS-IS FAD sub-TLV. It
+        has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Shared Risk Link Group Value             |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>5</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on number of SRLG values. <bcp14>MUST</bcp14> be a
+              multiple of 4 octets.</dd>
+              <dt>Shared Risk Link Group Value:</dt>
+              <dd>SRLG value, as defined in <xref target="RFC5307"
+	      format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The IS-IS FAESRLG sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in a single IS-IS FAD
+        sub-TLV. If it appears more than once, the IS-IS FAD sub-TLV <bcp14>MUST</bcp14> be
+        ignored by the receiver.</t>
+        <t>The IS-IS FAESRLG sub-TLV <bcp14>MAY</bcp14> appear more than once in the set of FAD 
+        sub-TLVs for a given Flex-Algorithm from a given IS. This may be necessary in cases 
+        where the total number of SRLG values that are specified cause the FAD sub-TLV to 
+        exceed the maximum length of a single FAD sub-TLV. In such a case, the receiver <bcp14>MUST</bcp14> 
+        use the union of all values across all IS-IS FAESRLG sub-TLVs from such set.</t>
+      </section>
+    </section>
+    <section anchor="OSPFFADLTLVS" numbered="true" toc="default">
+      <name>Sub-TLVs of the OSPF FAD TLV</name>
+      <section anchor="OSPFFLEXALGEXLTLV" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm Exclude Admin Group Sub-TLV</name>
+        <t>The OSPF Flexible Algorithm Exclude Admin Group (FAEAG) sub-TLV
+        is a sub-TLV of the OSPF FAD TLV. Its usage is described in <xref target="ISISFLEXALGEXLTLV" format="default"/>. It has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Extended Admin Group                     |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	    <dt>where:</dt>
+	    <dd>
+              <dl newline="false" spacing="normal">
+		<dt>Type:</dt>
+		<dd>1</dd>
+		<dt>Length:</dt>
+		<dd>variable, dependent on the size of the Extended Admin
+		Group. <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+		<dt>Extended Administrative Group:</dt>
+		<dd>Extended Administrative Group, as
+		defined in <xref target="RFC7308" format="default"/>.</dd>
+              </dl>
+	    </dd>
+	</dl>
+        <t>The OSPF FAEAG sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in an OSPF
+        FAD TLV. If it appears more than once, the OSPF FAD TLV <bcp14>MUST</bcp14> be
+        ignored by the receiver.</t>
+      </section>
+      <section anchor="OSPFFLEXALGINCANYTLV" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm Include-Any Admin Group Sub-TLV</name>
+        <t>The OSPF Flexible Algorithm Include-Any Admin Group
+        sub-TLV is a sub-TLV of the OSPF FAD TLV. The usage of this sub-TLV is described in <xref target="ISISFLEXALGINCANYTLV" format="default"/>. It has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Extended Admin Group                     |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type: </dt>
+              <dd>2</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on the size of the Extended Admin
+              Group. <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+              <dt>Extended Administrative Group:</dt>
+              <dd>Extended Administrative Group, as
+              defined in <xref target="RFC7308" format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The OSPF Flexible Algorithm Include-Any Admin Group sub-TLV <bcp14>MUST
+        NOT</bcp14> appear more than once in an OSPF FAD TLV. If it appears more than
+        once, the OSPF FAD TLV <bcp14>MUST</bcp14> be ignored by the receiver.</t>
+      </section>
+      <section anchor="OSPFFLEXALGINCALLTLV" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm Include-All Admin Group Sub-TLV</name>
+        <t>The OSPF Flexible Algorithm Include-All Admin Group
+        sub-TLV is a sub-TLV of the OSPF FAD TLV. The usage of this sub-TLV is 
+        described in <xref target="ISISFLEXALGINCALLTLV" format="default"/>. It has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Extended Admin Group                     |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>3</dd>
+              <dt>Length: </dt>
+              <dd>variable, dependent on the size of the Extended Admin
+              Group. <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+              <dt>Extended Administrative Group:</dt>
+	      <dd>Extended Administrative Group, as
+              defined in <xref target="RFC7308" format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The OSPF Flexible Algorithm Include-All Admin Group sub-TLV <bcp14>MUST
+        NOT</bcp14> appear more than once in an OSPF FAD TLV. If it appears more than
+        once, the OSPF FAD TLV <bcp14>MUST</bcp14> be ignored by the receiver.</t>
+      </section>
+      <section anchor="OSPFFLEXALGFLAG" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm Definition Flags Sub-TLV</name>
+        <t>The OSPF Flexible Algorithm Definition Flags (FADF) sub-TLV
+        is a sub-TLV of the OSPF FAD TLV. It has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Flags                             |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>4</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on the size of the Flags field.
+            <bcp14>MUST</bcp14> be a multiple of 4 octets.</dd>
+          <dt>Flags:</dt>
+          <dd>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+              0 1 2 3 4 5 6 7...
+             +-+-+-+-+-+-+-+-+...
+             |M| | |          ...
+             +-+-+-+-+-+-+-+-+...
+            ]]></artwork>
+            <dl newline="false" spacing="normal">
+              <dt>M-flag:</dt>
+              <dd>when set, the Flex-Algorithm-specific prefix and
+              ASBR metric <bcp14>MUST</bcp14> be used for inter-area and external
+	      prefix calculation. This flag is not applicable to prefixes
+              advertised as SRv6 locators.</dd>
+            </dl>
+          </dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>A new IANA "IGP Flexible Algorithm Definition Flags" registry is
+        defined for allocation of bits in the Flags field -- 
+        see <xref target="IANAFADFLGAS" format="default"/>.</t>
+        <t>Bits are defined/sent starting with bit 0 defined above. Additional
+        bit definitions that may be defined in the future <bcp14>SHOULD</bcp14> be assigned
+        in ascending bit order to minimize the number of bits that will
+        need to be transmitted.</t>
+        <t>Undefined bits <bcp14>MUST</bcp14> be transmitted as 0.</t>
+        <t>Bits that are not transmitted <bcp14>MUST</bcp14> be treated as if they are set to
+        0 on receipt.</t>
+        <t>The OSPF FADF sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in an OSPF FAD
+        TLV. If it appears more than once, the OSPF FAD TLV <bcp14>MUST</bcp14> be ignored by
+        the receiver.</t>
+        <t>If the OSPF FADF sub-TLV is not present inside the OSPF FAD TLV,
+        all the bits are assumed to be set to 0.</t>
+        <t>If a node is configured to participate in a particular Flexible Algorithm, 
+        but the selected Flex-Algorithm Definition includes a bit in the OSPF FADF sub-TLV
+        that is not supported by the node, it <bcp14>MUST</bcp14> stop participating in such
+        Flexible Algorithm.</t>
+        <t>New flag bits may be defined in the future. Implementations <bcp14>MUST</bcp14> check all 
+        advertised flag bits in the received OSPF FADF sub-TLV -- not just the subset 
+        currently defined.</t>
+        <t>The M-flag <bcp14>MUST</bcp14> not be used when calculating prefix reachability for the SRv6 
+        Locator prefix.</t>
+      </section>
+      <section anchor="OSPFFLEXALGEXSRLGTLV" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm Exclude SRLG Sub-TLV</name>
+        <t>The OSPF Flexible Algorithm Exclude SRLG (FAESRLG) sub-TLV
+        is a sub-TLV of the OSPF FAD TLV. Its usage is described in <xref target="ISISFLEXALGEXSRLGTLV" format="default"/>. It has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   Shared Risk Link Group Value                |
++-                                                             -+
+|                            ...                                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>5</dd>
+              <dt>Length:</dt>
+              <dd>variable, dependent on the number of SRLGs. <bcp14>MUST</bcp14> be a
+              multiple of 4 octets.</dd>
+              <dt>Shared Risk Link Group Value:</dt>
+              <dd> SRLG value, as defined in <xref target="RFC4203"
+	      format="default"/>.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The OSPF FAESRLG sub-TLV <bcp14>MUST NOT</bcp14> appear more than once in an OSPF
+        FAD TLV. If it appears more than once, the OSPF FAD TLV <bcp14>MUST</bcp14> be
+        ignored by the receiver.</t>
+      </section>
+    </section>
+    <section anchor="ISISFLEXMETRIC" numbered="true" toc="default">
+      <name>IS-IS Flexible Algorithm Prefix Metric Sub-TLV</name>
+      <t>The IS-IS Flexible Algorithm Prefix Metric (FAPM) sub-TLV supports the
+      advertisement of a Flex-Algorithm-specific prefix metric associated with
+      a given prefix advertisement.</t>
+      <t>The IS-IS FAPM sub-TLV is a sub-TLV of TLVs 135, 235, 236, and 237 and
+      has the following format: </t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |    Length     |Flex-Algorithm |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                             Metric                            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      <dl newline="true" spacing="normal">
+	<dt>where:</dt>
+	<dd>
+	  <dl newline="false" spacing="normal">
+            <dt>Type:</dt>
+            <dd>6</dd>
+            <dt>Length:</dt>
+            <dd>5 octets</dd>
+            <dt>Flex-Algorithm:</dt>
+            <dd>single octet value between 128 and 255
+            inclusive.</dd>
+            <dt>Metric:</dt>
+            <dd>4 octets of metric information.</dd>
+	  </dl>
+	</dd>
+      </dl>
+      <t>The IS-IS FAPM sub-TLV <bcp14>MAY</bcp14> appear multiple times in its parent TLV. If
+      it appears more than once with the same Flex-Algorithm value, the first
+      instance <bcp14>MUST</bcp14> be used and any subsequent instances <bcp14>MUST</bcp14> be ignored.</t>
+      <t>If a prefix is advertised with a Flex-Algorithm prefix metric larger
+      than MAX_PATH_METRIC, as defined in <xref target="RFC5305" format="default"/>, this prefix
+      <bcp14>MUST NOT</bcp14> be considered during the Flexible Algorithm computation.</t>
+      <t>The usage of the Flex-Algorithm prefix metric is described in <xref target="FLEXALGPATHCALC" format="default"/>.</t>
+      <t>The IS-IS FAPM sub-TLV <bcp14>MUST NOT</bcp14> be advertised as a sub-TLV of the IS-IS
+      SRv6 Locator TLV <xref target="RFC9352" format="default"/>. The
+      IS-IS SRv6 Locator TLV includes the Algorithm and Metric fields, which
+      <bcp14>MUST</bcp14> be used instead. If the FAPM sub-TLV is present as a sub-TLV of the
+      IS-IS SRv6 Locator TLV in the received LSP, such FAPM sub-TLV <bcp14>MUST</bcp14> be
+      ignored.</t>
+    </section>
+    <section anchor="OSPFFLEXMETRIC" numbered="true" toc="default">
+      <name>OSPF Flexible Algorithm Prefix Metric Sub-TLV</name>
+      <t>The OSPF Flexible Algorithm Prefix Metric (FAPM) sub-TLV supports the
+      advertisement of a Flex-Algorithm-specific prefix metric associated with
+      a given prefix advertisement.</t>
+      <t>The OSPF FAPM sub-TLV is a sub-TLV of the:</t>
+      <ul spacing="normal">
+        <li>OSPFv2 Extended Prefix TLV <xref target="RFC7684" format="default"/>
+	and</li>
+        <li><t>following OSPFv3 TLVs, as defined in <xref target="RFC8362"
+	format="default"/>:</t>
+          <ul>
+            <li>Inter-Area Prefix TLV</li>
+            <li>External-Prefix TLV</li>
+          </ul>
+        </li>
+      </ul>
+      <t>The OSPF FAPM sub-TLV has the following format: </t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Flex-Algorithm |     Flags     |            Reserved           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                            Metric                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      <dl newline="true" spacing="normal">
+	<dt>where:</dt>
+	<dd>
+	  <dl newline="false" spacing="normal">
+            <dt>Type:</dt>
+            <dd>3 for OSPFv2, and 26 for OSPFv3</dd>
+            <dt>Length:</dt>
+            <dd>8 octets</dd>
+            <dt>Flex-Algorithm:</dt>
+            <dd>single octet value between 128 and 255
+            inclusive.</dd>
+            <dt>Flags:</dt>
+          <dd><t>1-octet value</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+              0 1 2 3 4 5 6 7
+             +-+-+-+-+-+-+-+-+
+             |E|             |
+             +-+-+-+-+-+-+-+-+
+            ]]></artwork>
+          <dl newline="false" spacing="normal">
+            <dt>E bit:</dt>
+            <dd>position 0: The type of external metric. If the bit is
+            set, the metric specified is a Type 2 external metric. This bit
+            is applicable only to OSPF external and Not-So-Stubby Area (NSSA) external prefixes.
+            This is semantically the same as the E bit in <xref
+	    target="RFC2328" format="default" sectionFormat="of" section=" A.4.5"/> and <xref
+	    target="RFC5340" format="default" sectionFormat="of" section="A.4.7"/> for OSPFv2 and OSPFv3, respectively.</dd>
+            <dt>Bits 1 through 7:</dt>
+            <dd><bcp14>MUST</bcp14> be cleared by the originator and ignored by
+            the receiver.</dd>
+          </dl>
+          </dd>
+        <dt>Reserved:</dt>
+        <dd><bcp14>MUST</bcp14> be set to 0 and ignored at reception.</dd>
+        <dt>Metric:</dt>
+        <dd>4 octets of metric information.</dd>
+	  </dl>
+	</dd>
+      </dl>
+      <t>The OSPF FAPM sub-TLV <bcp14>MAY</bcp14> appear multiple times in its parent TLV. If
+      it appears more than once with the same Flex-Algorithm value, the first
+      instance <bcp14>MUST</bcp14> be used and any subsequent instances <bcp14>MUST</bcp14> be ignored.</t>
+      <t>The usage of the Flex-Algorithm prefix metric is described in <xref target="FLEXALGPATHCALC" format="default"/>.</t>
+    </section>
+    <section anchor="OSPFASBR" numbered="true" toc="default">
+      <name>OSPF Flexible Algorithm ASBR Reachability Advertisement</name>
+      <t>An OSPF ABR advertises the reachability of ASBRs in its attached
+      areas to enable routers within those areas to perform route calculations
+      for external prefixes advertised by the ASBRs. OSPF extensions for
+      advertisement of Flex-Algorithm-specific reachability and the metric for
+      ASBRs is similarly required for Flex-Algorithm external prefix
+      computations, as described further in <xref target="FLEXALGPATHCALCINTER" format="default"/>.</t>
+      <section anchor="OSPFEXTASBRLSA" numbered="true" toc="default">
+        <name>OSPFv2 Extended Inter-Area ASBR LSA</name>
+        <t>The OSPFv2 Extended Inter-Area ASBR (EIA-ASBR) LSA is an OSPF
+        Opaque LSA <xref target="RFC5250" format="default"/> that is used to advertise
+        additional attributes related to the reachability of the OSPFv2 ASBR
+        that is external to the area yet internal to the OSPF domain.
+        Semantically, the OSPFv2 EIA-ASBR LSA is equivalent to the fixed
+        format Type 4 summary-LSA <xref target="RFC2328" format="default"/>. Unlike the Type 4
+        summary-LSA, the Link State ID (LSID) of the EIA-ASBR LSA does not carry the ASBR
+        Router ID -- the ASBR Router ID is carried in the body of the LSA.
+        The OSPFv2 EIA-ASBR LSA is advertised by an OSPFv2 ABR, and its flooding is
+        defined to be area-scoped only.</t>
+        <t>An OSPFv2 ABR generates the EIA-ASBR LSA for an ASBR when it is
+        advertising the Type 4 summary-LSA for it and has the need for
+        advertising additional attributes for that ASBR beyond what is
+        conveyed in the fixed-format Type 4 summary-LSA. An OSPFv2 ABR <bcp14>MUST
+        NOT</bcp14> advertise the EIA-ASBR LSA for an ASBR for which it is not
+        advertising the Type 4 summary-LSA. This ensures that the ABR does not
+        generate the EIA-ASBR LSA for an ASBR to which it does not have
+        reachability in the base OSPFv2 topology calculation. The OSPFv2 ABR
+        <bcp14>SHOULD NOT</bcp14> advertise the EIA-ASBR LSA for an ASBR when it does not
+        have additional attributes to advertise for that ASBR.</t>
+        <t>The OSPFv2 EIA-ASBR LSA has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|            LS age             |     Options   |   LS Type     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Opaque Type  |                 Opaque ID                     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Advertising Router                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     LS sequence number                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         LS checksum           |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++-                            TLVs                             -+
+|                             ...                               |
+]]></artwork>
+        <t>The LS age and Options fields are as defined in
+        <xref target="RFC2328" format="default" sectionFormat="of" section="A.4.1"/>.</t>
+        <t>The LS Type <bcp14>MUST</bcp14> be 10, indicating that the Opaque
+        LSA flooding scope is area-local <xref target="RFC5250" format="default"/>.</t>
+        <t>The Opaque Type used by the OSPFv2 EIA-ASBR LSA is 11. 
+        The Opaque Type is used to differentiate the various types
+        of OSPFv2 Opaque LSAs and is described in <xref target="RFC5250" section="3" sectionFormat="of" format="default"/>.</t>
+        <t>The Opaque ID field is an arbitrary value used to maintain multiple
+        OSPFv2 EIA-ASBR LSAs. For OSPFv2 EIA-ASBR LSAs, the Opaque ID has no
+        semantic significance other than to differentiate OSPFv2 EIA-ASBR LSAs
+        originated by the same OSPFv2 ABR. If multiple OSPFv2 EIA-ASBR LSAs
+        specify the same ASBR, the attributes from the Opaque LSA with the
+        lowest Opaque ID <bcp14>SHOULD</bcp14> be used.</t>
+        <t>The Advertising Router, LS sequence number, and LS checksum fields are as defined in 
+        <xref target="RFC2328" format="default" sectionFormat="of" section="A.4.1"/>.</t>
+        <t>The Length field is as defined in <xref target="RFC2328" format="default" sectionFormat="of" section="A.4.1"/>.
+        It represents the total length (in octets) of the Opaque LSA, including the 
+        LSA header and all TLVs (including padding).</t>
+        <t>The format of the TLVs within the body of the OSPFv2 EIA-ASBR LSA
+        is the same as the format used by the Traffic Engineering Extensions
+        to OSPFv2 <xref target="RFC3630" format="default"/>. The variable TLV section consists
+        of one or more nested TLV tuples. Nested TLVs are also referred to as
+        sub-TLVs. The TLV Length field defines the length of the value portion in
+        octets (thus, a TLV with no value portion would have a length of 0).
+        The TLV is padded to 4-octet alignment; padding is not included in the
+        Length field (so a 3-octet value would have a length of 3, but the
+        total size of the TLV would be 8 octets). Nested TLVs are also 32-bit
+        aligned. For example, a 1-octet value would have the Length field set
+        to 1, and 3 octets of padding would be added to the end of the value
+        portion of the TLV. The padding is composed of zeros.</t>
+        <section anchor="OSPFEXTASBRTLV" numbered="true" toc="default">
+          <name>OSPFv2 Extended Inter-Area ASBR TLV</name>
+          <t>The OSPFv2 Extended Inter-Area ASBR (EIA-ASBR) TLV is a top-level
+          TLV of the OSPFv2 EIA-ASBR LSA and is used to advertise additional
+          attributes associated with the reachability of an ASBR.</t>
+          <t>The OSPFv2 EIA-ASBR TLV has the following format:</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Type              |           Length              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        ASBR Router ID                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+.                                                               .
+.                            Sub-TLVs                           .
+.                                                               .
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  ]]></artwork>
+	  <dl newline="true" spacing="normal">
+	    <dt>where:</dt>
+	    <dd>
+              <dl newline="false" spacing="normal">
+		<dt>Type:</dt>
+		<dd>1</dd>
+		<dt>Length:</dt>
+		<dd>variable number of octets.</dd>
+		<dt>ASBR Router ID:</dt>
+		<dd>4 octets carrying the OSPF Router ID of
+		the ASBR whose information is being carried.</dd>
+		<dt>Sub-TLVs:</dt>
+		<dd>variable</dd>
+              </dl>
+	    </dd>
+	  </dl>
+          <t>Only a single OSPFv2 EIA-ASBR TLV <bcp14>MUST</bcp14> be advertised in each
+          OSPFv2 EIA-ASBR LSA, and the receiver <bcp14>MUST</bcp14> ignore all instances of
+          this TLV other than the first one in an LSA.</t>
+          <t>The OSPFv2 EIA-ASBR TLV <bcp14>MUST</bcp14> be present inside an OSPFv2 EIA-ASBR LSA
+          and <bcp14>MUST</bcp14> include at least a single sub-TLV; otherwise, the OSPFv2
+          EIA-ASBR LSA <bcp14>MUST</bcp14> be ignored by the receiver.</t>
+        </section>
+      </section>
+      <section anchor="OSPFFAASBRMETRIC" numbered="true" toc="default">
+        <name>OSPF Flexible Algorithm ASBR Metric Sub-TLV</name>
+        <t>The OSPF Flexible Algorithm ASBR Metric (FAAM) sub-TLV supports the
+        advertisement of a Flex-Algorithm-specific metric associated with a
+        given ASBR reachability advertisement by an ABR.</t>
+        <t>The OSPF FAAM sub-TLV is a sub-TLV of
+        the: </t>
+	<ul>
+          <li>OSPFv2 Extended Inter-Area ASBR TLV, as defined in <xref target="OSPFEXTASBRTLV" format="default"/>, and</li>
+          <li>OSPFv3 Inter-Area-Router TLV, as defined in <xref target="RFC8362" format="default"/>.</li>
+        </ul>
+        <t>The OSPF FAAM sub-TLV has the following format: </t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Flex-Algorithm |                   Reserved                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                            Metric                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+	<dl newline="true" spacing="normal">
+	  <dt>where:</dt>
+	  <dd>
+            <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>1 for OSPFv2, and 33 for OSPFv3</dd>
+              <dt>Length:</dt>
+              <dd>8 octets</dd>
+              <dt>Flex-Algorithm:</dt>
+              <dd>single octet value between 128 and 255
+              inclusive.</dd>
+              <dt>Reserved:</dt>
+              <dd>3 octets. <bcp14>MUST</bcp14> be set to 0 and ignored at
+	      reception.</dd>
+              <dt>Metric:</dt>
+              <dd>4 octets of metric information.</dd>
+            </dl>
+	  </dd>
+	</dl>
+        <t>The OSPF FAAM sub-TLV <bcp14>MAY</bcp14> appear multiple times in its parent TLV.
+        If it appears more than once with the same Flex-Algorithm value, the
+        first instance <bcp14>MUST</bcp14> be used and any subsequent instances <bcp14>MUST</bcp14> be
+        ignored.</t>
+        <t>The advertisement of the ASBR reachability using the OSPF FAAM
+        sub-TLV inside the OSPFv2 EIA-ASBR LSA follows <xref target="RFC2328" section="12.4.3" sectionFormat="of" format="default"/> and inside the OSPFv3 E-Inter-Area-Router-LSA
+        follows <xref target="RFC5340" section="4.8.5" sectionFormat="of" format="default"/>. The
+        reachability of the ASBR is evaluated in the context of the specific
+        Flex-Algorithm.</t>
+
+
+
+	
+        <t>The FAAM computed by the ABR will be equal to the metric to reach
+        the ASBR for a given Flex-Algorithm in a source area or the cumulative
+        metric via an ABR(s) when the ASBR is in a remote area. This is
+        similar in nature to how the metric is set when the ASBR reachability
+        metric is computed in the default algorithm for the metric in the
+        OSPFv2 Type 4 ASBR summary-LSA and the OSPFv3 Inter-Area-Router-LSA.</t>
+        <t>An OSPF ABR <bcp14>MUST NOT</bcp14> include the OSPF FAAM sub-TLV with a specific
+        Flex-Algorithm in its reachability advertisement for an ASBR between
+        areas unless that ASBR is reachable for it in the context of that
+        specific Flex-Algorithm.</t>
+        <t>An OSPF ABR <bcp14>MUST</bcp14> include the OSPF FAAM sub-TLVs as part of the ASBR
+        reachability advertisement between areas for any Flex-Algorithm for
+        which the winning FAD includes the M-flag and the ASBR is reachable 
+        in the context of that specific Flex-Algorithm.</t>
+        <t>OSPF routers <bcp14>MUST</bcp14> use the OSPF FAAM sub-TLV to calculate the
+        reachability of the ASBRs if the winning FAD for the specific Flex-
+        Algorithm includes the M-flag. OSPF routers <bcp14>MUST NOT</bcp14> use the OSPF FAAM
+        sub-TLV to calculate the reachability of the ASBRs for the specific
+        Flex-Algorithm if the winning FAD for such Flex-Algorithm does not
+        include the M-flag. Instead, the OSPFv2 Type 4 summary-LSAs or the
+        OSPFv3 Inter-Area-Router-LSAs <bcp14>MUST</bcp14> be used, as specified in
+        <xref target="RFC2328" section="16.2" sectionFormat="of" format="default"/> and <xref target="RFC5340" section="4.8.5" sectionFormat="of" format="default"/> for OSPFv2 and OSPFv3, respectively.</t>
+        <t>The processing of a new or changed OSPF FAAM sub-TLV triggers the
+        processing of external routes similar to what is described in
+        <xref target="RFC2328" format="default" sectionFormat="of" section="16.5"/> for OSPFv2 and <xref target="RFC5340" section="4.8.5" sectionFormat="of" format="default"/> for OSPFv3 for the specific
+        Flex-Algorithm.
+	The OSPF external and NSSA external route calculation
+        should be limited to a Flex-Algorithm(s) for which the winning FAD(s)
+        includes the M-flag.</t>
+        <t>Processing of the OSPF FAAM sub-TLV does not require the existence
+        of the equivalent OSPFv2 Type 4 summary-LSA or the OSPFv3
+        Inter-Area-Router-LSA that is advertised by the same ABR inside the
+        area. The presence of the base LSA is not mandatory for the usage of the 
+        extended LSA with the OSPF FAAM sub-TLV.</t>
+      </section>
+    </section>
+    <section anchor="FLEXALGPART" numbered="true" toc="default">
+      <name>Advertisement of Node Participation in a Flex-Algorithm</name>
+      <t>When a router is configured to participate in a particular Flex-Algorithm and
+      is advertising such participation, it is participating in that Flex-Algorithm.</t>
+      <t>Paths for various data planes <bcp14>MAY</bcp14> be computed for a specific Flex-Algorithm. 
+      Each data plane uses its own specific forwarding over such Flex-Algorithm paths. 
+      To guarantee the presence of the data-plane-specific forwarding, associated with 
+      a particular Flex-Algorithm, a router <bcp14>MUST</bcp14> advertise its participation for a
+      particular Flex-Algorithm for each data plane. Some data planes may share a common 
+      participation advertisement (e.g., SR-MPLS and SRv6).</t>
+      <t>Advertisement of the participation for any particular Flex-Algorithm in any 
+      data plane is subject to the condition specified in 
+        <xref target="COMMONLEXALGTLV" format="default"/>.</t>
+      <section anchor="FLEXALGPARTSR" numbered="true" toc="default">
+        <name>Advertisement of Node Participation for Segment Routing</name>
+        <t><xref target="RFC8665" format="default"/>, <xref target="RFC8666" format="default"/>, and <xref target="RFC8667" format="default"/> (IGP Segment Routing extensions) describe how the
+        SR-Algorithm is used to compute the IGP best path.</t>
+        <t>Routers advertise support for the SR-Algorithm as a node
+        capability, as described in the above-mentioned IGP Segment Routing
+        extensions. To advertise participation for a particular Flex-Algorithm
+        for Segment Routing, including both SR-MPLS and SRv6, the
+        Flex-Algorithm value <bcp14>MUST</bcp14> be advertised in the SR-Algorithm TLV (OSPF)
+        or sub-TLV (IS-IS).</t>
+        <t>Segment Routing Flex-Algorithm participation advertisement is
+        topology independent. When a router advertises participation in an
+        SR-Algorithm, the participation applies to all topologies in which the
+        advertising node participates.</t>
+      </section>
+      <section anchor="FLEXALGPARTOTHER" numbered="true" toc="default">
+        <name>Advertisement of Node Participation for Other Data Planes</name>
+        <t>This section describes considerations related to how other
+        data planes can advertise their participation in a specific
+        Flex-Algorithm.</t>
+        <t>Data-plane-specific Flex-Algorithm participation advertisements
+        <bcp14>MAY</bcp14> be topology specific or <bcp14>MAY</bcp14> be topology independent, depending on
+        the data plane itself.</t>
+        <t>Data-plane-specific advertisement for Flex-Algorithm participation
+        <bcp14>MUST</bcp14> be defined for each data plane and is outside the scope of
+        this document.</t>
+      </section>
+    </section>
+    <section anchor="FLEXALGLINKATTR" numbered="true" toc="default">
+      <name>Advertisement of Link Attributes for Flex-Algorithm</name>
+      <t>Various link attributes may be used during the Flex-Algorithm path
+      calculation. For example, include or exclude rules based on link
+      affinities can be part of the Flex-Algorithm Definition, as defined in Sections
+      <xref target="ISISFADLTLVS" format="counter"/> and <xref target="OSPFFADLTLVS" format="counter"/>.</t>
+      <t>Application-specific link attributes, as specified in 
+      <xref target="RFC8919" format="default"/> or <xref target="RFC8920" format="default"/>, 
+      that are to be used during Flex-Algorithm calculation <bcp14>MUST</bcp14> use the 
+      Application-Specific Link Attribute (ASLA) advertisements defined in
+      <xref target="RFC8919" format="default"/> or  <xref target="RFC8920" format="default"/> unless, in the case of IS-IS, 
+      the L-flag is set in the ASLA advertisement. When the L-flag is set, then legacy 
+      advertisements <bcp14>MUST</bcp14> be used, subject to the procedures and constraints defined in 
+      <xref target="RFC8919" section="4.2" sectionFormat="of" format="default"/> and <xref target="ISISFADLTLVS" format="default"/>.</t>
+      <t>The mandatory use of ASLA advertisements applies to link attributes
+      specifically mentioned in this document (Min Unidirectional Link Delay,
+      TE Default Metric, Administrative Group, Extended Administrative Group,
+      and Shared Risk Link Group) and any other link attributes that may be
+      used in support of Flex-Algorithm in the future.</t>
+      <t>A new Application Identifier Bit is defined to indicate that the ASLA
+      advertisement is associated with the Flex-Algorithm application. This
+      bit is set in the Standard Application Bit Mask (SABM) defined in <xref target="RFC8919" format="default"/> or <xref target="RFC8920" format="default"/>: </t>
+      <dl newline="false" spacing="normal">
+        <dt>Bit 3:</dt>
+        <dd>Flexible Algorithm (X-bit)</dd>
+      </dl>
+      <t>ASLA Admin Group Advertisements to be used by the Flexible Algorithm
+      application <bcp14>MAY</bcp14> use either the Administrative Group or Extended
+      Administrative Group encodings.</t>
+      <t>A receiver supporting this specification <bcp14>MUST</bcp14> accept both ASLA 
+      Administrative Group and Extended Administrative Group TLVs, as defined in
+      <xref target="RFC8919" format="default"/> or <xref target="RFC8920" format="default"/>. In the case of IS-IS, if 
+      the L-flag is set in the ASLA advertisement, as defined in <xref target="RFC8919" section="4.2" sectionFormat="of" format="default"/>, then the receiver <bcp14>MUST</bcp14> be able to accept both the Administrative Group TLV, 
+      as defined in <xref target="RFC5305" format="default"/>, and the Extended Administrative Group TLV, as 
+      defined in <xref target="RFC7308" format="default"/>.</t>
+    </section>
+    <section anchor="FLEXALGPATHCALC" numbered="true" toc="default">
+      <name>Calculation of Flexible Algorithm Paths</name>
+      <t>A router <bcp14>MUST</bcp14> be configured to participate in a given Flex-Algorithm
+      K and <bcp14>MUST</bcp14> select the FAD based on the rules defined in <xref target="COMMONLEXALGTLV" format="default"/> before it can compute any path for that
+      Flex-Algorithm.</t>
+      <t>No specific two-way connectivity check is performed during the Flex-Algorithm  
+      path computation. The result of the existing Flex-Algorithm-agnostic, two-way 
+      connectivity check is used during the Flex-Algorithm path computation.</t>
+      <t>As described in <xref target="FLEXALGPART" format="default"/>, participation for any
+      particular Flex-Algorithm <bcp14>MUST</bcp14> be advertised on a per data plane basis.
+      Calculation of the paths for any particular Flex-Algorithm is
+      data plane specific.</t>
+      <t>Multiple data planes <bcp14>MAY</bcp14> use the same Flex-Algorithm value at the
+      same time and, as such, share the FAD for it. Traffic for each data plane
+      will be forwarded based on the data-plane-specific forwarding entries.</t>
+      <t>The Flex-Algorithm Definition is data plane independent and is used by
+      all Flex-Algorithm data planes.</t>
+      <t>The way various data planes handle nodes that do not participate in
+      Flexible Algorithm is data plane specific. If the data plane only
+      wants to consider participating nodes during the Flex-Algorithm
+      calculation, then when computing paths for a given Flex-Algorithm, all
+      nodes that do not advertise participation for that Flex-Algorithm in
+      their data-plane-specific advertisements <bcp14>MUST</bcp14> be pruned from the
+      topology. Segment Routing, including both SR-MPLS and SRv6, are
+      data planes that <bcp14>MUST</bcp14> use such pruning when computing Flex-Algorithm
+      paths.</t>
+      <t>When computing the path for a given Flex-Algorithm, the metric-type
+      that is part of the Flex-Algorithm Definition (<xref target="FLEXALGDEF" format="default"/>) <bcp14>MUST</bcp14> be used.</t>
+      <t>When computing the path for a given Flex-Algorithm, the
+      calculation-type that is part of the Flex-Algorithm Definition (<xref target="FLEXALGDEF" format="default"/>) <bcp14>MUST</bcp14> be used.</t>
+      <t>Various links that include or exclude rules can be part of the
+      Flex-Algorithm Definition. To refer to a particular bit within an Admin Group or
+      Extended Admin Group, we use the term "color".</t>
+      <t>Rules, in the order as specified below, <bcp14>MUST</bcp14> be used to prune links
+      from the topology during the Flex-Algorithm computation.</t>
+      <t>For all links in the topology: </t>
+      <ol spacing="normal" type="1">
+        <li>Check if any exclude Administrative Group rule is part of the Flex-Algorithm
+        Definition. If such exclude rule exists, check if any color that is
+        part of the exclude rule is also set on the link. If such a color is
+        set, the link <bcp14>MUST</bcp14> be pruned from the computation.</li>
+        <li>Check if any exclude SRLG rule is part of the Flex-Algorithm
+        Definition. If such exclude rule exists, check if the link is part
+        of any SRLG that is also part of the SRLG exclude rule. If the link
+        is part of such SRLG, the link <bcp14>MUST</bcp14> be pruned from the
+        computation.</li>
+        <li>Check if any include-any Administrative Group rule is part of the Flex-Algorithm
+        Definition. If such include-any rule exists, check if any color that
+        is part of the include-any rule is also set on the link. If no such
+        color is set, the link <bcp14>MUST</bcp14> be pruned from the computation.</li>
+        <li>Check if any include-all Administrative Group rule is part of the Flex-Algorithm
+        Definition. If such include-all rule exists, check if all colors
+        that are part of the include-all rule are also set on the link. If
+        all such colors are not set on the link, the link <bcp14>MUST</bcp14> be pruned
+        from the computation.</li>
+        <li>If the Flex-Algorithm Definition uses something other than the IGP metric
+        (<xref target="FLEXALGDEF" format="default"/>), and such metric is not
+	advertised for the particular link in a topology for which the computation is
+	done, such link <bcp14>MUST</bcp14> be pruned from the computation. A metric of
+	value 0 <bcp14>MUST NOT</bcp14> be assumed in such a case.</li>
+      </ol>
+      <section anchor="FLEXALGPATHCALCINTER" numbered="true" toc="default">
+        <name>Multi-area and Multi-domain Considerations</name>
+        <t>Any IGP Shortest Path Tree calculation is limited to a single area.
+        This applies to Flex-Algorithm calculations as well. Given that the
+        computing router does not have visibility of the topology of the next
+        areas or domain, the Flex-Algorithm-specific path to an inter-area or
+        inter-domain prefix will be computed for the local area only. The
+        egress L1/L2 router (ABR in OSPF), or ASBR for an inter-domain case, will
+        be selected based on the best path for the given Flex-Algorithm in the
+        local area, and such egress ABR or ASBR router will be responsible to
+        compute the best Flex-Algorithm-specific path over the next area or
+        domain. This may produce an end-to-end path, which is suboptimal
+        based on Flex-Algorithm constraints. In cases where the ABR or ASBR
+        has no reachability to a prefix for a given Flex-Algorithm in the next
+        area or domain, the traffic could be dropped by the ABR/ASBR.</t>
+        <t>To allow the optimal end-to-end path for an inter-area or
+        inter-domain prefix for any Flex-Algorithm to be computed, the FAPM
+        has been defined in Sections <xref target="ISISFLEXMETRIC" format="counter"/>
+	and <xref target="OSPFFLEXMETRIC" format="counter"/>. For external route
+	calculation for prefixes originated by ASBRs in remote areas in OSPF, the FAAM
+	has been defined in <xref target="OSPFFAASBRMETRIC" format="default"/> for the
+	ABR to indicate its ASBR reachability along with the metric for the specific
+        Flex-Algorithm.</t>
+        <t>If the FAD selected based on the rules defined in <xref
+	target="COMMONLEXALGTLV" format="default"/> includes the M-flag, an ABR or an ASBR
+	<bcp14>MUST</bcp14> include the FAPM (see Sections <xref target="ISISFLEXMETRIC"
+	format="counter"/> and <xref target="OSPFFLEXMETRIC" format="counter"/>) when
+	advertising the prefix that is
+        reachable in a given Flex-Algorithm between areas or domains. Such
+        metric will be equal to the metric to reach the prefix for that
+        Flex-Algorithm in its source area or domain. This is similar in nature
+        to how the metric is set when prefixes are advertised between areas or
+        domains for the default algorithm. When a prefix is unreachable in its
+        source area or domain in a specific Flex-Algorithm, then an ABR or
+        ASBR <bcp14>MUST NOT</bcp14> include the FAPM for that Flex-Algorithm when
+        advertising the prefix between areas or domains.</t>
+        <t>If the FAD selected based on the rules defined in <xref target="COMMONLEXALGTLV" format="default"/> includes the M-flag, the FAPM <bcp14>MUST</bcp14> be used
+        during the calculation of prefix reachability for the inter-area and
+        external prefixes. If the FAPM for the Flex-Algorithm is not
+        advertised with the inter-area or external prefix reachability
+        advertisement, the prefix <bcp14>MUST</bcp14> be considered as unreachable for that
+        Flex-Algorithm. Similarly, in the case of OSPF, for ASBRs in remote
+        areas, if the FAAM is not advertised by the local ABR(s), the ASBR
+        <bcp14>MUST</bcp14> be considered as unreachable for that Flex-Algorithm, and the
+        external prefix advertisements from such an ASBR are not considered
+        for that Flex-Algorithm.</t>
+        <t>The Flex-Algorithm prefix metrics and the OSPF Flex-Algorithm ASBR
+        metrics <bcp14>MUST NOT</bcp14> be used during the Flex-Algorithm computation
+	unless the FAD selected based on the rules defined in <xref
+	target="COMMONLEXALGTLV" format="default"/> includes the M-flag, as described in
+	Sections <xref target="ISISFLEXALGFLAG" format="counter"/> or <xref
+	target="OSPFFLEXALGFLAG" format="counter"/>.</t>
+        <t>In the case of OSPF, when calculating external routes in a
+        Flex-Algorithm, if the winning FAD includes the M-flag, and the
+        advertising ASBR is in a remote area, the metric will be the sum of
+        the following:</t>
+        <ul spacing="normal">
+          <li>the FAPM for that Flex-Algorithm advertised with the external
+            route by the ASBR</li>
+          <li>the metric to reach the ASBR for that Flex-Algorithm from the
+            local ABR, i.e., the FAAM for that Flex-Algorithm advertised by the
+            ABR in the local area for that ASBR</li>
+          <li>the Flex-Algorithm-specific metric to reach the local ABR</li>
+        </ul>
+        <t>This is similar in nature to how the metric is calculated for
+        routes learned from remote ASBRs in the default algorithm using the
+        OSPFv2 Type 4 ASBR summary-LSA and the OSPFv3 Inter-Area-Router-LSA.</t>
+        <t>If the FAD selected based on the rules defined in <xref target="COMMONLEXALGTLV" format="default"/> does not include the M-flag, then the IGP
+        metrics associated with the prefix reachability advertisements used by
+        the base IS-IS and OSPF protocol <bcp14>MUST</bcp14> be used for the Flex-Algorithm
+        route computation. Similarly, in the case of external route
+        calculations in OSPF, the ASBR reachability is determined based on the
+        base OSPFv2 Type 4 summary-LSA and the OSFPv3 Inter-Area-Router-LSA.</t>
+        <t>It is <bcp14>NOT RECOMMENDED</bcp14> to use the Flex-Algorithm for inter-area or
+        inter-domain prefix reachability without the M-flag set. The reason is
+        that, without the explicit Flex-Algorithm prefix metric advertisement
+        (and the Flex-Algorithm ASBR metric advertisement in the case of OSPF
+        external route calculation), it is not possible to conclude whether
+        the ABR or ASBR has reachability to the inter-area or inter-domain
+        prefix for a given Flex-Algorithm in the next area or domain. Sending
+        the Flex-Algorithm traffic for such a prefix towards the ABR or ASBR may
+        result in traffic looping or persistent traffic drop.</t>
+        <t>During the route computation, it is possible for the Flex-Algorithm-specific
+	metric to exceed the maximum value that can be stored in an
+        unsigned 32-bit variable. In such scenarios, the value <bcp14>MUST</bcp14> be
+        considered to be of value 0xFFFFFFFF during the computation and
+        advertised as such.</t>
+        <t>The FAPM <bcp14>MUST NOT</bcp14> be advertised with IS-IS L1 or L2 intra-area,
+        OSPFv2 intra-area, or OSPFv3 intra-area routes. If the FAPM is
+        advertised for these route-types, it <bcp14>MUST</bcp14> be ignored during the prefix
+        reachability calculation.</t>
+        <t>The M-flag in the FAD is not applicable to prefixes advertised as SRv6
+        locators. The IS-IS SRv6 Locator TLV <xref target="RFC9352" format="default"/> includes the Algorithm
+        and Metric fields. When the SRv6 Locator is advertised between areas
+        or domains, the Metric field in the Locator TLV of IS-IS <bcp14>MUST</bcp14> be used
+        irrespective of the M-flag in the FAD advertisement.</t>
+        <t>OSPF external and NSSA external prefix advertisements <bcp14>MAY</bcp14> include a
+        non-zero forwarding address in the prefix advertisements in the base
+        protocol. In such a scenario, the Flex-Algorithm-specific reachability
+        of the external prefix is determined by Flex-Algorithm-specific
+        reachability of the forwarding address.</t>
+        <t>In OSPF, the procedures for translation of NSSA external prefix
+        advertisements into external prefix advertisements performed by an
+        NSSA ABR <xref target="RFC3101" format="default"/> remain unchanged for Flex-Algorithm.
+        An NSSA translator <bcp14>MUST</bcp14> include the OSPF FAPM sub-TLVs for all
+        Flex-Algorithms that are in the original NSSA external prefix
+        advertisement from the NSSA ASBR in the translated external prefix
+        advertisement generated by it, regardless of its participation in those
+        Flex-Algorithms or its having reachability to the NSSA ASBR in those
+        Flex-Algorithms.</t>
+        <t>An area could become partitioned from the perspective of the Flex-Algorithm 
+        due to the constraints and/or metric being used for it while maintaining the 
+        continuity in the base algorithm. When that happens, some destinations inside that area
+        could become unreachable in that Flex-Algorithm. These destinations will not be able
+        to use an inter-area path. This is the consequence of the fact that the 
+        inter-area prefix reachability advertisement would not be available for these 
+        intra-area destinations within the area. It is <bcp14>RECOMMENDED</bcp14> to minimize the risk of 
+        such partitioning by providing enough redundancy inside the area for each 
+        Flex-Algorithm being used.</t>
+      </section>
+    </section>
+    <section anchor="FLEXALFORW" numbered="true" toc="default">
+      <name>Flex-Algorithm and Forwarding Plane</name>
+      <t>This section describes how Flex-Algorithm paths are used in
+      forwarding.</t>
+      <section anchor="FLEXALGPSRFORW" numbered="true" toc="default">
+        <name>Segment Routing MPLS Forwarding for Flex-Algorithm</name>
+        <t>This section describes how Flex-Algorithm paths are used with SR
+        MPLS forwarding.</t>
+        <t>Prefix-SID advertisements include an SR-Algorithm value and, as
+        such, are associated with the specified SR-Algorithm. Prefix-SIDs are
+        also associated with a specific topology that is inherited from the
+        associated prefix reachability advertisement. When the algorithm value
+        advertised is a Flex-Algorithm value, the Prefix-SID is associated
+        with paths calculated using that Flex-Algorithm in the associated
+        topology.</t>
+        <t>A Flex-Algorithm path <bcp14>MUST</bcp14> be installed in the MPLS forwarding
+        plane using the MPLS label that corresponds to the Prefix-SID that was
+        advertised for that Flex-algorithm. If the Prefix-SID for a given
+        Flex-Algorithm is not known, the Flex-Algorithm-specific path cannot
+        be installed in the MPLS forwarding plane.</t>
+        <t>Traffic that is supposed to be routed via Flex-Algorithm-specific
+        paths <bcp14>MUST</bcp14> be dropped when there are no such paths available.</t>
+        <t>Loop Free Alternate (LFA) paths (<xref target="RFC6571" format="default"/> or its variants) 
+        for a given Flex-Algorithm <bcp14>MUST</bcp14> be computed using the same constraints as the 
+        calculation of the primary paths for that Flex-Algorithm. LFA paths <bcp14>MUST</bcp14> only 
+        use Prefix-SIDs advertised specifically for the given algorithm. LFA paths <bcp14>MUST NOT</bcp14>
+        use an Adjacency SID that belongs to a link that has been pruned from
+        the Flex-Algorithm computation.</t>
+        <t>If LFA protection is being used to protect a given Flex-Algorithm
+        path, all routers in the area participating in the given
+        Flex-Algorithm <bcp14>SHOULD</bcp14> advertise at least one
+	Flex-Algorithm-specific Node-SID. These Node-SIDs are used to steer traffic over
+	the LFA-computed backup path.</t>
+      </section>
+      <section anchor="FLEXALGPSRV6FORW" numbered="true" toc="default">
+        <name>SRv6 Forwarding for Flex-Algorithm</name>
+        <t>This section describes how Flex-Algorithm paths are used with SRv6
+        forwarding.</t>
+        <t>In SRv6, a node is provisioned with a (topology, algorithm) specific
+        locator for each of the topology/algorithm pairs supported by that
+        node. Each locator is an aggregate prefix for all SIDs provisioned on
+        that node that have the matching topology/algorithm.</t>
+        <t>The SRv6 locator advertisement in IS-IS <xref target="RFC9352" format="default"/> includes the Multi-Topology Identifier (MTID) value
+        that associates the locator with a specific topology. SRv6 locator
+        advertisements also include an algorithm value that explicitly
+        associates the locator with a specific algorithm. When the algorithm
+        value advertised with a locator represents a Flex-Algorithm, the paths
+        to the locator prefix <bcp14>MUST</bcp14> be calculated using the specified
+        Flex-Algorithm in the associated topology.</t>
+        <t>Forwarding entries for the locator prefixes advertised in IS-IS <bcp14>MUST</bcp14>
+        be installed in the forwarding plane of the receiving SRv6-capable
+        routers when the associated topology/algorithm is participating in
+        them. Forwarding entries for locators associated with Flex-Algorithms
+        in which the node is not participating <bcp14>MUST NOT</bcp14> be installed in the
+        forwarding plane.</t>
+        <t>When the locator is associated with a Flex-Algorithm, LFA paths to
+        the locator prefix <bcp14>MUST</bcp14> be calculated using such Flex-Algorithm in the
+        associated topology to guarantee that they follow the same
+        constraints as the calculation of the primary paths. LFA paths <bcp14>MUST</bcp14>
+        only use SRv6 SIDs advertised specifically for the given
+        Flex-Algorithm.</t>
+        <t>If LFA protection is being used to protect locators associated with
+        a given Flex-Algorithm, all routers in the area participating in the
+        given Flex-Algorithm <bcp14>SHOULD</bcp14> advertise at least one
+	Flex-Algorithm-specific locator and END SID per node and one END.X SID for every
+	link that has not been pruned from such Flex-Algorithm computation. These
+        locators and SIDs are used to steer traffic over the LFA-computed
+        backup path.</t>
+      </section>
+      <section anchor="FLEXALGPSRFORWOTHER" numbered="true" toc="default">
+        <name>Other Data Planes' Forwarding for Flex-Algorithm</name>
+        <t>Any data plane that wants to use Flex-Algorithm-specific
+        forwarding needs to install some form of Flex-Algorithm-specific
+        forwarding entries.</t>
+        <t>Data-plane-specific forwarding for Flex-Algorithms <bcp14>MUST</bcp14> be defined
+        for each data plane and is outside the scope of this document.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Operational Considerations</name>
+      <section numbered="true" toc="default">
+        <name>Inter-area Considerations</name>
+        <t>The scope of the Flex-Algorithm computation and the scope of the
+        FAD is an area. In IS-IS, the Router Capability TLV in which the FAD sub-TLV is
+        advertised <bcp14>MUST</bcp14> have the S bit clear, which prevents it from being flooded
+        outside the level in which it was originated. Even though in OSPF
+        the FAD sub-TLV can be flooded in an RI LSA that has an AS flooding
+        scope, the FAD selection is performed for each individual area in
+        which it is being used.</t>
+        <t>There is no requirement for the FAD for a particular Flex-Algorithm
+        to be identical in all areas in the network. For example, traffic for
+        the same Flex-Algorithm may be optimized for minimal delay (e.g.,
+        using delay metric) in one area or level while being optimized for
+        available bandwidth (e.g., using IGP metric) in another area or
+        level.</t>
+        <t>As described in <xref target="ISISFLEXALGTLV" format="default"/>, IS-IS allows the
+        regeneration of the winning FAD from level 2, without any
+        modification to it, into a level 1 area. This allows the operator to
+        configure the FAD in one or multiple routers in level 2, without
+        the need to repeat the same task in each level 1 area, if the intent
+        is to have the same FAD for the particular Flex-Algorithm across all
+        levels. This can similarly be achieved in OSPF by using the AS
+        flooding scope of the RI LSA in which the FAD sub-TLV for the
+        particular Flex-Algorithm is advertised.</t>
+        <t>Regeneration of the FAD from a level 1 area to the level 2 area is not
+        supported in IS-IS, so if the intent is to regenerate the FAD between
+        IS-IS levels, the FAD <bcp14>MUST</bcp14> be defined on a router(s) that is in level 2.
+        In OSPF, the FAD definition can be done in any area and propagated
+        to all routers in the OSPF routing domain by using the AS flooding
+        scope of the RI LSA.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Usage of the SRLG Exclude Rule with Flex-Algorithm</name>
+        <t>There are two different ways in which SRLG information can be used
+        with Flex-Algorithms: </t>
+        <ul spacing="normal">
+          <li>In a context of a single Flex-Algorithm, it can be used for
+          computation of backup paths, as described in <xref
+	  target="I-D.ietf-rtgwg-segment-routing-ti-lfa" format="default"/>. This usage
+	  does not require association of any specific SRLG constraint with the
+          given Flex-Algorithm Definition.</li>
+          <li>
+            <t>In the context of multiple Flex-Algorithms, it can be used for
+            creating disjoint sets of paths by pruning the links belonging to
+            a specific SRLG from the topology on which a specific
+            Flex-Algorithm computes its paths. This usage: </t>
+            <ul spacing="normal">
+              <li>facilitates the usage of already deployed SRLG
+              configurations for the setup of disjoint paths between two or more
+              Flex-Algorithms and</li>
+              <li>requires explicit association of a given Flex-Algorithm
+              with a specific set of SRLG constraints, as defined in Sections <xref
+	      target="ISISFLEXALGEXSRLGTLV" format="counter"/> and <xref
+	      target="OSPFFLEXALGEXSRLGTLV" format="counter"/>.</li>
+            </ul>
+          </li>
+        </ul>
+        <t>The two usages mentioned above are orthogonal.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Max-Metric Consideration</name>
+        <t>Both IS-IS and OSPF have a mechanism to set the IGP metric on a link
+        to a value that would make the link either unreachable or serve
+        as the link of last resort. Similar functionality would be needed for
+        the Min Unidirectional Link Delay and TE metric, as these can be used
+        to compute Flex-Algorithm paths.</t>
+        <t>The link can be made unreachable for all Flex-Algorithms that use the
+        Min Unidirectional Link Delay as a metric, as described in <xref target="ISISFLEXALGTLV" format="default"/>, by removing the Flex-Algorithm ASLA Min
+        Unidirectional Link Delay advertisement for the link. The link can be
+        made the link of last resort by setting the delay value in the
+        Flex-Algorithm ASLA delay advertisement for the link to the value of
+        16,777,215 (2<sup>24</sup> - 1).</t>
+        <t>The link can be made unreachable for all Flex-Algorithms that use the
+        TE metric, as described in <xref target="ISISFLEXALGTLV" format="default"/>, by
+        removing the Flex-Algorithm ASLA TE metric advertisement for the link.
+        The link can be made the link of last resort by setting the TE metric
+        value in the Flex-Algorithm ASLA delay advertisement for the link to
+        the value of (2<sup>24</sup> - 1) in IS-IS and (2<sup>32</sup> - 1) in OSPF.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Flexible Algorithm Definition and Changes</name>
+        <t>When configuring a node to participate in a specific Flex-Algorithm,
+      the components of the FAD (calculation-type, metric-type, and constraints) 
+      should be considered carefully. The configuration of participation in a particular
+      Flex-Algorithm doesn't guarantee that the node will actively participate in it,
+      because it may not support the calculation-type, the metric-type, or some
+      constraint advertised by the winning FAD (see <xref target="COMMONLEXALGTLV"
+      format="default"/>). Changes in 
+      the FAD configuration should also be considered in light of the capabilities of 
+      the participating routers in the scope of the FAD advertisement.</t>
+        <t>As <xref target="COMMONLEXALGTLV" format="default"/> notes, a change in the Flex-Algorithm 
+      Definition may require network-wide Shortest Path First (SPF) recomputation and network reconvergence. 
+      This potential for disruption should be taken into consideration when planning 
+      and making changes to the FAD.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Number of Flex-Algorithms</name>
+        <t>The maximum number of Flex-Algorithms is determined by the algorithm range 
+      128-255, as specified in <xref target="FLEXALG" format="default"/>. Although possible, 
+      it is not expected that all of them will be used simultaneously. Typically, 
+      only a limited subset of Flex-Algorithms is expected to be deployed in the network.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Backward Compatibility</name>
+      <t>This extension brings no new backward-compatibility issues. IS-IS,
+      OSPFv2, and OSPFv3 all have well-defined handling of unrecognized TLVs
+      and sub-TLVs that allows the introduction of new extensions, similar
+      to those defined here, without introducing any interoperability
+      issues.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document adds two new ways to disrupt IGP networks: </t>
+      <ul spacing="normal">
+      <li>An attacker can hijack a particular Flex-Algorithm by advertising
+      a FAD with a priority of 255 (or any priority higher than that of
+      the legitimate nodes).</li>
+      <li>An attacker could make it look like a router supports a
+      particular Flex-Algorithm when it actually doesn't, or vice
+      versa.</li>
+      </ul>
+      <t>Both of these attacks can be addressed by the existing security
+      extensions, as described in <xref target="RFC5304" format="default"/> and <xref target="RFC5310" format="default"/> for IS-IS, in <xref target="RFC2328" format="default"/> and <xref target="RFC7474" format="default"/> for OSPFv2, and in <xref target="RFC4552" format="default"/> and <xref target="RFC5340" format="default"/> for OSPFv3.</t>
+      <t>If the node that is authenticated is taken over by an attacker, such rogue
+      node can advertise the FAD for any Flex-Algorithm. Doing so may result in 
+      traffic for such Flex-Algorithm to be misrouted, or not delivered 
+      at all, for example, by using an unsupported metric-type, calculation-type, 
+      or constraint. Such attack is not preventable through authentication, and it is 
+      not different from advertising any other incorrect information through IS-IS or 
+      OSPF.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section anchor="IANAIGP" numbered="true" toc="default">
+        <name>IGP IANA Considerations</name>
+        <section anchor="IANAIGPIGPALGTYPE" numbered="true" toc="default">
+          <name>IGP Algorithm Types Registry</name>
+          <t>This document makes the following registration in the "IGP
+          Algorithm Types" registry: </t>
+	  <table>
+	    <name>IGP Algorithm Types Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>128-255</td>		
+		<td>Flexible Algorithms</td>
+		<td>RFC 9350, <xref target="FLEXALG" format="default"/></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+        <section anchor="IGPMETRICTYPE" numbered="true" toc="default">
+          <name>IGP Metric-Type Registry</name>
+          <t>IANA has created the "IGP Metric-Type" registry
+          within the "Interior Gateway Protocol (IGP) Parameters" registry group. The registration policy is "Standards
+          Action" <xref target="RFC8126" format="default"/> <xref target="RFC7120" format="default"/>. Values are assigned from the range 0-255 and have been registered as follows. </t>
+	  <table>
+	    <name>IGP Metric-Type Registry</name>
+	    <thead>
+	      <tr>
+		<th>Type</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>0</td>
+		<td>IGP Metric</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGTLV" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>1</td>
+		<td>Min Unidirectional Link Delay as defined in <xref target="RFC8570" section="4.2" sectionFormat="comma" format="default"/> and <xref target="RFC7471" section="4.2" sectionFormat="comma" format="default"/></td>
+		<td>RFC 9350, <xref target="ISISFLEXALGTLV" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>2</td>
+		<td>Traffic Engineering Default Metric as defined in <xref target="RFC5305" section="3.7" sectionFormat="comma"
+		  format="default"/> and Traffic Engineering Metric as defined in <xref target="RFC3630" section="2.5.5"
+	    sectionFormat="comma" format="default"/></td>
+		<td>RFC 9350, <xref target="ISISFLEXALGTLV" format="default"/></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+      </section>
+      <section anchor="IANAFADFLGAS" numbered="true" toc="default">
+        <name>IGP Flexible Algorithm Definition Flags Registry</name>
+        <t>IANA has created the "IGP Flexible
+        Algorithm Definition Flags" registry within the "Interior Gateway
+        Protocol (IGP) Parameters" registry group. The registration policy
+        is "Standards Action". New registrations should be assigned in 
+        ascending bit order (see <xref target="ISISFLEXALGFLAG" format="default"/>); the following single bit has been assigned as follows.</t>
+	<table>
+	  <name>IGP Flexible Algorithm Definition Flags Registry</name>
+	  <thead>
+	    <tr>
+	      <th>Bit</th>
+	      <th>Name</th>
+	      <th>Reference</th>
+	    </tr>
+	  </thead>
+	  <tbody>
+	    <tr>
+	      <td>0</td>
+	      <td>Prefix Metric Flag (M-flag)</td>
+	      <td>RFC 9350, Sections <xref target="ISISFLEXALGFLAG" format="counter"/> and  <xref target="OSPFFLEXALGFLAG" format="counter"/></td>
+	    </tr>
+	  </tbody>
+	</table>
+      </section>
+      <section anchor="IANAISIS" numbered="true" toc="default">
+        <name>IS-IS IANA Considerations</name>
+        <section anchor="SUBTLVS" numbered="true" toc="default">
+          <name>IS-IS Sub-TLVs for IS-IS Router CAPABILITY TLV Registry</name>
+          <t>This document makes the following registration in the 
+          "IS-IS Sub-TLVs for IS-IS Router CAPABILITY TLV" registry. </t>
+	  <table>
+	    <name>IS-IS Sub-TLVs for IS-IS Router CAPABILITY TLV Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>26</td>
+		<td>Flexible Algorithm Definition (FAD)</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGTLV" format="default"/></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+        <section anchor="SUBTLVS135" numbered="true" toc="default">
+          <name>IS-IS Sub-TLVs for TLVs Advertising Prefix Reachability Registry</name>
+          <t>This document makes the following registration in the 
+          "IS-IS Sub-TLVs for TLVs Advertising Prefix Reachability" registry. </t>
+	  <table>
+	    <name>IS-IS Sub-TLVs for TLVs Advertising Prefix Reachability Registry</name>
+	    <thead>
+	      <tr>
+		<th>Type</th>
+		<th>Description</th>
+		<th>27</th>
+		<th>135</th>
+		<th>235</th>
+		<th>236</th>
+		<th>237</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>6</td>
+		<td>Flexible Algorithm Prefix Metric (FAPM)</td>
+		<td>n</td>
+		<td>y</td>
+		<td>y</td>
+		<td>y</td>
+		<td>y</td>
+		<td>RFC 9350, <xref target="ISISFLEXMETRIC" format="default"/></td>
+	      </tr>
+	    </tbody>
+          </table>
+        </section>
+        <section anchor="SUBTLVREGISTRY" numbered="true" toc="default">
+          <name>IS-IS Sub-Sub-TLVs for Flexible Algorithm Definition Sub-TLV Registry</name>
+          <t>IANA has created the "IS-IS Sub-Sub-TLVs for Flexible Algorithm Definition Sub-TLV" registry within the
+  	  "IS-IS TLV Codepoints" registry group. The registration procedure is "Expert Review" (note that the "IS-IS TLV
+      Codepoints" registry group includes Expert Review guidance that applies
+	  to all registries thereunder).</t>
+	  
+<!--       <dl newline="false" spacing="compact">
+            <dt>Registry:</dt>
+            <dd>IS-IS Sub-Sub-TLVs for Flexible Algorithm Definition
+              Sub-TLV</dd>
+            <dt>Registration Procedure:</dt>
+            <dd>Expert review. (Note that the IS-IS TLV 
+              Codepoints grouping includes Expert Review guidance that applies to 
+              all registries thereunder.) </dd>
+            <dt>Reference:</dt>
+            <dd>RFCXXXX, <xref target="ISISFLEXALGTLV" format="default"/></dd>
+          </dl>
+-->
+	  
+          <t>The sub-sub-TLVs defined in this document have been assigned as follows.
+          </t>
+	  <table>
+	    <name>IS-IS Sub-Sub-TLVs for Flexible Algorithm Definition Sub-TLV Registry</name>
+	    <thead>
+	      <tr>
+		<th>Type</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>0</td>
+		<td>Reserved</td>
+		<td>RFC 9350</td>
+              </tr>
+	      <tr>
+		<td>1</td>
+		<td>Flexible Algorithm Exclude Admin Group</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGEXLTLV" format="default"/></td>
+              </tr>
+	      <tr>
+		<td>2</td>
+		<td>Flexible Algorithm Include-Any Admin Group</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGINCANYTLV"
+	    format="default"/></td>
+              </tr>
+	      <tr>
+		<td>3</td>
+		<td>Flexible Algorithm Include-All Admin Group</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGINCALLTLV"
+	    format="default"/></td>
+              </tr>
+	      <tr>
+		<td>4</td>
+		<td>Flexible Algorithm Definition Flags</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGFLAG" format="default"/></td>
+              </tr>
+	      <tr>
+		<td>5</td>
+		<td>Flexible Algorithm Exclude SRLG</td>
+		<td>RFC 9350, <xref target="ISISFLEXALGEXSRLGTLV" format="default"/></td>
+              </tr>
+	      <tr>
+		<td>6-255</td>
+		<td>Unassigned</td>
+		<td></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+      </section>
+      <section anchor="IANAOSPF" numbered="true" toc="default">
+        <name>OSPF IANA Considerations</name>
+        <section anchor="RITLVREG" numbered="true" toc="default">
+          <name>OSPF Router Information (RI) TLVs Registry</name>
+          <t>This document makes the following registration in the "OSPF 
+          Router Information (RI) TLVs" registry. </t>
+	  <table>
+	    <name>OSPF Router Information (RI) TLVs Registry</name>
+	    <thead>
+	    <tr>
+	      <th>Value</th>
+	      <th>Description</th>
+	      <th>Reference</th>
+	    </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>16</td>
+		<td>Flexible Algorithm Definition (FAD) TLV</td>
+		<td>RFC 9350, <xref target="OSPFFLEXALGTLV" format="default"/></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+        <section anchor="SUBTLVEXTPFX" numbered="true" toc="default">
+          <name>OSPFv2 Extended Prefix TLV Sub-TLVs Registry</name>
+          <t>This document makes the following registration in the "OSPFv2
+          Extended Prefix TLV Sub-TLVs" registry. </t>
+	  <table>
+	    <name>OSPFv2 Extended Prefix TLV Sub-TLVs Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>3</td>
+		<td>Flexible Algorithm Prefix Metric (FAPM)</td>
+		<td>RFC 9350, <xref target="OSPFFLEXMETRIC" format="default"/></td>
+	      </tr>
+            </tbody>
+	  </table>
+        </section>
+        <section anchor="SUBTLVV3EXTLSA" numbered="true" toc="default">
+          <name>OSPFv3 Extended-LSA Sub-TLVs Registry</name>
+          <t>This document makes the following registrations in the "OSPFv3
+          Extended-LSA Sub-TLVs" registry. </t>
+	  <table>
+	    <name>OSPFv3 Extended-LSA Sub-TLVs Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>26</td>
+		<td>Flexible Algorithm Prefix Metric (FAPM)</td>
+		<td>RFC 9350, <xref target="OSPFFLEXMETRIC" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>33</td>
+		<td>OSPF Flexible Algorithm ASBR Metric</td>
+		<td>RFC 9350, <xref target="OSPFFAASBRMETRIC" format="default"/></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+        <section anchor="FAPMFLAGS" numbered="true" toc="default">
+          <name>OSPF Flex-Algorithm Prefix Metric Bits Registry</name>
+          <t>IANA has created the "OSPF Flex-Algorithm
+          Prefix Metric Bits" registry under the "Open Shortest Path First 
+          (OSPF) Parameters" registry. The registration procedure
+          is "IETF Review". Bits 1-7 are unassigned, and the initial value has been assigned as follows.</t>
+	  <table>
+	    <name>OSPF Flex-Algorithm Prefix Metric Bits Registry</name>
+	    <thead>
+	      <tr>
+		<th>Bit Number</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>0</td>
+		<td>E bit - External Type</td>
+		<td>RFC 9350, <xref target="OSPFFLEXMETRIC" format="default"/></td>
+	      </tr>
+	    </tbody>
+          </table>
+        </section>
+        <section anchor="OPQLSAOPTS" numbered="true" toc="default">
+          <name>Opaque Link-State Advertisements (LSA) Option Types Registry</name>
+          <t>This document makes the following registration in the "Opaque Link-State 
+          Advertisements (LSA) Option Types" registry within the "Open Shortest Path First 
+          (OSPF) Opaque Link-State Advertisements (LSA) Option Types" registry group. </t>
+	  <table>
+	    <name>Opaque Link-State Advertisements (LSA) Option Types Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Opaque Type</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>11</td>
+		<td>OSPFv2 Extended Inter-Area ASBR (EIA-ASBR) LSA</td>
+		<td>RFC 9350, <xref target="OSPFEXTASBRLSA" format="default"/></td>
+              </tr>
+	    </tbody>
+	  </table>
+        </section>
+        <section anchor="IAASBRTLV" numbered="true" toc="default">
+          <name>OSPFv2 Extended Inter-Area ASBR TLVs Registry</name>
+          <t>IANA has created the "OSPFv2 Extended
+          Inter-Area ASBR TLVs" registry within the "Open Shortest Path First v2 (OSPFv2) Parameters" registry group. The registration procedure is "IETF Review" or "IESG Approval". The initial value has been assigned as follows.</t>
+	  <table>
+	    <name>OSPFv2 Extended Inter-Area ASBR TLVs Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>1</td>
+		<td>Extended Inter-Area ASBR</td>
+		<td>RFC 9350</td>
+              </tr>
+	    </tbody>
+	  </table>
+          <t>The values 2-32767 are unassigned, the values 32768-33023
+          are reserved for Experimental Use, and the values 0 and 33024-65535 are
+	  reserved.</t>
+        </section>
+        <section anchor="IAASBRSTLV" numbered="true" toc="default">
+          <name>OSPFv2 Extended Inter-Area ASBR Sub-TLVs Registry</name>
+          <t>IANA has created the "OSPFv2 Extended
+          Inter-Area ASBR Sub-TLVs" registry under the "Open Shortest Path 
+          First v2 (OSPFv2) Parameters" registry. The registration procedure is "IETF Review" or "IESG Approval". The initial value has been assigned as follows.</t>
+	  <table>
+	    <name>OSPFv2 Extended Inter-Area ASBR Sub-TLVs Registry</name>
+	    <thead>
+	      <tr>
+		<th>Value</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>1</td>
+		<td>OSPF Flexible Algorithm ASBR Metric</td>
+		<td>RFC 9350</td>
+	      </tr>
+	    </tbody>
+          </table>
+          <t>The values 2-32767 are unassigned, the values 32768-33023
+          are reserved for Experimental Use, and the values 0 and 33024-65535 are
+	  reserved.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>OSPF Flexible Algorithm Definition TLV Sub-TLVs Registry</name>
+          <t>IANA has created the "OSPF Flexible Algorithm Definition TLV Sub-TLVs" registry within the "Open Shortest Path First (OSPF) Parameters" registry group. The registration procedure is "IETF Review" or "IESG Approval". 
+          </t>
+        <!--  <dl newline="false" spacing="compact">
+            <dt>Registry:</dt>
+            <dd>OSPF Flexible Algorithm Definition TLV sub-TLVs</dd>
+            <dt>Registration Procedure:</dt>
+            <dd>IETF Review or IESG Approval</dd>
+            <dt>Reference:</dt>
+            <dd>RFCXXXX, <xref target="OSPFFLEXALGTLV" format="default"/> </dd>
+          </dl>
+	-->
+	
+          <t>The "OSPF Flexible Algorithm Definition TLV Sub-TLVs" registry
+          will define sub-TLVs at any level of nesting for the Flexible
+          Algorithm TLV, and new values can be allocated via the registration procedure.</t>
+          <t>This document registers the following sub-TLVs. </t>
+	  <table>
+	    <name>OSPF Flexible Algorithm Definition TLV Sub-TLVs Registry</name>
+	    <thead>
+	      <tr>
+		<th>Bit Number</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>0</td>
+		<td>Reserved</td>
+		<td>RFC 9350</td>
+	      </tr>
+	      <tr>
+		<td>1</td>
+		<td>Flexible Algorithm Exclude Admin Group</td>
+		<td>RFC 9350, <xref target="OSPFFLEXALGEXLTLV" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>2</td>
+		<td>Flexible Algorithm Include-Any Admin Group</td>
+		<td>RFC 9350, <xref target="OSPFFLEXALGINCANYTLV" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>3</td>
+		<td>Flexible Algorithm Include-All Admin Group</td>
+		<td>RFC 9350, <xref target="OSPFFLEXALGINCALLTLV" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>4</td>
+		<td>Flexible Algorithm Definition Flags</td>
+		<td>RFC 9350, <xref target="OSPFFLEXALGFLAG" format="default"/></td>
+	      </tr>
+	      <tr>
+		<td>5</td>
+		<td>Flexible Algorithm Exclude SRLG</td>
+		<td>RFC 9350, <xref target="OSPFFLEXALGEXSRLGTLV" format="default"/></td>
+	      </tr>
+            </tbody>
+	  </table>
+          <t>The values 6-32767 are unassigned, and values 32768-33023 are for 
+          Experimental Use; these will not be registered with IANA.</t>
+          <t>Types in the range 33024-65535 are not to be assigned at this
+          time. Before any assignments can be made in the 33024-65535 range,
+          there <bcp14>MUST</bcp14> be an IETF specification that specifies IANA
+          considerations that cover the range being assigned.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Link Attribute Application Identifiers Registry</name>
+          <t>This document registers the following bit in the "Link Attribute
+          Application Identifiers" registry.</t>
+	  <table>
+	    <name>Link Attribute Application Identifiers Registry</name>
+	    <thead>
+	      <tr>
+		<th>Bit</th>
+		<th>Description</th>
+		<th>Reference</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>3</td>
+		<td>Flexible Algorithm (X-bit)</td>
+		<td>RFC 9350, <xref target="FLEXALGLINKATTR" format="default"/></td>
+	      </tr>
+	    </tbody>
+          </table>
+        </section>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="I-D.gulkohegde-routing-planes-using-sr" to="ROUTING-PLANES-USING-SR"/>
+<displayreference target="I-D.ietf-rtgwg-segment-routing-ti-lfa" to="RTGWG-SEGMENT-ROUTING-TI-LFA"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4203.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5307.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7308.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5250.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8920.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8919.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7770.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7981.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7684.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8362.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8660.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8665.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8666.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8667.xml"/>
+
+        <reference anchor="ISO10589">
+          <front>
+            <title>Information technology - Telecommunications and information exchange between systems - Intermediate System to Intermediate System intra-domain routeing information exchange protocol for use in conjunction with the protocol for providing the connectionless-mode network service (ISO 8473)</title>
+            <author>
+              <organization abbrev="ISO">International Organization for
+            Standardization</organization>
+            </author>
+            <date month="November" year="2002"/>
+          </front>
+          <seriesInfo name="ISO/IEC" value="10589:2002"/>
+	  <refcontent>Second Edition</refcontent>
+        </reference>
+
+<reference anchor='RFC9352' target='https://www.rfc-editor.org/info/rfc9352'>
+<front>
+<title>IS-IS Extensions to Support Segment Routing over the IPv6 Data Plane</title>
+<author initials='P' surname='Psenak' fullname='Peter Psenak' role='editor'>
+<organization />
+</author>
+<author initials='C' surname='Filsfils' fullname='Clarence Filsfils'>
+<organization />
+</author>
+<author initials='A' surname='Bashandy' fullname='Ahmed Bashandy'>
+<organization />
+</author>
+<author initials='B' surname='Decraene' fullname='Bruno Decraene'>
+<organization />
+</author>
+<author initials='Z' surname='Hu' fullname='Zhibo Hu'>
+<organization />
+</author>
+<date year='2023' month='February'/>
+</front>
+<seriesInfo name="RFC" value="9352"/>
+<seriesInfo name="DOI" value="10.17487/RFC9352"/>
+</reference>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2328.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3630.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3101.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3906.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4552.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5304.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5305.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5310.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5340.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6571.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7120.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7471.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7474.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8570.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8986.xml"/>
+
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.gulkohegde-routing-planes-using-sr.xml"/>
+	
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/draft-ietf-rtgwg-segment-routing-ti-lfa.xml"/>
+      </references>
+    </references>
+    <section anchor="ACK" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>This document, among other things, addresses the problem that
+      <xref target="I-D.gulkohegde-routing-planes-using-sr" format="default"/> was trying
+      to solve. All authors of that document agreed to join this document.</t>
+      <t>Thanks to <contact fullname="Eric Rosen"/>, <contact fullname="Tony Przygienda"/>, <contact fullname="William Britto A. J."/>, <contact fullname="Gunter Van
+      de Velde"/>, <contact fullname="Dirk Goethals"/>, <contact fullname="Manju Sivaji"/>, and <contact fullname="Baalajee S."/> for their detailed
+      review and excellent comments.</t>
+      <t>Thanks to <contact fullname="Cengiz Halit"/> for his review and feedback during
+      the initial phase of the solution definition.</t>
+      <t>Thanks to <contact fullname="Kenji Kumaki"/> for his comments.</t>
+      <t>Thanks to <contact fullname="Acee Lindem"/> for editorial comments.</t>
+    </section>
+  </back>
+</rfc>

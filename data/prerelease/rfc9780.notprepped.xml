@@ -1,0 +1,543 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE rfc [
+<!ENTITY nbsp "&#160;">
+<!ENTITY zwsp "&#8203;">
+<!ENTITY nbhy "&#8209;">
+<!ENTITY wj "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-mpls-p2mp-bfd-11" number="9780" consensus="true" ipr="trust200902" obsoletes="" updates="8562" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="Multipoint BFD over P2MP MPLS LSP">Bidirectional
+    Forwarding Detection (BFD) for Multipoint Networks over
+    Point-to-Multipoint MPLS Label Switched Paths (LSPs)</title>
+    <seriesInfo name="RFC" value="9780"/>
+    <author fullname="Greg Mirsky" initials="G." surname="Mirsky">
+      <organization>Ericsson</organization>
+      <address>
+        <email>gregimirsky@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Gyan Mishra" initials="G." surname="Mishra">
+      <organization>Verizon Inc.</organization>
+      <address>
+        <email>gyan.s.mishra@verizon.com</email>
+      </address>
+    </author>
+    <author fullname="Donald Eastlake 3rd" initials="D." surname="Eastlake 3rd">
+      <organization>Independent</organization>
+      <address>
+        <postal>
+          <street>2386 Panoramic Circle</street>
+          <city>Apopka</city>
+          <region>FL</region><code>32703</code>
+          <country>United States of America</country>
+        </postal>
+        <email>d3e3e3@gmail.com</email>
+      </address>
+    </author>
+    
+    <date year="2025" month="May"/>
+
+    <area>RTG</area>
+    <workgroup>mpls</workgroup>
+
+    <keyword>BFD</keyword>
+    <keyword>Multipoint LSP</keyword>
+
+    <abstract>
+      <t>
+   This document describes procedures for using Bidirectional Forwarding
+   Detection (BFD) for multipoint networks to detect data plane failures
+   in point-to-multipoint MPLS
+   Label Switched Paths (LSPs) and Segment Routing (SR) point-to-multipoint policies
+   with an SR over MPLS (SR-MPLS) data plane.
+      </t>
+      <t>
+   Furthermore, this document updates RFC 8562 by
+   recommending the use of an IPv6 address from the Dummy IPv6 Prefix address block 100:0:0:1::/64
+   and discouraging the use of an IPv4 loopback address mapped
+   to IPv6.
+   </t>
+
+   <t>
+   In addition, this document describes the applicability of LSP Ping (as an in-band
+ solution) and the control plane (as an out-of-band solution) to bootstrap
+ a BFD session.
+   The document also describes the behavior of the active tail for head
+   notification.
+      </t>
+    </abstract>
+  </front>
+  
+  <middle>
+    <section anchor="intro-section" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+      <xref target="RFC8562"/> defines a method of using Bidirectional Forwarding Detection (BFD) <xref target="RFC5880"/>
+      to monitor and detect failures between the sender
+   (head) and one or more receivers (tails) in multipoint or multicast
+   networks.
+      </t>
+      <t>
+   <xref target="RFC8562"/> added two BFD session types: MultipointHead and
+   MultipointTail. Throughout this document, MultipointHead and
+   MultipointTail refer to the value to which the bfd.SessionType is set on a
+   BFD endpoint.
+      </t>
+
+      <t>
+      This document describes procedures for using such
+   modes of the BFD protocol to detect data plane failures in point-to-multipoint (P2MP) MPLS Label Switched
+   Paths (LSPs) and Segment Routing (SR) point-to-multipoint policies
+   with an SR over MPLS (SR-MPLS) data plane.
+      </t>
+      <t>
+  The document also describes the applicability of LSP Ping (an in-band solution) and
+  out-of-band solutions to bootstrap a BFD session in this environment.
+      </t>
+      <t>
+ Historically, an address in the IPv6-mapped IPv4 loopback address block
+ ::ffff:127.0.0.1/128 was mandated, although functionally, an
+ IPv6 address from that address block is not analogous to its IPv4
+ counterpart.
+   Furthermore,
+   using the loopback address as the destination address, even for an inner IP encapsulation of a tunneled packet,
+   violates <xref target="RFC4291" sectionFormat="of" section="2.5.3"/>. Hence, IANA has allocated
+   100:0:0:1::/64 as a new Dummy IPv6 Prefix (<xref target="iana-ipv6-addr-alloc-sec"/>)
+   for destination IPv6 addresses used for IP/UDP encapsulation of management, control, and OAM (Operations, Administration, and Maintenance) packets.
+  A source-only IPv6 dummy address is used as the destination to generate an exception and a reply message to the request message received.
+   This document starts the transition to using the IPv6 addresses from the Dummy IPv6 Prefix address block 100:0:0:1::/64 as the IPv6 destination address
+   in the IP/UDP encapsulation of active OAM over the MPLS data plane.
+   Thus, this document updates <xref target="RFC8562"/> by recommending the use of an IPv6 address from the
+   Dummy IPv6 Prefix address block 100:0:0:1::/64 (<xref target="iana-ipv6-addr-alloc-sec"/>) while
+   acknowledging that an address from the ::ffff:127.0.0.1/128 address block might be used by existing implementations. This document
+   discourages the use of an address in the IPv6-mapped IPv4 loopback address block.
+   </t>
+      <t>
+   This document also describes the behavior of the active tail for head notification.
+      </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Conventions Used in This Document</name>
+      <section numbered="true" toc="default">
+        <name>Terminology</name>
+        <dl>
+        <dt>ACH:</dt><dd>Associated Channel Header</dd>
+        <dt>BFD:</dt><dd>Bidirectional Forwarding Detection</dd>
+        <dt>GAL:</dt><dd>G-ACh Label</dd>
+        <dt>G-ACh:</dt><dd>Generic Associated Channel</dd>
+        <dt>LSP:</dt><dd>Label Switched Path</dd>
+        <dt>LSR:</dt><dd>Label Switching Router</dd>
+        <dt>MPLS:</dt><dd>Multiprotocol Label Switching</dd>
+        <dt>P2MP:</dt><dd>Point-to-Multipoint</dd>
+	<dt>PW:</dt><dd>Pseudowire (PW)</dd> 
+        <dt>SR:</dt><dd>Segment Routing</dd>
+        <dt>SR-MPLS:</dt><dd>SR over MPLS</dd>
+      </dl>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are
+    to be interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/>
+    <xref target="RFC8174"/> when, and only when, they appear in all capitals,
+    as shown here.
+        </t>
+      </section>
+    </section>
+    <section anchor="encaps-section" numbered="true" toc="default">
+      <name>Multipoint BFD Encapsulation</name>
+
+      <t>
+      <xref target="RFC8562" format="default"/> uses BFD in Demand mode 
+      from the very start of a point-to-multipoint (P2MP) BFD session. Because the
+      head doesn't receive any BFD Control packets from a tail, the head of the P2MP BFD
+      session transmits all BFD Control packets with the value of the Your Discriminator field set to zero. As a result, a tail cannot demultiplex
+      BFD sessions using Your Discriminator, as defined in <xref target="RFC5880" format="default"/>.
+      To demultiplex BFD sessions, <xref target="RFC8562" format="default"/> requires that
+      the tail use the source IP address, My Discriminator, and the identity of the multipoint tree
+      from which the BFD Control packet was received.
+      If the BFD Control packet is encapsulated in IP/UDP, then the source IP address
+      <bcp14>MUST</bcp14> be used to demultiplex the received BFD Control packet as described in <xref target="RFC8562" sectionFormat="of" section="5.7"/>.
+      The non-IP encapsulation case is described in <xref target="non-ip-encaps-section" format="default"/>.
+      </t>
+      <section anchor="ip-encaps-section" numbered="true" toc="default">
+        <name>IP Encapsulation of Multipoint BFD</name>
+        <t>
+        <xref target="RFC8562" format="default"/> defines IP/UDP encapsulation for multipoint BFD 
+        over P2MP MPLS LSP. This document updates <xref target="RFC8562" sectionFormat="of" section="5.8"/> regarding the selection of
+        the IPv6 destination address as follows:
+        </t>
+
+	
+      <ul spacing="normal">
+      <li>The sender of an MPLS echo request <bcp14>SHOULD</bcp14> use an address from
+      the Dummy IPv6 Prefix address block 100:0:0:1::/64 (see <xref target="iana-ipv6-addr-alloc-sec"/>).</li>
+      <li>The sender of an MPLS echo request <bcp14>MAY</bcp14> select the IPv6 destination  address from the ::ffff:7f00/104 address block.</li>
+      </ul>
+      
+      <t><xref target="RFC6790" sectionFormat="of" section="1.2" format="default"/>
+      lists several advantages of generating the entropy value by an ingress
+      Label Switching Router (LSR) compared to when a transit LSR infers
+      entropy using the information in the MPLS label stack or payload.  
+      This specification further clarifies the following if multiple alternative paths
+      for the given P2MP LSP Forwarding Equivalence Class (FEC) exist:</t>
+        <ul spacing="normal">
+          <li>The MultipointHead
+          <bcp14>SHOULD</bcp14> use the Entropy Label <xref target="RFC6790"
+          format="default"/> used for LSP Ping <xref target="RFC8029"
+          format="default"/> to exercise those particular alternative
+          paths; or</li>
+          <li>The MultipointHead <bcp14>MAY</bcp14> use the UDP port
+          number to possibly exercise those particular alternate paths.</li>
+        </ul>
+
+      </section>
+      <section anchor="non-ip-encaps-section" numbered="true" toc="default">
+        <name>Non-IP Encapsulation of Multipoint BFD</name>
+        <t>
+          In some environments, the overhead of extra IP/UDP encapsulations may be
+   considered burdensome, which makes the use of more compact Generic Associated Channel (G-ACh) <xref target="RFC5586"/>
+   encapsulation attractive. Also, the validation of the IP/UDP encapsulation of a BFD Control packet in a P2MP BFD session
+   may fail because of a problem related to neither the MPLS label stack nor BFD. Avoiding unnecessary encapsulation
+   of P2MP BFD over an MPLS LSP improves the accuracy of the correlation of the detected failure and defect in MPLS LSP.
+   </t>
+   <t>
+     Non-IP encapsulation for multipoint BFD over P2MP MPLS LSP (shown in <xref target="non-ip-p2mp-bfd-pic" format="default"/>)
+     <bcp14>MUST</bcp14> use the G-ACh Label (GAL) <xref target="RFC5586" format="default"/> at the bottom of the label
+        stack followed by an Associated Channel Header (ACH). If a BFD Control packet in PW-ACH encapsulation (without IP/UDP Headers) is to be used in ACH,
+        an implementation would not be able to verify the identity of the MultipointHead and, as a result, will not properly demultiplex BFD packets. Hence,
+        a new channel type value is needed. The Channel Type field in ACH <bcp14>MUST</bcp14> be set to
+        Multipoint BFD Session (0x0013) (see <xref target="iana-ach-sec"/>). To provide the identity of the MultipointHead for the particular
+        multipoint BFD session, a Source Address TLV, as defined in <xref target="RFC7212" sectionFormat="of" section="4.1"/>,
+        <bcp14>MUST</bcp14> immediately follow a BFD Control packet. The use of other TLVs is outside the scope of this document.
+        </t>
+
+      <figure anchor="non-ip-p2mp-bfd-pic">
+          <name>Non-IP Encapsulation for Multipoint BFD over a Multicast MPLS LSP</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               LSP Label               |  TC |S|       TTL     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                  GAL                  |  TC |1|       TTL     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|0 0 0 1|Version|     Flags     |      Channel Type = 0x0013    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~                        BFD Control Packet                     ~
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type=0    |    Reserved   |            Length             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           Reserved            |         Address Family        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~                            Address                            ~
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        </figure>
+<t>The fields in <xref target="non-ip-p2mp-bfd-pic"/> are interpreted as follows:</t>
+
+<ul>
+<li>The top three four-octet words are defined in <xref target="RFC5586"/>.</li>
+<li>The BFD Control Packet field is defined in <xref target="RFC5880"/>.</li>
+<li>All the remaining fields are defined in <xref target="RFC7212" sectionFormat="of" section="4.1"/>.</li>
+</ul>
+      </section>
+    </section>
+    <section anchor="bootstrapping-section" numbered="true" toc="default">
+      <name>Bootstrapping Multipoint BFD</name>
+      <section anchor="lsp-section" numbered="true" toc="default">
+        <name>LSP Ping</name>
+        <t>
+        LSP Ping is the part of the on-demand OAM toolset used to detect and localize defects in the data plane and
+        verify the control plane against the data plane by ensuring that the LSP is mapped to the same FEC
+        at both egress and ingress endpoints. 
+        </t>
+	
+        <t>
+      LSP Ping, as defined in <xref target="RFC6425" format="default"/>, <bcp14>MAY</bcp14> be used to bootstrap MultipointTail. If LSP Ping is used,
+        it <bcp14>MUST</bcp14> include the Target FEC Stack TLV <xref target="RFC8029" format="default"/> and the BFD Discriminator TLV <xref target="RFC5884" format="default"/>. For the case of P2MP MPLS LSP, the Target FEC Stack TLV
+        <bcp14>MUST</bcp14> use sub-TLVs defined in <xref target="RFC6425" sectionFormat="of" section="3.1"/>. For the case of P2MP SR policy with an SR-MPLS data plane, 
+        an implementation of this specification <bcp14>MUST</bcp14> follow the procedures defined in <xref target="RFC8287" format="default"/>. Setting the value 
+        of the Reply Mode field to "Do not reply" <xref target="RFC8029"/> for the  LSP Ping to bootstrap the MultipointTail of the P2MP BFD session is <bcp14>RECOMMENDED</bcp14>.
+        Indeed, because BFD over a multipoint network uses BFD Demand mode, the MPLS echo reply from a tail has no useful information to convey to the head,
+        unlike in the case of BFD over a P2P MPLS LSP <xref target="RFC5884" format="default"/>.
+        A MultipointTail that receives an LSP Ping that includes the BFD Discriminator TLV <bcp14>MUST</bcp14> do the following:
+        </t>
+
+
+        <ul spacing="normal">
+          <li>validate the LSP Ping;
+        </li>
+          <li>associate the received BFD Discriminator value with the P2MP LSP;
+        </li>
+          <li>create a P2MP BFD session and set bfd.SessionType =
+      MultipointTail as described in <xref target="RFC8562" format="default"/>; and
+      </li>
+          <li>use the source IP address of the LSP Ping, the value
+      of BFD Discriminator from the BFD Discriminator TLV, and the identity of the P2MP LSP
+       to properly demultiplex BFD sessions.</li>
+        </ul>
+        <t>
+        Besides bootstrapping a BFD session over a P2MP LSP, LSP Ping <bcp14>SHOULD</bcp14> be used to verify the control plane
+        against the data plane periodically by checking that the P2MP LSP is mapped  to the same FEC at the
+        MultipointHead and all active MultipointTails. The rate of generation of these LSP Ping echo request
+   messages <bcp14>SHOULD</bcp14> be significantly less than the rate of generation of
+   the BFD Control packets because LSP Ping requires more processing to validate
+   the consistency between the data plane and the control plane. An implementation <bcp14>MAY</bcp14> provide configuration
+   options to control the rate of generation of the periodic LSP Ping echo request messages.
+        </t>
+      </section>
+      <section anchor="control-plane-section" numbered="true" toc="default">
+        <name>Control Plane</name>
+        <t>
+           The BFD Discriminator attribute <bcp14>MAY</bcp14> be used to bootstrap a multipoint
+   BFD session on a tail, following the format and procedures given in
+   <xref target="RFC9026" sectionFormat="of" section="3.1.6"/>.
+   </t>
+      </section>
+    </section>
+    <section anchor="operation-sec" numbered="true" toc="default">
+      <name>Operation of Multipoint BFD with Active Tail over P2MP MPLS LSP</name>
+
+      <t>
+<xref target="RFC8562" format="default"/> defines how BFD Demand mode can be used in multipoint networks.
+When applied in MPLS, the procedures specified in <xref target="RFC8562" format="default"/> allow an egress LSR to detect a failure in the part of the P2MP MPLS LSP
+from the ingress LSR to that egress LSR. The ingress LSR is not aware of the state of the P2MP LSP.  <xref target="RFC8563" format="default"/>, using mechanisms defined in <xref target="RFC8562" format="default"/>,
+defines the behavior of an active tail. An active tail might notify the head of the detected failure and respond to a poll sequence initiated by the head.
+The first method, referred to as "Head Notification without Polling", is mentioned in <xref target="RFC8563" sectionFormat="of" section="5.2.1"/>) and
+is the simplest of the methods described in <xref target="RFC8563" format="default"/>.
+The use of this method in BFD over P2MP MPLS LSP is discussed in this document.
+Analysis of other methods for a head to learn of the state of the P2MP MPLS LSP is outside the scope of this document.
+</t>
+      <t>
+As specified in <xref target="RFC8563" format="default"/>, BFD variables <bcp14>MUST</bcp14> be as follows for the active tail mode:
+</t>
+
+<ul spacing="normal">
+      <li><t>On an ingress LSR:</t>
+
+
+      <ul spacing="normal">
+        <li>bfd.SessionType is MultipointHead.</li>
+        <li>bfd.RequiredMinRxInterval is nonzero, allowing egress LSRs to send BFD Control packets.</li>
+      </ul>
+      </li>
+      <li><t>On an egress LSR:</t>
+
+      <ul spacing="normal">
+        <li>bfd.SessionType is MultipointTail.</li>
+        <li>bfd.SilentTail is set to zero.</li>
+      </ul>
+      </li>
+</ul>
+      <t>
+	<xref target="RFC8563" sectionFormat="of" section="5.2.1"/> notes that "the tail sends unsolicited BFD packets in response
+to the detection of a multipoint path failure" but does not provide specifics about the information in the packets or the frequency of transmissions.
+The procedure for an active tail with unsolicited notifications for P2MP MPLS LSP is defined below.
+</t>
+      <t>Upon detecting the failure of the P2MP MPLS LSP, an egress LSR sends a BFD Control packet with the following settings:
+</t>
+      <ul spacing="normal">
+        <li>The Poll (P) bit is set.</li>
+        <li>The Status (Sta) field is set to the Down value.</li>
+        <li>The Diagnostic (Diag) field is set to the Control Detection Time Expired value.</li>
+        <li>The value of the Your Discriminator field is set to the value the egress LSR has been using to demultiplex that BFD multipoint session.</li>
+      </ul>
+
+        <t>
+The BFD Control packet <bcp14>MAY</bcp14> be encapsulated in IP/UDP with the destination IP address of the ingress LSR
+and the UDP destination port number set to 4784 per <xref target="RFC5883" format="default"/>. If non-IP encapsulation is 
+used, then a BFD Control packet is encapsulated using PW-ACH encapsulation (without IP/UDP Headers)
+with Channel Type 0x0007 <xref target="RFC5885" format="default"/>.
+	</t>
+
+        <t>
+The BFD Control packets are transmitted at the rate of one per
+    second until either 1) the egress LSA receives a control packet from the ingress LSR
+    that is valid for this BFD session and has the Final (F) bit set or 2) the
+    defect condition clears.
+  However, to improve the likelihood of notifying the ingress LSR of the failure of the P2MP MPLS LSP,
+  the egress LSR <bcp14>SHOULD</bcp14> initially transmit three BFD Control packets (as defined above) in short succession.
+  The actual transmission of the periodic BFD Control packet <bcp14>MUST</bcp14> be jittered by up to 25% within one-second intervals.
+  Thus, the interval <bcp14>MUST</bcp14> be reduced by a random value of 0 to 25%, to reduce the possibility of congestion on the ingress LSR's
+  data and control planes.
+  </t>
+
+      <t>
+As described above, an ingress LSR that has received the BFD Control packet
+sends the unicast IP/UDP encapsulated BFD Control packet with the Final (F) bit set
+to the egress LSR. In some scenarios (e.g., when a P2MP LSP is broken close to its root and the number of egress LSRs is significantly large),
+the root might receive a large number of notifications. The notifications from leaves to the root will not use resources
+allocated for the monitored multicast flow and, as a result,
+will not congest that particular flow, although they may negatively affect other flows.
+However, the control plane of the ingress LSR might be congested by the BFD Control packets transmitted by egress LSRs and the process of generating
+unicast BFD Control packets, as noted above. To mitigate that, a BFD implementation that supports this specification is <bcp14>RECOMMENDED</bcp14> to use a rate limiter
+of received BFD Control packets passed to the ingress LSR's control plane for processing.
+</t>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+      This document does not introduce new security considerations but inherits all security considerations
+      from <xref target="RFC5880" format="default"/>, <xref target="RFC5884" format="default"/>, <xref target="RFC7726" format="default"/>,
+      <xref target="RFC8562" format="default"/>, <xref target="RFC8029" format="default"/>, and <xref target="RFC6425" format="default"/>.
+      </t>
+
+      <t>
+      Also, BFD for P2MP MPLS LSPs <bcp14>MUST</bcp14> follow the requirements listed in <xref target="RFC4687" sectionFormat="of" section="4.1"/> to avoid congestion
+      in the control plane or the data plane caused by the rate of generating BFD Control packets. An operator <bcp14>SHOULD</bcp14>
+      consider the amount of extra traffic generated by P2MP BFD when selecting the interval at which the
+      MultipointHead will transmit BFD Control packets. The operator <bcp14>MAY</bcp14> consider the size of the packet the MultipointHead transmits
+      periodically as using IP/UDP encapsulation, which adds up to 28 octets (more than 50% 
+      of the BFD Control packet length) compared to G-ACh encapsulation.
+      </t>
+    </section>
+    
+    <section anchor="iana-sec" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section anchor="iana-ipv6-addr-alloc-sec" numbered="true" toc="default">
+      <name>IPv6 Special-Purpose Address</name>
+      <t>
+      IANA has allocated the following in the "IANA
+   IPv6 Special-Purpose Address Registry" <xref target="IANA-IPv6-REG"/>:
+      </t>
+
+<!-- [rfced] An informative reference is listed for the "IANA IPv6 Special
+Purpose Address Registry" in Section 7.1. Would you like to also add an
+informative reference for the "MPLS Generalized Associated Channel
+(G-ACh) Types" registry in Section 7.2?
+-->
+
+
+      <dl spacing="compact">
+<dt>Address Block:</dt><dd>100:0:0:1::/64</dd>
+<dt>Name:</dt><dd>Dummy IPv6 Prefix</dd>
+<dt>RFC:</dt><dd>RFC 9780</dd>
+<dt>Allocation Date:</dt><dd>2025-04</dd>
+<dt>Termination Date:</dt><dd>N/A</dd>
+<dt>Source:</dt><dd>True</dd>
+<dt>Destination:</dt><dd>False</dd>
+<dt>Forwardable:</dt><dd>False</dd>
+<dt>Globally Reachable:</dt><dd>False</dd>
+<dt>Reserved-by-Protocol:</dt><dd>False</dd>
+      </dl>
+      </section>
+      
+      <section anchor="iana-ach-sec" numbered="true" toc="default">
+      <name>MPLS Generalized Associated Channel (G-ACh) Type</name>
+    <t>
+    IANA has allocated the following value in the "MPLS Generalized Associated Channel (G-ACh) Types" registry <xref target="IANA-G-ACh-TYPES"/>.
+      </t>
+      <table anchor="p2mp-ach-table" align="center">
+        <name>Multipoint BFD Session G-ACh Type</name>
+        <thead>
+          <tr>
+            <th align="left">Value</th>
+            <th align="center">Description</th>
+            <th align="left">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">0x0013</td>
+            <td align="center">Multipoint BFD Session</td>
+            <td align="left">RFC 9780</td>
+          </tr>
+        </tbody>
+      </table>
+      </section>
+    </section>
+    
+  </middle>
+  
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5880.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5884.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8029.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8287.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6790.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5586.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7212.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6425.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7726.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8562.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8563.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5883.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5885.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9026.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4687.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4291.xml"/>
+         
+<reference anchor="IANA-IPv6-REG" target="https://www.iana.org/assignments/iana-ipv6-special-registry">
+        <front>
+            <title>IANA IPv6 Special-Purpose Address Registry</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+<reference anchor="IANA-G-ACh-TYPES" target="https://www.iana.org/assignments/g-ach-parameters">
+        <front>
+            <title>MPLS Generalized Associated Channel (G-ACh) Types</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The authors sincerely appreciate the comments received from <contact
+      fullname="Andrew Malis"/>, <contact fullname="Italo Busi"/>, and
+      <contact fullname="Shraddha Hegde"/>. The authors also appreciate the
+      thought-stimulating questions from <contact fullname="Carlos
+      Pignataro"/>.</t>
+    </section>
+    
+  </back>
+
+<!-- [rfced] Abbreviations
+
+a) We updated "p2mp" (lowercase) to "P2MP" (caps). The capitalized form is much
+more common in published RFCs, including in RFCs 9026 and 6425, which are
+normatively referenced by this document.
+
+b) FYI - We have added expansions for the following abbreviations
+per Section 3.6 of RFC 7322 ("RFC Style Guide"). Please review each
+expansion in the document carefully to ensure correctness.
+
+Operations, Administration, and Maintenance (OAM)
+Pseudowire (PW)
+-->
+
+
+<!-- [rfced] Please review the "Inclusive Language" portion of the online
+Style Guide <https://www.rfc-editor.org/styleguide/part2/#inclusive_language>
+and let us know if any changes are needed.  Updates of this nature typically
+result in more precise language, which is helpful for readers.
+
+For example, please consider whether the following should be updated: 
+
+Dummy
+-->
+  
+</rfc>

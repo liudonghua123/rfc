@@ -1,0 +1,574 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" submissionType="IETF" ipr="trust200902" docName="draft-ietf-ipsecme-ikev2-auth-announce-10" number="9593" updates="" obsoletes="" consensus="true" tocInclude="true" symRefs="true" sortRefs="true" version="3" xml:lang="en">
+
+
+<front>
+    <title abbrev="Announcing Supported Auth Methods">Announcing Supported Authentication Methods in the Internet Key Exchange Protocol Version 2 (IKEv2)</title>
+    <seriesInfo name="RFC" value="9593"/>
+    <author initials="V." surname="Smyslov" fullname="Valery Smyslov">
+      <organization>ELVIS-PLUS</organization>
+      <address>
+        <postal>
+          <street>PO Box 81</street>
+          <city>Moscow (Zelenograd)</city>
+          <code>124460</code>
+          <country>Russian Federation</country>
+        </postal>
+        <phone>+7 495 276 0211</phone>
+        <email>svan@elvis.ru</email>
+      </address>
+    </author>
+    <date month="July" year="2024"/>
+
+    <area>SEC</area>
+    <workgroup>ipsecme</workgroup>
+
+<keyword>signature</keyword>
+<keyword>digital signature</keyword>
+<keyword>credentials</keyword>
+<keyword>intermediate exchange</keyword>
+
+    <abstract>
+      <t> This specification defines a mechanism that allows implementations
+      of the Internet Key Exchange Protocol Version 2 (IKEv2) to indicate the list of
+      supported authentication methods to their peers while establishing IKEv2
+      Security Associations (SAs).  This mechanism improves
+   interoperability when IKEv2 partners are configured with multiple
+   credentials of different types for authenticating each other.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t> The Internet Key Exchange Protocol Version 2 (IKEv2), defined in <xref target="RFC7296"/>, 
+            performs authenticated key exchange in IPsec. IKEv2, unlike its predecessor IKEv1, 
+            defined in <xref target="RFC2409"/>, doesn't include a mechanism to negotiate an authentication
+            method that the peers would use to authenticate each other. It is assumed that each peer selects whichever 
+            authentication method it thinks is appropriate, depending on authentication credentials it has.
+      </t>
+      <t> This approach generally works well when there is no ambiguity in selecting authentication credentials.
+            SA establishment failure between peers may occur when there are several credentials of different types configured on one peer, 
+            while only some of them are supported on the other peer. Another problem situation is when a single 
+            credential may be used to produce different types of authentication tokens (e.g., signatures of different formats).
+
+   Since IKEv2 requires that each peer use exactly one authentication method,
+   and it doesn't provide means for peers to indicate to the other side
+   which authentication methods they support, the peer that supports a
+   wider range of authentication methods (or authentication token
+   formats) could improperly select a method (or format) that is not
+   supported by the other side.
+      </t>
+      <t> Emerging post-quantum signature algorithms may bring additional challenges for implementations,
+            especially if so-called hybrid schemes are used (e.g., see <xref target="I-D.ietf-lamps-pq-composite-sigs"/>).
+      </t>
+      <t>
+            This specification defines an extension to the IKEv2 protocol that allows peers to 
+            announce their supported authentication methods, thus decreasing risks of SA establishment
+            failure in situations when there are several ways for the peers to authenticate themselves.
+      </t>
+    </section>
+    <section anchor="mustshouldmay">
+      <name>Terminology and Notation</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+    </section>
+    <section anchor="protocol">
+      <name>Protocol Details</name>
+      <t>When establishing an IKE SA, each party may send to its peer a list of the authentication methods it supports and is configured to use.
+            For this purpose, this specification introduces a new Notify Message Type SUPPORTED_AUTH_METHODS.
+            The Notify payload with this Notify Message Type is utilized to convey the supported
+            authentication methods of the party sending it. The sending party may 
+            additionally specify that some of the authentication methods are only for use with 
+            the particular trust anchors. The receiving party may take this information into consideration 
+            when selecting an algorithm for its authentication (i.e., the algorithm used for calculation of the AUTH payload) 
+            if several alternatives are available.
+            To simplify the receiver's task of linking the announced authentication methods with the trust anchors,
+            the protocol ensures that the SUPPORTED_AUTH_METHODS notification is always co-located
+            with the CERTREQ payload in the same message.
+      </t>
+      <section anchor="exchange">
+        <name>Exchanges</name>
+        <t> The initiator starts the IKE_SA_INIT exchange as usual. If the responder is willing to use this extension, it includes a new notification SUPPORTED_AUTH_METHODS
+                in the IKE_SA_INIT response message. This notification contains a list of authentication methods supported by the responder, ordered by their preference.
+        </t>
+
+        <figure anchor="ikesainit">
+          <name>The IKE_SA_INIT Exchange</name>
+          <artwork align="left"><![CDATA[
+Initiator                              Responder
+-----------                            -----------
+HDR, SAi1, KEi, Ni -->
+                                   <-- HDR, SAr1, KEr, Nr, [CERTREQ,]
+                                     [N(SUPPORTED_AUTH_METHODS)(...)]
+]]></artwork>
+        </figure>
+        <t> If the initiator doesn't support this extension, it ignores the received notification as an unknown status notify.
+        </t>
+        <t> Regardless of whether the notification is received, if the initiator supports and  is willing to use this extension, 
+                it includes the SUPPORTED_AUTH_METHODS notification in the IKE_AUTH request message, 
+                with a list of authentication methods supported by the initiator, ordered by their preference.
+        </t>
+        <figure anchor="ikeauth">
+          <name>The IKE_AUTH Exchange</name>
+          <artwork align="left"><![CDATA[
+Initiator                              Responder
+-----------                            -----------
+HDR, SK {IDi, [CERT,] [CERTREQ,] 
+[IDr,] AUTH, SAi2, TSi, TSr,
+[N(SUPPORTED_AUTH_METHODS)(...)] }  -->
+                                   <-- HDR, SK {IDr, [CERT,]
+                                            AUTH, SAr2, TSi, TSr }
+]]></artwork>
+        </figure>
+
+        <t>
+  Because the responder sends the SUPPORTED_AUTH_METHODS notification in
+  the IKE_SA_INIT exchange, it must take into account that the 
+  response message could grow so much that the IP fragmentation might take place.
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>the SUPPORTED_AUTH_METHODS notification to be included is so large, that the responder suspects
+                    that IP fragmentation of the resulting IKE_SA_INIT response message may happen;</t>
+          </li>
+          <li>
+            <t>both peers support the IKE_INTERMEDIATE exchange, defined in <xref target="RFC9242"/> (i.e.,
+                    the responder has received and is going to send the INTERMEDIATE_EXCHANGE_SUPPORTED notification);</t>
+          </li>
+        </ul>
+        <t>
+
+                then the responder <bcp14>MAY</bcp14> choose not to send an actual list of the supported authentication
+                methods in the IKE_SA_INIT exchange and instead ask the initiator to start the IKE_INTERMEDIATE
+                exchange for the list to be sent in. This would allow using IKE fragmentation <xref target="RFC7383"/> for long messages 
+                (which cannot be used in the IKE_SA_INIT exchange), thus avoiding IP fragmentation. 
+                In this case, the responder includes a SUPPORTED_AUTH_METHODS notification containing no data in the IKE_SA_INIT response.
+        </t>
+        <t> If the initiator receives the empty SUPPORTED_AUTH_METHODS notification in the IKE_SA_INIT exchange,
+                it means that the responder is going to send the list of the supported authentication methods in the 
+                IKE_INTERMEDIATE exchange. If this exchange is to be initiated anyway for some other reason, then 
+                the responder <bcp14>MAY</bcp14> use it to send the SUPPORTED_AUTH_METHODS notification. Otherwise, the initiator 
+                <bcp14>MAY</bcp14> start the IKE_INTERMEDIATE exchange for this sole purpose by sending an empty IKE_INTERMEDIATE request.
+                The initiator <bcp14>MAY</bcp14> also indicate its identity (and possibly the perceived responder's identity too)
+                by including the IDi payload (possibly along with the IDr payload) in the IKE_INTERMEDIATE request. 
+                This information could help the responder to send back only those authentication methods 
+                that are configured to be used for authentication of this particular initiator. 
+                If these payloads are sent, they <bcp14>MUST</bcp14> be identical to the IDi/IDr payloads sent later in the IKE_AUTH request.
+        </t>
+        <t>If the responder has sent any CERTREQ payload in the IKE_SA_INIT, then it <bcp14>SHOULD</bcp14> resend the same 
+                payload(s) in the IKE_INTERMEDIATE response containing the SUPPORTED_AUTH_METHODS notification
+                if any of the included Announcements has a non-zero Cert Link field (see Sections <xref target="ann-3" format="counter"/> and <xref target="ann-m" format="counter"/>).
+                This requirement allows peers to have a list of Announcements and a list of CAs in the same message,
+                which simplifies their linking. Note that this requirement is always fulfilled for the IKE_SA_INIT and IKE_AUTH exchanges.
+                However, if for any reason the responder doesn't resend CERTREQ payload(s) in the IKE_INTERMEDIATE exchange, then
+                the initiator <bcp14>MUST NOT</bcp14> abort negotiation. Instead, the initiator <bcp14>MAY</bcp14> either link the Announcements to the CAs received in the IKE_SA_INIT response,
+                or it <bcp14>MAY</bcp14> ignore the Announcements containing links to CAs.
+        </t>
+        <t>If multiple IKE_INTERMEDIATE exchanges take place during IKE SA establishments, it is <bcp14>RECOMMENDED</bcp14> that the responder
+                use the last IKE_INTERMEDIATE exchange (the one just before IKE_AUTH) to send the list of supported authentication methods.
+                However, it is not always possible for the responder to know how many IKE_INTERMEDIATE exchanges
+                the initiator will use. In this case the responder <bcp14>MAY</bcp14> send the list in any IKE_INTERMEDIATE exchange.
+                If the initiator sends IDi/IDr in an IKE_INTERMEDIATE request, then it is <bcp14>RECOMMENDED</bcp14> that the responder
+                sends back the list of authentication methods in the response.
+        </t>
+        <figure anchor="ikeint">
+          <name>Using the IKE_INTERMEDIATE Exchange for Sending Authentication Methods</name>
+          <artwork align="left"><![CDATA[
+Initiator                              Responder
+-----------                            -----------
+HDR, SAi1, KEi, Ni -->
+                                   <-- HDR, SAr1, KEr, Nr, [CERTREQ,]
+                                       [N(SUPPORTED_AUTH_METHODS)()]
+
+HDR, SK {..., [IDi, [IDr,]]}  -->
+                                   <-- HDR, SK {..., [CERTREQ,]
+                                   [N(SUPPORTED_AUTH_METHODS)(...)] }
+
+HDR, SK {IDi, [CERT,] [CERTREQ,] 
+[IDr,] AUTH, SAi2, TSi, TSr,
+[N(SUPPORTED_AUTH_METHODS)(...)] }  -->
+                                   <-- HDR, SK {IDr, [CERT,]
+                                            AUTH, SAr2, TSi, TSr }
+]]></artwork>
+        </figure>
+        <t> Note that sending the SUPPORTED_AUTH_METHODS notification and using information obtained from it 
+                are optional for both the initiator and the responder. If multiple SUPPORTED_AUTH_METHODS notifications are included 
+                in a message, all their announcements form a single ordered list, unless overridden by other extension 
+                (see <xref target="interaction"/>).
+        </t>
+      </section>
+      <section anchor="format">
+        <name>SUPPORTED_AUTH_METHODS Notify Message Type</name>
+        <t> The format of the SUPPORTED_AUTH_METHODS Notify payload is shown below.
+
+        </t>
+        <figure anchor="notify">
+          <name>SUPPORTED_AUTH_METHODS Notify Payload Format</name>
+          <artwork align="left"><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Next Payload  |C|  RESERVED   |         Payload Length        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Protocol ID  |   SPI Size    |      Notify Message Type      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+~          List of Supported Auth Methods Announcements         ~
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        </figure>
+        <t>
+
+               The Notify payload format is defined in <xref target="RFC7296" section="3.10" sectionFormat="of" />.
+               When a Notify payload of type SUPPORTED_AUTH_METHODS is sent, the
+               Protocol ID field is set to 0, the SPI Size is set to 0 (meaning there is no SPI field), 
+               and the Notify Message Type is set to 16443.
+        </t>
+        <t> Notification data contains the list of supported authentication methods announcements. 
+               Each individual announcement is a variable-size data blob whose format depends
+               on the announced authentication method. The blob always starts with an octet containing the length of the blob
+               followed by an octet containing the authentication method. Authentication methods are represented
+               as values from the "IKEv2 Authentication Method" registry defined in <xref target="IKEV2-IANA"/>.
+               The meaning of the remaining octets of the blob, if any, depends on the authentication method. 
+               Note that, for the currently defined authentication methods, the length octet
+               fully defines both the format and the semantics of the blob.
+        </t>
+        <t> If more authentication methods are defined in the future, the corresponding documents
+               must describe the semantics of the announcements for these methods. Implementations
+               <bcp14>MUST</bcp14> ignore announcements whose semantics they don't understand.
+        </t>
+        <section anchor="ann-2">
+          <name>2-Octet Announcement</name>
+          <t> If the announcement contains an authentication method that is not concerned
+                   with public key cryptography, then the following format is used.
+    
+          </t>
+          <figure anchor="authmethod1">
+            <name>2-Octet Announcement Format</name>
+            <artwork align="left"><![CDATA[
+                     1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Length (=2)  |  Auth Method  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+          </figure>
+          <dl spacing="normal">
+              <dt>Length:</dt> <dd>Length of the blob in octets; must be 2 for this case.</dd>
+              <dt>Auth Method:</dt> <dd>Announced authentication method.</dd>
+          </dl>
+          <t>
+
+                    This format is applicable for the authentication methods "Shared Key Message Integrity Code" (2) and "NULL Authentication" (13).
+                    Note that the authentication method "Generic Secure Password Authentication Method" (12) would also
+                    fall in this category; however, it is negotiated separately (see <xref target="RFC6467"/>), and
+                    for this reason there is no point to announce it via this mechanism. See also <xref target="interaction"/>.
+          </t>
+        </section>
+        <section anchor="ann-3">
+          <name>3-Octet Announcement</name>
+          <t> If the announcement contains an authentication method that is concerned
+                    with public key cryptography, then the following format is used. This format 
+                    allows linking the announcement with a particular trust anchor from the 
+                    Certificate Request payload.
+    
+          </t>
+          <figure anchor="authmethod2">
+            <name>3-Octet Announcement Format</name>
+            <artwork align="left"><![CDATA[
+                     1                   2
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Length (=3)  |  Auth Method  |   Cert Link   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+          </figure>
+          <dl spacing="normal">
+              <dt>Length:</dt> <dd>Length of the blob in octets; must be 3 for this case.</dd>
+              <dt>Auth Method:</dt> <dd>Announced authentication method.</dd>
+              <dt>Cert Link:</dt> <dd>Links this announcement with a particular CA.</dd>
+          </dl>
+          <t>
+
+                    If the Cert Link field contains a non-zero value N, it means that the announced authentication method is intended to be used 
+                    only with the N-th trust anchor (CA certificate) from the Certificate Request payload(s) sent by this peer. If it is zero,
+                    then this authentication method may be used with any CA.
+                    If multiple CERTREQ payloads were sent, the CAs from all of them are treated as a single list for the purpose of the linking.
+                    If no Certificate Request payload were received, the content of this field <bcp14>MUST</bcp14> be ignored and treated as zero.
+          </t>
+          <t> This format is applicable for the authentication methods "RSA Digital Signature" (1),
+                    "DSS Digital Signature" (3), "ECDSA with SHA-256 on the P-256 curve" (9), 
+                    "ECDSA with SHA-384 on the P-384 curve" (10) and "ECDSA with SHA-512 on the P-521 curve" (11).
+                    Note, however, that these authentication methods are currently superseded by 
+                    the "Digital Signature" (14) authentication method, which has a different announcement format,
+                    described below.
+          </t>
+        </section>
+        <section anchor="ann-m">
+          <name>Multi-octet Announcement</name>
+          <t> The following format is currently used only with the "Digital Signature" (14) authentication method.
+
+          </t>
+          <figure anchor="authmethod3">
+            <name>Multi-octet Announcement Format</name>
+            <artwork align="left"><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Length (>3)  |  Auth Method  |   Cert Link   |               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+               +
+|                                                               |
+~                      AlgorithmIdentifier                      ~
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+          </figure>
+          <dl spacing="normal">
+              <dt>Length:</dt> <dd>Length of the blob in octets; must be greater than 3 for this case.</dd>
+              <dt>Auth Method:</dt> <dd>Announced authentication method. At the time of writing this document, only value 14 ("Digital Signature") is allowed.</dd>
+              <dt>Cert Link:</dt> <dd>Links this announcement with a particular CA; see <xref target="ann-3"/> for details.</dd>
+              <dt>AlgorithmIdentifier:</dt> <dd>The variable-length ASN.1 object that is encoded using Distinguished Encoding Rules (DER) <xref target="X.690"/> and identifies the signature algorithm (see <xref target="RFC5280" section="4.1.1.2" sectionFormat="of" />).
+              </dd>
+          </dl>
+          <t>
+                    The "Digital Signature" authentication method, defined in <xref target="RFC7427"/>, 
+                    supersedes previously defined signature authentication methods. In this case,
+                    the real authentication algorithm is identified via AlgorithmIdentifier ASN.1 object.
+                    <xref target="RFC7427" section="A" sectionFormat="of"/> contains examples of commonly used ASN.1 objects.
+          </t>
+        </section>
+      </section>
+    </section>
+    <section anchor="interaction">
+      <name>Interaction with IKEv2 Extensions concerning Authentication</name>
+      <t> Generally in IKEv2 each party independently determines the way it authenticates itself to the peer.
+          In other words, authentication methods selected by the peers need not be the same.
+          However, some IKEv2 extensions break this rule. 
+      </t>
+      <t> The prominent example is "Secure Password Framework for Internet Key Exchange Version 2" <xref target="RFC6467"/>, 
+          which defines a framework for using secure password authentication in IKEv2. 
+          With this framework, peers negotiate using one of the secure password methods in the IKE_SA_INIT exchange -- 
+          the initiator sends a list of supported methods in the request, and the responder picks one of them and sends it back 
+          in the response.
+      </t>
+      <t> If peers negotiate secure password authentication, then the selected method is used by both initiator and responder,
+          and no other authentication methods are involved. For this reason, there is no point to announce 
+          supported authentication methods in this case. Thus, if the peers choose to go with secure password authentication,
+          they <bcp14>MUST NOT</bcp14> send the SUPPORTED_AUTH_METHODS notification.
+      </t>
+      <t>In the situation when peers are going to use Multiple Authentication Exchanges <xref target="RFC4739"/>,
+          they <bcp14>MAY</bcp14> include multiple SUPPORTED_AUTH_METHODS notifications (instead of one), each containing authentication methods
+          appropriate for each authentication round. The notifications are included in the order 
+          of the preference of performing authentication rounds.
+      </t>
+    </section>
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <t>This document defines a new type in the "IKEv2 Notify Message Status Types" registry:</t>
+
+<table anchor="notify_msg_status_type"> 
+  <thead>
+    <tr>
+      <th>Value</th> 
+      <th>Notify Message Status Type</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>          
+    <tr>
+      <td>16443</td>
+      <td>SUPPORTED_AUTH_METHODS</td>
+      <td>RFC 9593</td>
+    </tr>
+  </tbody>
+</table>
+    </section>
+
+    <section anchor="sec">
+      <name>Security Considerations</name>
+      <t> Security considerations for the IKEv2 protocol are discussed in <xref target="RFC7296"/>. 
+            Security properties of different authentication methods vary.
+            Refer to corresponding documents, listed in the "IKEv2 Authentication Method" registry on <xref target="IKEV2-IANA"/> for discussion 
+            of security properties of each authentication method.
+      </t>
+      <t> Announcing authentication methods gives an eavesdropper additional information about peers' capabilities. 
+            If a peer advertises "NULL Authentication" along with other methods, then an active on-path attacker can encourage peers 
+            to use NULL authentication by removing all other announcements. Note that this is not a real "downgrade" attack, 
+            since authentication methods in IKEv2 are not negotiated, and in this case NULL authentication should be allowed by local security policy. 
+      </t>
+      <t> Similarly, if an on-path attacker can break some of the announced authentication methods online, 
+            then the attacker can encourage peers to use one of these weaker methods 
+            by removing all other announcements, and if this succeeds, then perform a person-in-the-middle attack.
+      </t>
+    </section>
+
+  </middle>
+  <back>
+    <displayreference target="I-D.ietf-lamps-pq-composite-sigs" to="COMPOSITE-SIGS"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7296.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7427.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9242.xml"/>
+
+        <reference anchor="X.690">
+          <front>
+            <title>Information Technology - ASN.1 encoding rules: Specification of Basic Encoding Rules (BER), Canonical Encoding Rules (CER) and Distinguished Encoding Rules (DER)</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date month="February" year="2021"/>
+          </front>
+	  <seriesInfo name="ISO/IEC" value="8825-1:2021 (E)"/>
+          <seriesInfo name="ITU-T Recommendation" value="X.690"/>
+        </reference>
+
+        <reference anchor="IKEV2-IANA" target="https://www.iana.org/assignments/ikev2-parameters/">
+          <front>
+            <title>Internet Key Exchange Version 2 (IKEv2) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+
+      </references>
+      <references>
+
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2409.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4739.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6467.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7383.xml"/>
+
+<reference anchor="I-D.ietf-lamps-pq-composite-sigs" target="https://datatracker.ietf.org/doc/html/draft-ietf-lamps-pq-composite-sigs-01">
+   <front>
+      <title>Composite Signatures For Use In Internet PKI</title>
+      <author initials="M." surname="Ounsworth" fullname="Mike Ounsworth">
+         <organization>Entrust Limited</organization>
+      </author>
+      <author initials="J." surname="Gray" fullname="John Gray">
+         <organization>Entrust Limited</organization>
+      </author>
+      <author initials="M." surname="Pala" fullname="Massimiliano Pala">
+         <organization>CableLabs</organization>
+      </author>
+      <author initials="J." surname="Klaussner" fullname="Jan Klaussner">
+         <organization>D-Trust GmbH</organization>
+      </author>
+      <date month="May" day="24" year="2024" />
+
+   </front>
+   <seriesInfo name="Internet-Draft" value="draft-ietf-lamps-pq-composite-sigs-01" />
+   
+</reference>
+
+      </references>
+    </references>
+    <section anchor="examples">
+      <name>Examples of Announcing Supported Authentication Methods</name>
+      <t> This appendix shows some examples of announcing authentication methods. 
+          This appendix is purely informative; if it disagrees with the body of this document, the other text is considered correct.
+          Note that some payloads that are not relevant to this specification may be omitted for brevity.
+      </t>
+      <section anchor="no_intermediate_example">
+        <name>No Need to Use the IKE_INTERMEDIATE Exchange</name>
+        <t> This example illustrates the situation when the SUPPORTED_AUTH_METHODS Notify payload fits into the IKE_SA_INIT 
+            message, and thus the IKE_INTERMEDIATE exchange is not needed. In this scenario, the responder 
+            announces that it supports the "Shared Key Message Integrity Code" and the "NULL Authentication"
+            authentication methods. The initiator informs the responder that it supports 
+            only the "Shared Key Message Integrity Code" authentication method. 
+
+        </t>
+        <artwork align="left"><![CDATA[
+Initiator                              Responder
+-----------                            -----------
+                     IKE_SA_INIT
+HDR, SAi1, KEi, Ni -->
+                                   <-- HDR, SAr1, KEr, Nr, 
+                                       N(SUPPORTED_AUTH_METHODS(
+                                       PSK, NULL))
+
+                      IKE_AUTH
+HDR, SK {IDi, 
+AUTH, SAi2, TSi, TSr,
+N(SUPPORTED_AUTH_METHODS(PSK))}  -->
+                                   <-- HDR, SK {IDr,
+                                       AUTH, SAr2, TSi, TSr}
+]]></artwork>
+      </section>
+      <section anchor="intermediate_example">
+        <name>With Use of the IKE_INTERMEDIATE Exchange</name>
+        <t>This example illustrates the situation when the IKE_INTERMEDIATE
+            exchange is used. In this scenario, the responder announces that 
+            it supports the "Digital signature" authentication method using the RSASSA-PSS algorithm
+            with CA1 and CA2 and the same method using the ECDSA algorithm with CA3.
+            The initiator supports only the "Digital signature" authentication method using the RSASSA-PSS algorithm
+            with no link to a particular CA.
+
+        </t>
+        <artwork align="left"><![CDATA[
+Initiator                              Responder
+-----------                            -----------
+                     IKE_SA_INIT
+HDR, SAi1, KEi, Ni,
+N(SIGNATURE_HASH_ALGORITHMS) -->
+                                   <-- HDR, SAr1, KEr, Nr, 
+                                       CERTREQ(CA1, CA2, CA3),
+                                       N(SIGNATURE_HASH_ALGORITHMS),
+                                       N(SUPPORTED_AUTH_METHODS())
+
+                   IKE_INTERMEDIATE
+HDR, SK {..., IDi]}  -->
+                                   <-- HDR, SK {..., 
+                                       CERTREQ(CA1, CA2, CA3),
+                                       N(SUPPORTED_AUTH_METHODS(
+                                       SIGNATURE(RSASSA-PSS:1),
+                                       SIGNATURE(RSASSA-PSS:2),
+                                       SIGNATURE(ECDSA:3)))}
+
+                      IKE_AUTH
+HDR, SK {IDi, CERT, CERTREQ(CA2), 
+AUTH, SAi2, TSi, TSr,
+N(SUPPORTED_AUTH_METHODS(
+SIGNATURE(RSASSA-PSS:0)))}  -->
+                                   <-- HDR, SK {IDr, CERT,
+                                       AUTH, SAr2, TSi, TSr}
+]]></artwork>
+      </section>
+    </section>
+
+    <section numbered="false">
+      <name>Acknowledgments</name>
+      <t>The author would like to thank <contact fullname="Paul Wouters" /> for his valuable comments and proposals.
+            The author is also grateful to  <contact fullname="Daniel Van Geest"/>, who made proposals for protocol improvement.
+             <contact fullname="Reese Enghardt"/> and  <contact fullname="Rifaat Shekh-Yusef"/> contributed to the clarity of the document.
+      </t>
+    </section>
+
+  </back>
+</rfc>

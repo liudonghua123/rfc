@@ -1,0 +1,1176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="exp" consensus="true" docName="draft-ietf-lsr-isis-flood-reflection-12" number="9377" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.9.1 -->
+  <front>
+    <title abbrev="IS-IS Flood Reflection">
+            IS-IS Flood Reflection
+    </title>
+    <seriesInfo name="RFC" value="9377"/>
+    <author fullname="Tony Przygienda" initials="T." surname="Przygienda" role="editor">
+      <organization>Juniper</organization>
+      <address>
+        <postal>
+          <street>1137 Innovation Way</street>
+          <city>Sunnyvale</city>
+          <region>CA</region>
+          <code/>
+          <country>United States of America</country>
+        </postal>
+        <phone/>
+        <email>prz@juniper.net</email>
+        <uri/>
+      </address>
+    </author>
+    <author fullname="Chris Bowers" initials="C." surname="Bowers">
+      <organization>Individual</organization>
+      <address>
+        <email>chrisbowers.ietf@gmail.com
+        </email>
+      </address>
+    </author>
+    <author fullname="Yiu Lee" initials="Y" surname="Lee">
+      <organization>Comcast</organization>
+      <address>
+        <postal>
+          <street>1800 Bishops Gate Blvd</street>
+          <city>Mount Laurel</city>
+          <region>NJ</region>
+          <code>08054</code>
+          <country>United States of America</country>
+        </postal>
+        <email>Yiu_Lee@comcast.com</email>
+      </address>
+    </author>
+    <author fullname="Alankar Sharma" initials="A" surname="Sharma">
+      <organization>Individual</organization>
+        <address>
+            <email>as3957@gmail.com</email>
+        </address>
+    </author>
+    <author fullname="Russ White" initials="R." surname="White">
+      <organization>Akamai</organization>
+        <address>
+            <email>russ@riw.us</email>
+        </address>
+    </author>
+    <date year="2023" month="April"/>
+
+    <area>rtg</area>
+    <workgroup>lsr</workgroup>
+    
+    <keyword>scalability</keyword>
+
+    <abstract>
+      <t>This document describes a backward-compatible, optional IS-IS
+      extension that allows the creation of IS-IS flood reflection topologies.
+      Flood reflection permits topologies in which IS&nbhy;IS&nbsp;Level&nbsp;1 (L1) areas
+      provide transit-forwarding for IS&nbhy;IS&nbsp;Level&nbsp;2 (L2) areas using all
+      available L1 nodes internally.  It accomplishes this by
+      creating L2 flood reflection adjacencies within each L1 area. Those
+      adjacencies are used to flood L2 Link State Protocol Data Units (LSPs) and are used in the L2 Shortest Path First (SPF)
+      computation.  However, they are not ordinarily utilized for forwarding
+      within the flood reflection cluster.
+
+          <!--
+                not utilized for forwarding within the flood reflection cluster except
+                in pathological cases mentioned in <xref target="patholody"/>.
+
+                -->
+
+                This arrangement gives
+				the L2 topology significantly better scaling properties than prevalently used
+                flat designs.  As an additional benefit,
+                only those routers directly participating
+				in flood reflection are required to support the feature.  This allows for
+				incremental deployment of scalable L1 transit areas in an existing, previously
+          flat network design, without
+				the necessity of upgrading all routers in the network.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+
+    <section toc="default" numbered="true">
+      <name>Introduction</name>
+        <t> This section introduces the problem space and outlines the solution. Some of the terms
+            may be unfamiliar to readers without extensive IS-IS background; for such readers,
+            the terminology is provided in <xref target="terminology"/>.
+        </t>
+      <t>Due to the inherent properties of link-state protocols, the number of
+      IS-IS routers within a flooding domain is limited by processing and
+      flooding overhead on each node. While that number can be maximized by
+      well-written implementations and techniques such as exponential
+      backoffs, IS-IS will still reach a saturation point where no further
+      routers can be added to a single flooding domain.  In some L2 backbone
+      deployment scenarios, this limit presents a significant challenge.
+      </t>
+      <t>
+				The standard approach to increasing the scale of an IS-IS deployment is
+				to break it up into multiple L1 flooding domains and a single L2
+				backbone. This works well for designs where an L2 backbone connects L1
+                access topologies, but it is limiting where a single, flat L2 domain is supposed to span
+                large number of routers. In such scenarios, an alternative approach could be to
+                consider multiple
+				L2 flooding domains that are connected together via L1 flooding domains.
+                In other words, L2 flooding domains are connected by "L1/L2 lanes" through
+				the L1 areas to form a single L2 backbone again. Unfortunately, in its
+				simplest implementation, this requires the inclusion of most, or all, of
+				the transit L1 routers as L1/L2 to allow traffic to flow along optimal
+				paths through those transit areas. Consequently, such an approach
+				fails to reduce the number of L2 routers involved and, with that,
+          fails to increase the
+				scalability of the L2 backbone as well.
+      </t>
+
+        <t>
+            <xref target="f1" format="default"/> is an example of a network where a topologically rich L1 area
+            is used to provide transit between six different L2-only routers (R1-R6).  Note that
+            the six L2-only routers do not have connectivity to one another over L2 links.
+            To take advantage of the abundance of paths in the L1 transit area,
+            all the intermediate systems could be placed into both L1 and L2, but this
+            essentially combines the separate L2 flooding domains into a single one,
+            again triggering the maximum L2 scale limitation we were trying to address in first place.
+        </t>
+
+      <figure anchor="f1">
+        <name>Example Topology of L1 with L2 Borders</name>
+        <artwork align="left" alt="" name="" type=""><![CDATA[
++====+  +=======+             +=======+               +======-+  +====+
+I R1 I  I  R10  +-------------+  R20  +---------------+  R30  I  I R4 I
+I L2 +--+ L1/L2 I             I  L1   I               I L1/L2 +--+ L2 I
+I    I  I       +          +--+       I  +------------+       I  I    I
++====+  ++====+=+          |  +===+===+  |            +=+==+=++  +====+
+         |    |            |      |      |              |    |
+         |    |            |      |      |  +-----------+    |
+         |    +-------+    |      |      |  |                |
+         |            |    |      |      |  |                |
+         |            |    |      |      |  |                |
+         |            |    |      |      |  |                |
++====+  ++=====-+     |    |  +===+===+--+  |         +======++  +====+
+I R2 I  I  R11  I     |    |  I  R21  I     |         I  R31  I  I R5 I
+I L2 +--+ L1/L2 +-------------+  L1   +---------------+ L1/L2 +--+ L2 I
+I    I  I       I     |    |  I       I     | +-------+       I  I    I
++====+  ++=====-+     |    |  ++==+==++     | |       +======++  +====+
+         |            |    |   |  |  |      | |              |
+         | +---------------+   |  |  |      | |              |
+         | |          |        |  |  |      | |              |
+         | |  +----------------+  |  +-----------------+     |
+         | |  |       |           |         | |        |     |
++====+  ++=+==+=+     +-------+===+===+-----+ |       ++=====++  +====+
+I R3 I  I  R12  I             I  R22  I       |       +  R32  I  I R6 I
+I L2 +--+ L1/L2 I             I  L1   +-------+       I L1/L2 +--+ L2 I
+I    I  I       +-------------+       +---------------+       I  I    I
++====+  +=======+             +=======+               +=======+  +====+
+    ]]></artwork>
+      </figure>
+
+      <t> A more effective solution would allow the reduction of the number of links and routers exposed
+                in L2, while still utilizing
+                the full L1 topology when forwarding through the network.
+</t>
+      <t> <xref target="RFC8099" format="default"/> describes Topology Transparent Zones (TTZ) for OSPF.
+			    The TTZ mechanism represents a group of OSPF routers as a full mesh of adjacencies
+				between the routers at the edge of the group.  A similar mechanism
+                could be applied to IS-IS as well.  However, a full mesh of adjacencies between edge routers
+				(or L1/L2 nodes) significantly limits the practically achievable scale of the
+          resulting topology.
+				The topology in <xref target="f1" format="default"/> has six L1/L2 nodes.   <xref target="f2" format="default"/> illustrates
+				a full mesh of L2 adjacencies between the six L1/L2 nodes, resulting in
+				(5 * 6)/2 = 15 L2 adjacencies. In a somewhat larger topology containing 20 L1/L2 nodes,
+				the number of L2 adjacencies in a full mesh rises to 190.
+      </t>
+      <figure anchor="f2">
+        <name>Example Topology Represented in L2 with a Full Mesh of L2 Adjacencies between L1/L2 Nodes</name>
+        <artwork align="left" alt="" name="" type=""><![CDATA[
++----+  +-------+    +-------------------------------+-------+  +----+
+| R1 |  |  R10  |    |                               |  R30  |  | R4 |
+| L2 +--+ L1/L2 +------------------------------------+ L1/L2 +--+ L2 |
+|    |  |       |    |                               |       |  |    |
++----+  ++-+-+--+-+  |                             +-+--+---++  +----+
+         | | |    |  |                             |    |   |
+         | +----------------------------------------------+ |
+         |   |    |  |                             |    | | |
+         |   +-----------------------------------+ |    | | |
+         |        |  |                           | |    | | |
+         |     +----------------------------------------+ | |
+         |     |  |  |                           | |      | |
++----+  ++-----+- |  |                           | | -----+-++  +----+
+| R2 |  |  R11  | |  |                           | | |  R31  |  | R5 |
+| L2 +--+ L1/L2 +------------------------------------+ L1/L2 +--+ L2 |
+|    |  |       | |  |                           | | |       |  |    |
++----+  ++------+------------------------------+ | | +----+-++  +----+
+         |        |  |                         | | |      | |
+         |        |  |                         | | |      | |
+         |    +-------------------------------------------+ |
+         |    |   |  |                         | | |        |
+         |    |   |  |                         +----------+ |
+         |    |   |  |                           | |      | |
+         |    |   |  |                           +-----+  | |
+         |    |   |  |                             |   |  | |
++----+  ++----+-+-+  |                             +-+-+--+-++  +----+
+| R3 |  |  R12  |    |      L2 adjacency             |  R32  |  | R6 |
+| L2 +--+ L1/L2 +------------------------------------+ L1/L2 +--+ L2 |
+|    |  |       |    |                               |       |  |    |
++----+  +-------+----+                               +-------+  +----+
+    ]]></artwork>
+      </figure>
+      <t>
+                BGP, as specified in <xref target="RFC4271" format="default"/>, faced a similar scaling problem, which
+                has been
+                solved in many networks by deploying BGP route reflectors <xref target="RFC4456" format="default"/>.
+                We note that BGP route reflectors do not necessarily have to be in the
+                forwarding path of the traffic. This non-congruity of forwarding and control path for BGP
+				route reflectors allows the control plane to scale independently of the forwarding plane and
+          represents an interesting degree of freedom in network architecture.
+      </t>
+      <t>
+                We propose in this document a similar solution for IS-IS and call it "flood reflection"
+          in a fashion analogous to "route reflection". A simple example of what a flood
+                reflector control plane approach would look like
+                is shown in <xref target="f3" format="default"/>, where router R21 plays the role of a flood reflector. Each
+                L1/L2 ingress/egress router builds a tunnel to the flood reflector, and an L2 adjacency is built
+				over each tunnel.  In this solution, we need only six L2 adjacencies,
+				instead of the 15 needed for a full mesh.  In a somewhat larger topology containing 20 L1/L2 nodes,
+				this solution requires only 20 L2 adjacencies, instead of the 190 needed for a full mesh.
+                Multiple flood reflectors can be used, allowing the network operator to balance between
+                resilience, path utilization, and state in the control plane. The resulting
+                L2 adjacency scale is R*n, where R is the number of flood reflectors used and n is the number of
+				L1/L2 nodes.  This compares quite favorably with n*(n-1)/2 L2 adjacencies
+				required in a topologically fully meshed L2 solution.
+      </t>
+      <figure anchor="f3">
+        <name>Example Topology Represented in L2 with L2 Adjacencies from Each L1/L2 Node to a Single Flood Reflector</name>
+        <artwork align="left" alt="" name="" type=""><![CDATA[
++----+  +-------+                                    +-------+  +----+
+| R1 |  |  R10  |                                    |  R30  |  | R4 |
+| L2 +--+ L1/L2 +--------------+   +-----------------+ L1/L2 +--+ L2 |
+|    |  |       |  L2 adj      |   |      L2 adj     |       |  |    |
++----+  +-------+  over        |   |      over       +-------+  +----+
+                   tunnel      |   |      tunnel
++----+  +-------+           +--+---+--+              +-------+  +----+
+| R2 |  |  R11  |           |   R21   |              |  R31  |  | R5 |
+| L2 +--+ L1/L2 +-----------+  L1/L2  +--------------+ L1/L2 +--+ L2 |
+|    |  |       |  L2 adj   |  flood  |   L2 adj     |       |  |    |
++----+  +-------+  over     |reflector|   over       +-------+  +----+
+                   tunnel   +--+---+--+   tunnel
++----+  +-------+              |   |                 +-------+  +----+
+| R3 |  |  R12  +--------------+   +-----------------+  R32  |  | R6 |
+| L2 +--+ L1/L2 |  L2 adj                 L2 adj     | L1/L2 +--+ L2 |
+|    |  |       |  over                   over       |       |  |    |
++----+  +-------+  tunnel                 tunnel     +-------+  +----+
+    ]]></artwork>
+      </figure>
+      <t>As illustrated in <xref target="f3" format="default"/>, when R21
+      plays the role of flood reflector, it provides L2 connectivity among all
+      of the previously disconnected L2 islands by reflooding all L2 Link State Protocol Data Unit (LSPs).
+      At the same time, R20 and R22 in <xref target="f1"/> remain L1-only
+      routers.  L1-only routers and L1-only links are not visible in L2.  In
+      this manner, the flood reflector allows us to provide L2 control plane
+      connectivity in a manner more scalable than a flat L2 domain.
+      </t>
+      <t>
+                As described so far, the solution illustrated in  <xref target="f3" format="default"/> relies
+				only on currently standardized IS-IS functionality. Without new functionality, however,
+                the data traffic will traverse only R21.  This will unnecessarily create a bottleneck
+				at R21 since there is still available capacity in the paths crossing the L1-only
+				routers R20 and R22 in <xref target="f1"/>.
+      </t>
+      <t>Hence, additional functionality is compulsory to allow the L1/L2 edge
+      nodes (R10-12 and R30-32 in <xref target="f3" format="default"/>) to
+      recognize that the L2 adjacency to R21 should not be used for
+      forwarding. The L1/L2 edge nodes should forward traffic that would
+      normally be forwarded over the L2 adjacency to R21 over L1 links
+      instead.  This would allow the forwarding within the L1 area to use the
+      L1-only nodes and links shown in <xref target="f1" format="default"/> as
+      well.  
+   It allows networks that use                                      
+   the entire forwarding capacity of the L1 areas to be built, while 
+   at the same time it introduces control plane scaling benefits that 
+   are provided by L2 flood reflectors.
+      </t>
+      <t>
+   It is expected that deployment at scale, and suitable time in 
+   operation, will provide sufficient evidence to either put this 
+   extension into a Standards Track document or suggest necessary 
+   modifications to accomplish that.
+        </t>
+
+      <t> The remainder of this document defines the remaining extensions necessary
+          for a complete flood reflection solution:
+      </t>
+      <ul spacing="normal">
+        <li>
+            It defines a special "flood reflector adjacency"
+            built for the purpose of reflecting flooding
+            information.  These adjacencies allow "flood reflectors" to
+            participate in the IS-IS control plane without necessarily being
+            used in the forwarding plane.  Maintenance of such adjacencies is
+            a purely local operation on the L1/L2 ingress and flood
+            reflectors; it does not require replacing or modifying any routers
+            not involved in the reflection process.  In practical deployments, it is
+            far less tricky to just upgrade the routers involved in flood
+            reflection rather than have a flag day for the whole IS-IS domain.
+                    </li>
+        <li>
+            It specifies an (optional) full mesh of tunnels between the L1/L2
+            ingress routers, ideally load-balancing across all available L1
+            links.  This harnesses all forwarding paths between the L1/L2 edge
+            nodes without injecting unneeded state into the L2 flooding domain
+            or creating "choke points" at the "flood reflectors" themselves.
+            The specification is agnostic as to the tunneling technology used but
+            provides enough information for automatic establishment of such
+            tunnels if desired.  The discussion of IS-IS adjacency formation and/or
+            liveness discovery on such tunnels is outside the scope of this
+            specification and is largely a choice of the underlying implementation.  A
+            solution without tunnels is also possible by introducing the correct
+            scoping of reachability information between the levels. This is
+            described in more detail later.
+
+                    </li>
+        <li>
+            Finally, this document defines support of reflector redundancy
+            and an (optional) way to auto-discover and annotate flood
+            reflector adjacencies on advertisements.  Such additional
+            information in link advertisements allows L2 nodes outside the L1
+            area to recognize a flood reflection cluster and its adjacencies.
+
+                    </li>
+      </ul>
+    </section>
+
+<section anchor="conv">
+<name>Conventions Used in This Document</name>
+
+      <section anchor="terminology" numbered="true" toc="default">
+          <name>Terminology</name>
+          <t>
+              The following terms are used in this document.
+          </t>
+          <dl newline="true" spacing="normal">
+
+              <dt>IS-IS Level 1 and Level 2 areas (mostly abbreviated as L1 and
+              L2):</dt>
+              <dd>IS-IS concepts where a routing domain has two
+              "levels" with a single L2 area being the "backbone" that
+              connects multiple L1 areas for scaling and reliability
+              purposes. 
+
+      IS-IS architecture prescribes a routing domain with two
+      "levels" where a single L2 area functions as the "backbone" that connects
+      multiple L1 areas amongst themselves for scaling and reliability purposes. 
+      In such architecture, L2 can be used as transit for traffic carried from one L1 area to another, but
+      L1 areas themselves cannot be used for that purpose because the L2 level must
+      be a single "connected" entity, and all traffic exiting an L1 area flows along L2 routers until the
+      traffic arrives at the destination L1 area itself.
+              </dd>
+              <dt>Flood Reflector:</dt>
+              <dd>Node configured to connect in L2 only to flood reflector
+              clients and to reflect (reflood) IS-IS L2 LSPs amongst them.</dd>
+              <dt>Flood Reflector Client:</dt>
+      <dd>Node configured to build Flood Reflector Adjacencies to Flood
+      Reflectors and to build normal adjacencies to other clients and 
+      L2 nodes not participating in flood reflection.</dd>
+
+              <dt>Flood Reflector Adjacency:</dt>
+              <dd>IS-IS L2 adjacency where one end is a Flood Reflector Client,
+              and the other, a Flood Reflector. Both have the same Flood
+              Reflector Cluster ID.
+              </dd>
+              <dt>Flood Reflector Cluster:</dt>
+              <dd>Collection of clients and flood reflectors configured with the same cluster identifier.</dd>
+              <dt>
+                  Tunnel-Based Deployment:
+              </dt>
+              <dd>Deployment where Flood Reflector Clients build a partial or full mesh of tunnels in L1  to "shortcut"
+                  forwarding of L2 traffic through the cluster.</dd>
+              <dt>
+                  No-Tunnel Deployment:
+              </dt>
+              <dd>
+                  Deployment where Flood Reflector Clients redistribute L2 reachability into L1 to allow
+                  forwarding through the cluster without underlying tunnels.
+              </dd>
+              <dt>
+                  Tunnel Endpoint:
+              </dt>
+              <dd>An endpoint that allows the establishment of a
+              bidirectional tunnel carrying IS-IS control traffic or,
+              alternately, serves as the origin of such a tunnel.
+              </dd>
+              <dt>L1 shortcut:</dt>
+              <dd>A tunnel established between two clients that is visible in L1
+              only and is used as a next hop, i.e., to carry data traffic
+              in tunnel-based deployment mode.
+              </dd>
+              <dt>Hot-Potato Routing:</dt>
+              <dd>In the context of this document, a routing paradigm where
+              L2->L1 routes are less preferred than L2 routes <xref
+              target="RFC5302" format="default"/>.
+              </dd>
+          </dl>
+	</section>
+
+	  <section numbered="true" toc="default">
+	    <name>Requirements Language</name>
+	    <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+	  </section>
+      </section>
+
+    <section numbered="true" toc="default">
+      <name>Further Details</name>
+      <t>
+                Several considerations should be noted in relation to such a flood reflection mechanism.
+      </t>
+
+      <t>
+   First, the flood reflection mechanism allows multi-area IS-IS deployments 
+   to scale without any major modifications in the IS-IS implementation on 
+   most of the nodes deployed in the network.
+    Unmodified (standard) L2 routers will
+                compute reachability across the transit L1 area using the flood reflector
+                adjacencies.  (In this document, the term "standard" refers to IS-IS as specified in <xref target="ISO10589"/>.) 
+      </t>
+      <t>
+                Second, the flood reflectors are not required to participate in forwarding
+                traffic through the L1 transit area. These flood reflectors can
+                be hosted on virtual devices outside the forwarding topology.
+</t>
+      <t> Third, astute readers will realize that flooding reflection may
+      cause the use of suboptimal paths. This is similar to the BGP route
+      reflection suboptimal routing problem described in <xref
+      target="RFC9107" format="default"/>. 
+
+   The L2
+   computation determines the egress L1/L2 and, with that, can create
+   illusions of ECMP where there is none; and in certain scenarios,
+   the L2 computation can lead to an L1/L2 egress that is not globally 
+   optimal. 
+ 
+ This represents a straightforward
+ instance of the trade-off between the amount of control plane state and the
+ optimal use of paths through the network that are often encountered when
+ aggregating routing information.
+      </t>
+      <t>One possible solution to this problem is to expose additional
+      topology information into the L2 flooding domains. In the example
+      network given, links from router R10 to router R11 can be exposed into
+      L2 even when R10 and R11 are participating in flood reflection.  This
+      information would allow the L2 nodes to build "shortcuts" when the L2
+      flood-reflected part of the topology looks more expensive to cross
+      distance-wise.
+      </t>
+      <t>Another possible variation is for an implementation to use the tunnel
+      cost to approximate the cost of the underlying topology.  </t>
+      <t>Redundancy can be achieved by configuring multiple flood reflectors
+      in an L1 area.  Multiple flood reflectors do not need any synchronization
+      mechanisms amongst themselves, except standard IS-IS flooding and
+      database maintenance procedures.
+      </t>
+
+    </section>
+
+      <section numbered="true" toc="default">
+      <name>Encodings</name>
+
+    <section anchor="sec_flood_reflection_tlv" numbered="true" toc="default">
+      <name>Flood Reflection TLV</name>
+      <t>The Flood Reflection TLV is a top-level TLV that <bcp14>MUST</bcp14>
+      appear in L2 IIHs (IS-IS Hello) on all Flood Reflection Adjacencies.  The Flood
+      Reflection TLV indicates the flood reflector cluster (based on Flood
+      Reflection Cluster ID) that a given router is configured to participate
+      in. It also indicates whether the router is configured to play the role
+      of either flood reflector or flood reflector client. The Flood
+      Reflection Cluster ID and flood reflector roles advertised in the IIHs
+      are used to ensure that flood reflector adjacencies are only formed
+      between a flood reflector and flood reflector client and that the Flood
+      Reflection Cluster IDs match. The Flood Reflection TLV has the following
+      format:
+      </t>
+
+      <artwork align="left" alt="" name="" type=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |    Length     |C|  Reserved   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Flood Reflection Cluster ID                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   Sub-TLVs ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt>
+        <dd>161</dd>
+        <dt>Length:</dt>
+        <dd>The length, in octets, of the following fields.</dd>
+        <dt>C (Client):</dt>
+        <dd>This bit is set to indicate that the router acts as a flood
+        reflector client.  When this bit is NOT set, the router acts as a
+        flood reflector. On a given router, the same value of the C-bit
+        <bcp14>MUST</bcp14> be advertised across all interfaces advertising
+        the Flood Reflection TLV in IIHs.
+                    </dd>
+        <dt>Reserved:</dt>
+        <dd>
+					    This field is reserved for future use.  It <bcp14>MUST</bcp14> be set to 0 when sent
+						and <bcp14>MUST</bcp14> be ignored when received.
+                    </dd>
+
+        <dt>Flood Reflection Cluster ID:</dt>
+        <dd>
+            The&nbsp;same arbitrary 32-bit value <bcp14>MUST</bcp14> be assigned to
+            all of the flood reflectors and flood reflector clients in the
+            same L1 area. The value <bcp14>MUST</bcp14> be unique across
+            different L1 areas within the IGP domain. In case of violation of
+            those rules, multiple L1 areas may become a single cluster, or a
+            single area may split in flood reflection sense, and several
+            mechanisms, such as auto-discovery of tunnels, may not work
+            correctly.
+
+            On a given router, the same value of the Flood Reflection Cluster
+            ID <bcp14>MUST</bcp14> be advertised across all interfaces
+            advertising the Flood Reflection TLV in IIHs. When a router
+            discovers that a node is using more than a single Cluster IDs
+            based on its advertised TLVs and IIHs, the node <bcp14>MAY</bcp14>
+            log such violations subject to rate-limiting.  This implies that a
+            flood reflector <bcp14>MUST NOT</bcp14> participate in more than a
+            single L1 area. In case of Cluster ID value of 0, the TLV
+            containing it <bcp14>MUST</bcp14> be ignored.
+                    </dd>
+        <dt>Sub-TLVs (Optional Sub-TLVs):</dt>
+        <dd>For future extensibility, the format of the Flood Reflection TLV
+        allows for the possibility of including optional sub-TLVs.  No
+        sub-TLVs of the Flood Reflection TLV are defined in this document.
+                    </dd>
+      </dl>
+      <t>The Flood Reflection TLV <bcp14>SHOULD NOT</bcp14> appear more than
+      once in an IIH.  A router receiving one or more Flood Reflection TLVs in
+      the same IIH <bcp14>MUST</bcp14> use the values in the first TLV, and it
+      <bcp14>SHOULD</bcp14> log such violations subject to rate-limiting.
+      </t>
+
+    </section>
+    <section anchor="sec_flood_reflection_discovery_subtlv" numbered="true" toc="default">
+      <name>Flood Reflection Discovery Sub-TLV</name>
+      <t>
+				The Flood Reflection Discovery sub-TLV is advertised as a sub-TLV of the
+				IS-IS Router Capability TLV 242, defined in <xref target="RFC7981" format="default"/>.
+				The Flood Reflection Discovery sub-TLV is advertised in L1 and L2 LSPs with
+				area flooding scope in order to enable the auto-discovery of flood
+				reflection capabilities. The Flood Reflection Discovery sub-TLV has
+				the following format:
+      </t>
+      <artwork align="left" alt="" name="" type=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |    Length     |C|  Reserved   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Flood Reflection Cluster ID                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt>
+        <dd>161</dd>
+        <dt>Length:</dt>
+        <dd>The length, in octets, of the following fields.</dd>
+        <dt>C (Client):</dt>
+        <dd>
+					    This bit is set to indicate that the router acts as a flood reflector client.
+						When this bit is NOT set, the router acts as a flood reflector.
+                    </dd>
+        <dt>Reserved:</dt>
+        <dd>
+					    This field is reserved for future use.  It <bcp14>MUST</bcp14> be set to 0 when sent
+						and <bcp14>MUST</bcp14> be ignored when received.
+                    </dd>
+        <dt>Flood Reflection Cluster ID:</dt>
+  <dd>The Flood Reflection Cluster Identifier
+      is the same as that defined in the Flood Reflection TLV in <xref target="sec_flood_reflection_tlv"/> and obeys the same rules.
+        </dd>
+      </dl>
+      <t>
+				The Flood Reflection Discovery sub-TLV <bcp14>SHOULD NOT</bcp14> appear more than once in TLV 242.  A router
+				receiving one or more Flood Reflection Discovery sub-TLVs in TLV 242 <bcp14>MUST</bcp14> use the values in the
+				first sub-TLV of the lowest numbered fragment, and it <bcp14>SHOULD</bcp14> log such violations subject to rate-limiting.
+      </t>
+    </section>
+
+
+      <section anchor="sec_flood_reflection_discovery_tunnel_subtlv" numbered="true" toc="default">
+          <name>Flood Reflection Discovery Tunnel Type Sub-Sub-TLV</name>
+          <t>
+              Flood Reflection Discovery Tunnel Type sub-sub-TLV is advertised optionally as a sub-sub-TLV of the
+              Flood Reflection Discovery Sub-TLV, defined in <xref target="sec_flood_reflection_discovery_subtlv"/>.
+              It allows the automatic creation of L2 tunnels to be used as
+              flood reflector adjacencies and L1 shortcut tunnels. The Flood Reflection Tunnel Type sub-sub-TLV has
+              the following format:
+          </t>
+          <artwork align="left" alt="" name="" type=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-------------+-+
+|     Type      |    Length     | Reserved    |F|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Tunnel Encapsulation Attribute                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+          <dl newline="false" spacing="normal">
+              <dt>Type:</dt>
+              <dd>161</dd>
+              <dt>Length:</dt>
+              <dd>The length, in octets, of zero or more of the following fields.</dd>
+              <dt>Reserved:</dt>
+              <dd>
+              <bcp14>SHOULD</bcp14> be 0 on transmission and <bcp14>MUST</bcp14> be ignored on reception.</dd>
+              <dt>F Flag:</dt>
+              <dd>When set, indicates flood reflection tunnel endpoint. When
+              clear, indicates possible L1 shortcut tunnel endpoint.
+              </dd>
+              <dt>Tunnel Encapsulation Attribute:</dt>
+              <dd>
+                  Carries encapsulation type and further attributes necessary
+                  for tunnel establishment as defined in <xref
+                  target="RFC9012"/>. In context of this attribute, the
+                  protocol Type sub-TLV as defined in <xref target="RFC9012"/>
+                  <bcp14>MAY</bcp14> be included to ensure proper
+                  encapsulation of IS-IS frames. In case such a sub-TLV is
+                  included and the F flag is set (i.e., the resulting tunnel is
+                  a flood reflector adjacency), this sub-TLV
+                  <bcp14>MUST</bcp14> include a type that allows to carry
+                  encapsulated IS-IS frames. Furthermore, such tunnel type
+                  <bcp14>MUST</bcp14> be able to transport IS-IS frames of
+                  size up to "originatingL2LSPBufferSize".
+              </dd>
+          </dl>
+          <t>A flood reflector
+              receiving Flood Reflection Discovery Tunnel Type sub-sub-TLVs in Flood Reflection Discovery
+              sub-TLV with F flag set (i.e., the resulting tunnel is a flood reflector adjacency)
+              <bcp14>SHOULD</bcp14> use one or more of the specified tunnel endpoints to automatically establish one or more
+              tunnels that will serve as a flood reflection adjacency and/or adjacencies to the clients advertising the endpoints.
+              </t>
+          <t>
+              A flood reflection client
+              receiving one or more Flood Reflection Discovery Tunnel Type sub-sub-TLVs in Flood Reflection Discovery
+              sub-TLV with F flag clear (i.e., the resulting tunnel is used to support tunnel-based mode)
+              from other leaves
+              <bcp14>MAY</bcp14> use one or more of the specified tunnel endpoints to automatically establish one or more
+              tunnels that will serve as L1 tunnel shortcuts to the clients advertising the endpoints.
+          </t>
+          <t>
+              In case of automatic flood reflection adjacency tunnels and in case IS-IS adjacencies are being formed across
+              L1 shortcuts, all the aforementioned rules in <xref target="sec_discovery"/> apply as well.
+          </t>
+          <t>
+              Optional address validation procedures
+              as defined in <xref target="RFC9012"/> <bcp14>MUST</bcp14> be disregarded.
+          </t>
+          <t>
+              It remains to be observed that automatic tunnel discovery is an optional part of the specification
+              and can be replaced or mixed with
+              statically configured tunnels for flood reflector adjacencies and tunnel-based shortcuts.
+              Specific implementation details how both mechanisms interact are specific to an implementation and
+              mode of operation and are outside the scope of this document.
+          </t>
+
+          <!--
+          <t>
+              Once the tunnels are established based on auto discovery procedures, the "withdrawal" of previously
+              seen
+              Flood Reflection Discovery sub-TLV SHOULD NOT be used to tear down an already
+              established tunnel.
+          </t>
+
+          -->
+
+          <t>
+              Flood reflector adjacencies rely on IS-IS L2 liveliness
+              procedures. In case of L1 shortcuts, the mechanism used to
+              ensure liveliness and tunnel integrity are outside the scope of
+              this document.
+          </t>
+      </section>
+
+    <section numbered="true" toc="default">
+      <name>Flood Reflection Adjacency Sub-TLV</name>
+
+      <t>The Flood Reflection Adjacency sub-TLV is advertised as a sub-TLV of
+      TLVs 22, 23, 25, 141, 222, and 223 (the "TLVs Advertising Neighbor
+      Information").  Its presence indicates that a given adjacency is a flood
+      reflector adjacency.  It is included in L2 area scope flooded LSPs. The
+      Flood Reflection Adjacency sub-TLV has the following format:
+      </t>
+      <artwork align="left" alt="" name="" type=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |    Length     |C|  Reserved   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Flood Reflection Cluster ID                |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt>
+        <dd>161</dd>
+        <dt>Length:</dt>
+        <dd>The length, in octets, of the following fields.</dd>
+        <dt>C (Client):</dt>
+        <dd>This bit is set to indicate that the router advertising this
+        adjacency is a flood reflector client. When this bit is NOT set, the
+        router advertising this adjacency is a flood reflector.
+                    </dd>
+        <dt>Reserved:</dt>
+        <dd>This field is reserved for future use.  It <bcp14>MUST</bcp14> be
+        set to 0 when sent and <bcp14>MUST</bcp14> be ignored when received.</dd>
+        <dt>Flood Reflection Cluster ID:</dt>
+        <dd>The Flood Reflection Cluster Identifier is the same as that
+        defined in the Flood Reflection TLV in <xref target="sec_flood_reflection_tlv"/> and obeys the same rules.
+          </dd>
+      </dl>
+      <t>The Flood Reflection Adjacency sub-TLV <bcp14>SHOULD NOT</bcp14>
+      appear more than once in a given TLV.  A router receiving one or more
+      Flood Reflection Adjacency sub-TLVs in a TLV <bcp14>MUST</bcp14> use the
+      values in the first sub-TLV of the lowest numbered fragment, and it
+      <bcp14>SHOULD</bcp14> log such violations subject to rate-limiting.
+      </t>
+    </section>
+    <section anchor="sec_discovery" numbered="true" toc="default">
+      <name>Flood Reflection Discovery</name>
+      <t>A router participating in flood reflection as client or reflector
+      <bcp14>MUST</bcp14> be configured as an L1/L2 router.  It
+      <bcp14>MAY</bcp14> originate the Flood Reflection Discovery sub-TLV with
+      area flooding scope in L1 and L2.  Normally, all routers on the edge of
+      the L1 area (those having standard L2 adjacencies) will advertise
+      themselves as flood reflector clients. Therefore, a flood reflector
+      client will have both standard L2 adjacencies and flood reflector L2
+      adjacencies.
+      </t>
+      <t>A router acting as a flood reflector <bcp14>MUST NOT</bcp14> form any
+      standard L2 adjacencies except with flood reflector clients.  It will
+      be an L1/L2 router only by virtue of having flood reflector L2
+      adjacencies.  A router desiring to act as a flood reflector
+      <bcp14>MAY</bcp14> advertise itself as such using the Flood Reflection
+      Discovery sub-TLV in L1 and L2.
+      </t>
+      <t>A given flood reflector or flood reflector client can only
+      participate in a single cluster, as determined by the value of its Flood
+      Reflection Cluster ID and should disregard other routers' TLVs for flood
+      reflection purposes if the cluster ID is not matching.
+      </t>
+      <t>Upon reception of Flood Reflection Discovery sub-TLVs, a router
+      acting as flood reflector <bcp14>SHOULD</bcp14> initiate a tunnel
+      towards each flood reflector client with which it shares a Flood
+      Reflection Cluster ID, using one or more of the tunnel encapsulations
+      provided with F flag is set.  The L2 adjacencies formed over such
+      tunnels <bcp14>MUST</bcp14> be marked as flood reflector adjacencies.
+      If the client or reflector has a direct L2 adjacency with the according
+      remote side, it <bcp14>SHOULD</bcp14> use it instead of instantiating a
+      tunnel.
+          </t>
+      <t>In case the optional auto-discovery mechanism is not implemented or
+      enabled, a deployment <bcp14>MAY</bcp14> use statically configured
+      tunnels to create flood reflection adjacencies.
+      </t>
+      <t>The IS-IS metrics for all flood reflection adjacencies in a cluster
+      <bcp14>SHOULD</bcp14> be identical.
+        </t>
+      <t>Upon reception of Flood Reflection Discovery TLVs, a router acting as
+      a flood reflector client <bcp14>MAY</bcp14> initiate tunnels with
+      L1-only adjacencies towards any of the other flood reflector clients
+      with lower router IDs in its cluster using encapsulations with F flag
+      clear. These tunnels <bcp14>MAY</bcp14> be used for forwarding to
+      improve the load-balancing characteristics of the L1 area.  If the
+      clients have a direct L2 adjacency, they <bcp14>SHOULD</bcp14> use it
+      instead of instantiating a new tunnel.
+      </t>
+    </section>
+    <section anchor="sec_adj" numbered="true" toc="default">
+      <name>Flood Reflection Adjacency Formation</name>
+      <t>
+			In order to simplify implementation complexity, this document does not
+			allow the formation of complex hierarchies of flood reflectors and clients or allow
+            multiple clusters in a single L1 area.
+
+          Consequently, all flood reflectors and flood reflector clients in the same L1 area <bcp14>MUST</bcp14> share the same
+			Flood Reflector Cluster ID. Deployment of multiple cluster IDs in the same L1 area are outside the scope
+            of this document.
+        </t>
+        <t>
+                A flood reflector <bcp14>MUST NOT</bcp14> form flood reflection adjacencies with flood reflector clients
+                with a different Cluster ID.
+                A flood reflector <bcp14>MUST NOT</bcp14> form any standard L2 adjacencies.
+        </t>
+        <t>
+                Flood reflector clients <bcp14>MUST NOT</bcp14> form flood reflection adjacencies with flood reflectors
+                with a different Cluster ID.
+        </t>
+        <t>
+                Flood reflector clients <bcp14>MAY</bcp14> form standard L2 adjacencies with flood reflector clients
+                or nodes not participating in flood reflection. When two flood reflector
+                clients form a standard L2
+                adjacency, the Cluster IDs are disregarded.
+      </t>
+      <t>
+			The Flood Reflector Cluster ID and flood reflector
+			roles advertised in the Flood Reflection TLVs in IIHs are used to ensure
+			that flood reflection adjacencies that are established meet the above criteria.
+      </t>
+        <t>
+                On change in either flood reflection role or cluster ID on IIH on the local or remote side,
+            the adjacency has to be
+                reset. It is then re-established if possible.
+        </t>
+      <t>
+			Once a flood reflection adjacency is established, the flood reflector and the flood
+			reflector client <bcp14>MUST</bcp14> advertise the adjacency by including the Flood Reflection Adjacency
+			Sub-TLV in the Extended IS reachability TLV or Multi-Topology Intermediate System Neighbor (MT-ISN) TLV.</t>
+    </section>
+      </section>
+
+    <section anchor="sec_route_comp" numbered="true" toc="default">
+      <name>Route Computation</name>
+      <t>
+			To ensure loop-free routing, the flood reflection client <bcp14>MUST</bcp14> follow the normal L2 computation
+			to determine L2 routes. This is because nodes outside the L1 area will generally
+			not be aware that flood reflection is being performed. The flood reflection clients
+			need to produce the same result for the L2 route computation as a router not participating in
+			flood reflection.
+          </t>
+
+        <section  numbered="true" toc="default">
+            <name>Tunnel-Based Deployment</name>
+       <t>
+           In the tunnel-based option, the reflection client, after L2 and L1
+           computation, <bcp14>MUST</bcp14> examine all L2 routes with flood reflector next-hop adjacencies.
+           Such next hops must
+           be replaced by the corresponding
+           tunnel next hops to the correct egress nodes of the flood reflection cluster.
+      </t>
+        </section>
+
+        <section anchor="no_tunnels"  numbered="true" toc="default">
+            <name>No-Tunnel Deployment</name>
+
+            <t>In case of deployment without underlying tunnels, the necessary
+            L2 routes are distributed into the area, normally as L2->L1
+            routes.  
+
+   Due
+   to the rules in <xref target="sec_adj"/>, the computation in the resulting topology
+   is relatively simple: the L2 SPF from a flood reflector client is
+   guaranteed to reach the Flood Reflector within a single hop, and in
+   the following hop, it is guaranteed to reach the L2 egress to which
+   it has a forwarding tunnel.
+
+ All the flood reflector tunnel next hops in the according
+            L2 route can hence be removed, and if the L2 route has no other
+            ECMP L2 next hops, the L2 route <bcp14>MUST</bcp14> be suppressed
+            in the RIB by some means to allow the less preferred L2->L1 route
+            to be used to forward traffic towards the advertising egress.
+                </t>
+            <t>In the particular case the client has L2 routes which are not
+            flood reflected, those will be naturally preferred (such routes
+            normally "hot-potato" packets out of the L1 area). However, in the
+            case the L2 route through the flood reflector egress is "shorter"
+            than such present L2 routes that are not flood reflected, the node
+            <bcp14>SHOULD</bcp14> ensure that such routes are suppressed so
+            the L2->L1 towards the egress still takes preference. Observe that
+            operationally this can be resolved in a relatively simple way by
+            configuring flood reflector adjacencies to have a high metric,
+            i.e., the flood reflector topology becomes "last resort," and the
+            leaves will try to "hot-potato" out the area as fast as possible,
+            which is normally the desirable behavior.</t>
+
+            <t>In no-tunnel deployment, all L1/L2 edge nodes <bcp14>MUST</bcp14> be
+                flood reflection
+                clients.</t>
+
+          <t></t>
+    </section>
+    </section>
+
+      <section anchor="sec_prefixes" numbered="true" toc="default">
+          <name>Redistribution of Prefixes</name>
+          <t>
+              In case of no-tunnel deployment per <xref target="no_tunnels"/>, a client that  does not
+              have
+              any L2 flood reflector adjacencies <bcp14>MUST NOT</bcp14> redistribute L2 routes into
+              the cluster.
+</t>
+          <t>
+              The L2 prefix advertisements redistributed into an L1 that contains flood reflectors
+              <bcp14>SHOULD</bcp14> be normally limited to L2 intra-area routes (as defined in <xref target="RFC7775" format="default"/>)
+              if the information exists to distinguish them from other L2 prefix advertisements.
+          </t>
+          <t>
+              On the other hand, in topologies that make use of flood reflection to hide the structure of L1 areas
+              while still providing transit-forwarding across them using tunnels, we generally do not need to
+              redistribute L1 prefix advertisements into L2.
+          </t>
+
+      </section>
+
+    <section anchor="patholody" numbered="true" toc="default">
+      <name>Special Considerations</name>
+      <t>In pathological cases, setting the overload bit in L1 (but not in L2)
+      can partition L1 forwarding, while allowing L2 reachability through
+      flood reflector adjacencies to exist. In such a case, a node cannot
+      replace a route through a flood reflector adjacency with an L1 shortcut,
+      and the client <bcp14>MAY</bcp14> use the L2 tunnel to the flood
+      reflector for forwarding. In all those cases, the node
+      <bcp14>MUST</bcp14> initiate an alarm and declare misconfiguration.
+      </t>
+      <t>A flood reflector with directly L2 attached prefixes should advertise
+      those in L1 as well since, based on preference of L1 routes, the clients
+      will not try to use the L2 flood reflector adjacency to route the packet
+      towards them. A very unlikely corner case can occur when the flood
+      reflector is reachable via L2 flood reflector adjacency (due to
+      underlying L1 partition) exclusively. In this instance, the client can use
+      the L2 tunnel to the flood reflector for forwarding towards those
+      prefixes while it <bcp14>MUST</bcp14> initiate an alarm and declare
+      misconfiguration.
+      </t>
+      <t>A flood reflector <bcp14>MUST NOT</bcp14> set the attached bit on its
+      LSPs.
+      </t>
+      <t>In certain cases where reflectors are attached to the same broadcast
+      medium, and where some other L2 router that is neither a flood
+      reflector nor a flood reflector client (a "non-FR router", i.e., a router not participating in flood reflection) attaches to
+      the same broadcast medium, flooding between the reflectors in question
+      might not succeed, potentially partitioning the flood reflection
+      domain. This could happen specifically in the event that the non-FR
+      router is chosen as the Designated Intermediate System (DIS) -- the
+      designated router.  Since, per <xref target="sec_adj"/>, a flood
+      reflector <bcp14>MUST NOT</bcp14> form an adjacency with a non-FR
+      router, the flood reflector(s) will not be represented in the
+      pseudo-node.
+
+          </t>
+        <t>
+          To avoid this situation, it is <bcp14>RECOMMENDED</bcp14> that flood reflectors not be deployed on the same broadcast
+          medium as non-FR routers.
+
+            </t>
+        <t>
+          A router discovering such condition
+          <bcp14>MUST</bcp14> initiate an alarm and declare misconfiguration.
+      </t>
+    </section>
+
+    <section anchor="IANA" toc="default" numbered="true">
+      <name>IANA Considerations</name>
+      <t>IANA has assigned the following IS-IS TLVs and sub-TLVs and has created a new registry.</t>
+      <section numbered="true" toc="default">
+        <name>New IS-IS TLV Codepoint</name>
+        <t>The following IS-IS TLV has been registered in the
+            "IS-IS Top-Level TLV Codepoints" registry:</t>
+<table anchor="is-is-tlv-codepoint" align="center">
+  <name>Flood Reflection IS-IS TLV Codepoint</name>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Name</th>
+      <th>IIH</th>
+      <th>LSP</th>
+      <th>SNP</th>
+      <th>Purge</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>161</td>
+      <td>Flood Reflection</td>
+      <td>y</td>
+      <td>n</td>
+      <td>n</td>
+      <td>n</td>
+    </tr>
+  </tbody>
+</table>
+         </section>
+
+      <section numbered="true" toc="default">
+        <name>Sub-TLVs for IS-IS Router CAPABILITY TLV</name>
+        <t>The following has been registered in the "IS-IS Sub-TLVs
+        for IS-IS Router CAPABILITY TLV" registry:</t>
+
+<table anchor="is-is-router-capability" align="center">
+  <name>IS-IS Router CAPABILITY TLV</name>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>161</td>
+      <td>Flood Reflection Discovery</td>
+    </tr>
+  </tbody>
+</table>
+         </section>
+
+        <section numbered="true" toc="default">
+            <name>Sub-Sub-TLVs for Flood Reflection Discovery Sub-TLV</name>
+            <t>IANA has created a new registry named
+            "IS-IS Sub-Sub-TLVs for Flood Reflection Discovery Sub-TLV" under the
+            "IS-IS TLV Codepoints" grouping.  The registration procedure for
+            this registry is Expert Review <xref target="RFC8126"/>, following the common expert
+            review guidance given for the grouping.
+            </t>
+            <t>The range of values in this registry is 0-255. The registry
+            contains the following initial registration:</t>
+<table anchor="sub-sub-tlv-flood-reflection" align="center">
+  <name>IS-IS Sub-Sub-TLVs for Flood Reflection Discovery Sub-TLV</name>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>161</td>
+      <td>Flood Reflection Discovery Tunnel Encapsulation Attribute</td>
+    </tr>
+  </tbody>
+</table>
+             </section>
+
+      <section numbered="true" toc="default">
+        <name>Sub-TLVs for TLVs Advertising Neighbor Information</name>
+        <t>The following has been registered in the "IS-IS
+            Sub-TLVs for TLVs Advertising Neighbor Information" registry;
+
+            </t>
+<table anchor="sub-tlv-advertising-neighbor-info" align="center">
+  <name>IS-IS Sub-TLVs for TLVs Advertising Neighbor Information</name>
+  <thead>
+    <tr>
+      <th>Type</th>
+      <th>Description</th>
+      <th>22</th>
+      <th>23</th>
+      <th>25</th>
+      <th>141</th>
+      <th>222</th>
+      <th>223</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>161</td>
+      <td>Flood Reflector Adjacency</td>
+      <td>y</td>
+      <td>y</td>
+      <td>n</td>
+      <td>y</td>
+      <td>y</td>
+      <td>y</td>
+    </tr>
+  </tbody>
+</table>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document uses flood reflection tunnels to carry IS-IS control traffic.
+          If an attacker can inject traffic into such a tunnel, the consequences could
+          be (in the most extreme case) the complete subversion of the IS-IS Level 2 information.
+          Therefore, a mechanism inherent to the tunnel technology should be used to prevent such injection.
+          Since the available security procedures will vary by deployment and tunnel type,
+          the details of securing tunnels are beyond the scope of this document.
+</t>
+
+        <t>
+            This document specifies information used to form dynamically discovered shortcut tunnels.
+            If an attacker were able to hijack the endpoint of such a tunnel and form an adjacency, it could divert
+            shortcut traffic to itself,
+            placing itself on-path and facilitating on-path attacks, or it could even completely subvert the IS-IS Level 2
+            routing.
+            Therefore, steps should be taken to prevent such capture by using mechanism inherent to the
+            tunnel type used.
+          Since the available security procedures will vary by deployment and tunnel type,
+          the details of securing tunnels are beyond the scope of this document.
+            </t>
+
+<t>
+   Additionally, the usual IS-IS security mechanisms <xref target="RFC5304"/> <bcp14>SHOULD</bcp14> be
+   deployed to prevent misrepresentation of routing information by an
+   attacker in case a tunnel is compromised and the tunnel itself does
+   not provide mechanisms strong enough to guarantee the integrity of
+   the messages exchanged.
+      </t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5302.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5304.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7775.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7981.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9012.xml"/>
+
+        <reference anchor="ISO10589">
+          <front>
+            <title>Information technology - Telecommunications and information
+            exchange between systems - Intermediate System to Intermediate
+            System intra-domain routeing information exchange protocol for use
+            in conjunction with the protocol for providing the
+            connectionless-mode network service (ISO 8473)</title>
+            <author>
+              <organization abbrev="ISO">International Organization for
+            Standardization</organization>
+            </author>
+            <date month="November" year="2002"/>
+          </front>
+          <seriesInfo name="ISO/IEC" value="10589:2002"/>
+          <refcontent>Second Edition</refcontent>
+        </reference>
+      </references>
+
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4271.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4456.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8099.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9107.xml"/>
+</references> 
+</references> 
+
+<section numbered="false" toc="default">
+<name>Acknowledgements</name> 
+
+<t>The authors thank <contact fullname="Shraddha Hegde"/>, <contact
+fullname="Peter Psenak"/>, <contact fullname="Acee Lindem"/>, <contact
+fullname="Robert Raszuk"/>, and <contact fullname="Les Ginsberg"/> for their
+thorough review and detailed discussions. Thanks are also extended to <contact
+fullname="Michael Richardson"/> for an excellent routing directorate
+review. <contact fullname="John Scudder"/> ultimately spent significant time
+helping to make the document more comprehensible and coherent.  </t>
+</section> 
+</back>
+
+</rfc>

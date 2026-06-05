@@ -1,0 +1,853 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-rats-uccs-12" number="9781" category="std" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en" updates="" obsoletes="">
+
+<front>
+    <title abbrev="Unprotected CWT Claims Sets">A Concise Binary Object Representation (CBOR) Tag for Unprotected CBOR Web Token Claims Sets (UCCS)</title>
+    <seriesInfo name="RFC" value="9781"/>
+    <author initials="H." surname="Birkholz" fullname="Henk Birkholz">
+      <organization abbrev="Fraunhofer SIT">Fraunhofer SIT</organization>
+      <address>
+        <postal>
+          <street>Rheinstrasse 75</street>
+          <city>Darmstadt</city>
+          <code>64295</code>
+          <country>Germany</country>
+        </postal>
+        <email>henk.birkholz@ietf.contact</email>
+      </address>
+    </author>
+    <author initials="J." surname="O'Donoghue" fullname="Jeremy O'Donoghue">
+      <organization abbrev="Qualcomm Technologies Inc.">Qualcomm Technologies Inc.</organization>
+      <address>
+        <postal>
+          <street>279 Farnborough Road</street>
+          <city>Farnborough</city>
+          <code>GU14 7LS</code>
+          <country>United Kingdom</country>
+        </postal>
+        <email>jodonogh@qti.qualcomm.com</email>
+      </address>
+    </author>
+    <author initials="N." surname="Cam-Winget" fullname="Nancy Cam-Winget">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <street>3550 Cisco Way</street>
+          <city>San Jose</city>
+          <region>CA</region>
+          <code>95134</code>
+          <country>United States of America</country>
+        </postal>
+        <email>ncamwing@cisco.com</email>
+      </address>
+    </author>
+    <author initials="C." surname="Bormann" fullname="Carsten Bormann">
+      <organization>Universität Bremen TZI</organization>
+      <address>
+        <postal>
+          <street>Postfach 330440</street>
+          <city>Bremen</city>
+          <code>D-28359</code>
+          <country>Germany</country>
+        </postal>
+        <phone>+49-421-218-63921</phone>
+        <email>cabo@tzi.org</email>
+      </address>
+    </author>
+    <date year="2025" month="May"/>
+    <area>SEC</area>
+    <workgroup>rats</workgroup>
+
+<keyword>Secure Channel</keyword>
+<keyword>RATS</keyword>
+<keyword>Conceptual Message Conveyance</keyword>
+<keyword>Privacy</keyword>
+<keyword>Confidentiality</keyword>
+<keyword>CDDL</keyword>
+<keyword>EAT</keyword>
+<keyword>UJCS</keyword>
+<keyword>CWT</keyword>
+    <abstract>
+<t>This document defines the Unprotected CWT Claims Set (UCCS), a data format for
+representing a CBOR Web Token (CWT) Claims Set without protecting it
+by a signature, Message Authentication Code (MAC), or encryption.
+UCCS enables the use of CWT claims in environments where protection is
+provided by other means, such as secure communication channels or
+trusted execution environments.
+This specification defines a CBOR tag for UCCS and describes the UCCS
+format, its encoding, and its processing considerations. It also discusses
+security implications of using unprotected claims sets.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>A CBOR Web Token (CWT) as specified by <xref target="RFC8392"/> is always wrapped in a
+CBOR Object Signing and Encryption (COSE) envelope <xref target="STD96"/>.
+Among other things, COSE provides end-to-end data origin
+authentication and integrity protection employed by <xref target="RFC8392"/> as well as
+optional encryption for CWTs.
+Under the right circumstances (<xref target="secchan"/>), a signature providing proof for authenticity and integrity can be
+provided through the transfer protocol and thus omitted from the
+information in a CWT without compromising the intended goal of authenticity
+and integrity.
+In other words, if communicating parties have a preexisting security
+association, they can reuse it to provide authenticity and integrity
+for their messages, enabling the basic principle of using resources
+parsimoniously.
+Specifically, if a mutually secured channel is established between two
+remote peers, and if that secure channel provides the required
+properties (as discussed below), it is possible to omit the protection
+provided by COSE, creating a use case for unprotected CWT Claims Sets.
+Similarly, if there is one-way authentication, the party that did not
+authenticate may be in a position to send authentication information through
+this channel that allows the already authenticated party to authenticate the
+other party; this effectively turns the channel into a mutually
+secured channel.</t>
+      <t>This specification allocates a CBOR tag to mark Unprotected CWT Claims Sets
+(UCCS) as such and discusses conditions for its proper use in the scope of
+Remote Attestation Procedures (RATS <xref target="RFC9334"/>) for the
+conveyance of RATS Conceptual Messages.</t>
+
+      <t>This specification does not change <xref target="RFC8392"/>: A CWT as defined by <xref target="RFC8392"/> does not make use of
+the tag allocated here; the UCCS tag is an alternative to using COSE
+protection and a CWT tag.
+Consequently, within the well-defined scope of a secure channel, it
+can be acceptable and economic to use the contents of a CWT without
+its COSE container and tag it with a UCCS CBOR tag for further
+processing within that scope -- or to use the contents of a UCCS CBOR
+tag for building a CWT to be signed by some entity that can vouch for
+those contents.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <t>The term Claim is used as in <xref target="RFC7519"/>.</t>
+        <t>The terms Claim Key, Claim Value, and CWT Claims Set are used as in
+<xref target="RFC8392"/>.</t>
+        <t>The terms Attester, Attesting Environment, Evidence, Relying Party and Verifier are used as in <xref target="RFC9334"/>.</t>
+        <dl spacing="normal">
+          <dt>UCCS:</dt> <dd><t>Unprotected CWT Claims Set(s); CBOR map(s) of
+          Claims as defined by the CWT Claims Registry that are composed of
+          pairs of Claim Keys and Claim Values.</t></dd>
+          <dt>Secure Channel:</dt>
+          <dd><t><xref target="NIST-SP800-90Ar1"/> defines a Secure Channel
+          as follows:</t>
+	  <t indent="3">"A path for transferring data between two entities or components
+	  that ensures confidentiality, integrity and replay protection, as
+	  well as mutual authentication between the entities or
+	  components. The secure channel may be provided using approved
+	  cryptographic, physical or procedural methods, or a combination
+	  thereof."</t>
+          <t>For the purposes of the present document, we focus on a protected
+          communication channel used for conveyance that can ensure the same
+          qualities as a CWT without having COSE protection available, which includes
+          mutual authentication, integrity protection, and confidentiality.
+          (Replay protection can be added by including a nonce claim such as
+          Nonce (claim 10 <xref target="IANA.cwt"/>).)  Examples include
+          conveyance via PCIe (Peripheral Component Interconnect Express) IDE
+          (Integrity and Data Encryption) or a TLS tunnel.</t>
+          </dd>
+        </dl>
+        <t>All terms referenced or defined in this section are capitalized in the remainder of
+this document.</t>
+
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+
+</section>
+      <section anchor="structure-of-this-document">
+        <name>Structure of This Document</name>
+        <t><xref target="usage"/> briefly discusses use cases for UCCS.
+<xref target="secchan"/> addresses general characteristics of secure channels,
+followed by a specific discussion of using them in the context of RATS Conceptual
+Message Conveyance in <xref target="uccs-rats"/>, and more
+forward-looking considerations for using UCCS in other RATS contexts
+are discussed in <xref target="other-rats"/>.
+This is followed by the <xref format="title" target="iana"/>, <xref format="title" target="seccons"/>,
+<xref format="title" target="sec-normative-references"/>, and <xref format="title" target="sec-informative-references"/>. 
+The normative <xref target="cddl"/> provides a formal definition of the structure of
+UCCS, as no
+formal definition of CWT Claims Sets was provided in <xref target="RFC8392"/>.
+
+This employs the Concise Data Definition Language (CDDL) <xref
+target="RFC8610"/>, using its ability to also describe in the same definition
+the structurally similar use of JWT Claims Sets <xref target="RFC7519"/>,
+without any protective wrapper (such as JWS) applied, as Unprotected JWT
+Claims Sets (UJCS).
+
+<xref target="example"/> provides an (informative) example for CBOR-Tagged UCCS.
+The normative <xref target="eat"/> provides CDDL rules that add UCCS-format tokens to
+Entity Attestation Tokens (EATs) <xref target="RFC9711"/> using its predefined
+extension points.</t>
+      </section>
+    </section>
+    <section anchor="usage">
+      <name>Deployment and Usage of UCCS</name>
+      <t>Usage scenarios involving the conveyance of Claims (RATS, in particular)
+require a standardized data definition and encoding format that
+can be transferred
+and transported using different communication channels.  As these are
+Claims, the Claims Sets defined in <xref target="RFC8392"/> are
+a suitable format.  However, the way these Claims are secured depends on the deployment, the security
+capabilities of the device, as well as their software stack.  For example, a Claim may be securely
+stored and conveyed using a device's Trusted Execution Environment (TEE) <xref target="RFC9397"/> or
+a Trusted Platform Module (TPM) <xref target="TPM2"/>.
+Especially in some resource-constrained environments,
+the same process that provides the secure communication
+transport is also the delegate to compose the Claim to be conveyed. Whether it is a transfer
+or transport, a Secure Channel is presumed to be used for conveying such UCCS.  The following sections
+elaborate on Secure Channel characteristics in general and further describe RATS usage scenarios and
+corresponding requirements for UCCS deployment.</t>
+    </section>
+    <section anchor="secchan">
+      <name>Characteristics of a Secure Channel</name>
+      <t>A Secure Channel for the conveyance of UCCS needs to provide the security
+properties that would otherwise be provided by COSE for a CWT.
+
+In this regard, UCCS are similar in security considerations to JWTs <xref target="BCP225"/>
+using the algorithm "none".  Section <xref target="RFC8725" section="3.2" sectionFormat="bare"/> of RFC 8725 <xref target="BCP225"/> states:</t>
+      <blockquote>
+        <t>[...] if a JWT is cryptographically
+protected end-to-end by a transport layer, such as TLS using
+cryptographically current algorithms, there may be no need to apply another
+layer of cryptographic protections to the JWT.  In such cases, the use of
+the "none" algorithm can be perfectly acceptable.</t>
+      </blockquote>
+      <t>The security considerations discussed, e.g., in Sections <xref target="RFC8725" section="2.1" sectionFormat="bare"/>, <xref target="RFC8725" section="3.1" sectionFormat="bare"/>, and <xref target="RFC8725" section="3.2" sectionFormat="bare"/> of RFC 8725 <xref target="BCP225"/> apply in an analogous way to the use of UCCS as
+elaborated on in this document.
+In particular, the need to "Use Appropriate Algorithms" (Section <xref target="RFC8725" section="3.2" sectionFormat="bare"/> of RFC 8725 <xref target="BCP225"/>) includes choosing appropriate cryptographic
+algorithms for setting up and protecting the Secure Channel.
+For instance, their cryptographic strength should be at least as
+strong as any cryptographic keys the Secure Channel will be used for
+to protect in transport.
+<xref target="tab-algsec"/> in <xref target="algsec"/> provides references to some more security
+considerations for specific cryptography choices that are discussed in
+the COSE initial algorithms specification <xref target="RFC9053"/>.</t>
+
+      <t>Secure Channels are often set up in a handshake protocol that mutually
+derives a session key, where the handshake protocol establishes the (identity and thus) authenticity of one or both ends of the communication.
+The session key can
+then be used to provide confidentiality and integrity of the transfer of
+information inside the Secure Channel.
+(Where the handshake did not provide a mutually secure channel,
+further authentication information can be conveyed by the party not
+yet authenticated, leading to a mutually secured channel.)
+A well-known example of such a
+Secure Channel setup protocol is the TLS <xref target="RFC8446"/> handshake; the
+TLS record protocol can then be used for secure conveyance.</t>
+      <t>As UCCS were initially created for use in RATS Secure Channels, the following
+section provides a discussion of
+their use in these channels.  Where other environments are intended to be
+used to convey UCCS, similar considerations need to be documented before
+UCCS can be used.</t>
+    </section>
+    <section anchor="uccs-rats">
+      <name>UCCS in RATS Conceptual Message Conveyance</name>
+      <t>This section describes a detailed usage scenario for UCCS in the
+context of RATS in conjunction with its attendant security
+requirements.
+The use of UCCS tag 601 outside of the RATS context <bcp14>MUST</bcp14> come with additional instruction leaflets and security considerations.</t>
+      <t>For the purposes of this section, any RATS role can be the sender or the receiver of the UCCS.</t>
+      <t>Secure Channels can be transient in nature.  For the purposes of this
+specification, the mechanisms used to establish a Secure Channel are out of
+scope.</t>
+      <t>In the scope of RATS Claims, the receiver <bcp14>MUST</bcp14>
+authenticate the sender as part of the establishment of the Secure Channel.
+Furthermore, the channel <bcp14>MUST</bcp14> provide integrity of the communication between the
+communicating RATS roles.
+For data confidentiality <xref target="RFC4949"/>, the receiving side <bcp14>MUST</bcp14> be
+authenticated as well. This is achieved if the sender and receiver
+mutually authenticate when establishing the Secure Channel.
+The quality of the receiver's authentication and authorization will
+influence whether the sender can disclose the UCCS.</t>
+      <t>The extent to which a Secure Channel can provide assurances that UCCS
+originate from a trustworthy Attesting Environment depends on the
+characteristics of both the cryptographic mechanisms used to establish the
+channel and the characteristics of the Attesting Environment itself.
+The assurance provided to a Relying Party depends, among others, on the authenticity
+and integrity properties of the Secure Channel used for conveying
+the UCCS to the Relying Party.</t>
+      <t>Ultimately, it is up to the receiver's policy to determine whether to accept
+a UCCS from the sender and to determine the type of Secure Channel it must negotiate.
+While the security considerations of the cryptographic algorithms used are similar
+to COSE, the considerations of the Secure Channel should also adhere to the policy
+configured at each of end of the Secure Channel.  However, the policy controls
+and definitions are out of scope for this document.</t>
+      <t>Where an Attesting Environment serves as an endpoint of a Secure
+Channel used to convey a UCCS, the security assurance required of that
+Attesting Environment by a Relying Party generally calls for the
+Attesting Environment to be implemented using techniques designed to
+provide enhanced protection from an attacker wishing to tamper with or
+forge a UCCS originating from that Attesting Environment.
+A possible approach might be to implement the Attesting Environment in
+a hardened environment, such as a TEE <xref target="RFC9397"/> or a TPM <xref target="TPM2"/>.</t>
+
+      <t>When a UCCS emerges from the Secure Channel and into the receiver, the security
+properties of the secure channel no longer protect the UCCS, which is now subject to the same security properties
+as any other unprotected data in the Verifier environment.
+If the receiver subsequently forwards UCCS, they are treated as though they originated within the receiver.</t>
+      <t>The Secure Channel context does not govern fully formed CWTs in the
+same way it governs UCCS.
+As with EATs (see <xref target="RFC9711"/>) nested in other EATs (Section <xref target="RFC9711" section="4.2.18.3" sectionFormat="bare">Nested Tokens</xref> of <xref target="RFC9711"/>), the Secure
+Channel does not endorse fully formed CWTs transferred through it.
+Effectively, the COSE envelope of a CWT (or a nested EAT) shields the
+CWT Claims Set from the endorsement of the secure channel.
+(Note that a nested UCCS Claim might be added to EAT, and this statement does not apply to UCCS nested into UCCS; it only applies to
+fully formed CWTs.)</t>
+    </section>
+    <section anchor="other-rats">
+      <name>Considerations for Using UCCS in Other RATS Contexts</name>
+      <t>This section discusses two additional usage scenarios for UCCS in the
+context of RATS.</t>
+      <section anchor="delegated-attestation">
+        <name>Delegated Attestation</name>
+        <t>Another usage scenario is that of a sub-Attester that has no signing
+keys (for example, to keep the implementation complexity to a minimum)
+and has a Secure Channel, such as local inter-process communication,
+to interact with a lead Attester (see "Composite Device", <xref section="3.3" sectionFormat="of" target="RFC9334"/>).
+The sub-Attester produces a UCCS with the required CWT Claims Set and sends the UCCS through the Secure Channel to the lead Attester.
+The lead Attester then computes a cryptographic hash of the UCCS and
+protects that hash using its signing key for Evidence, for example,
+using a Detached-Submodule-Digest or Detached EAT Bundle (<xref section="5" sectionFormat="of" target="RFC9711"/>).</t>
+      </section>
+      <section anchor="privacy-preservation">
+        <name>Privacy Preservation</name>
+        <t>A Secure Channel that preserves the privacy of the Attester may provide
+security properties equivalent to COSE, but only inside the life-span of the
+session established.  In general, when a privacy-preserving Secure
+Channel is employed to convey a conceptual message, the receiver
+cannot correlate the message with the senders of
+other received UCCS messages beyond the information the Secure Channel
+authentication provides.</t>
+        <t>An Attester must consider whether any UCCS it returns over a privacy-preserving Secure Channel compromises the privacy in unacceptable ways.  As
+an example, the use of the EAT UEID Claim (<xref section="4.2.1" sectionFormat="of" target="RFC9711"/>) in UCCS over a privacy-preserving Secure Channel allows a Verifier to correlate UCCS from a single
+Attesting Environment across many Secure Channel sessions. This may be
+acceptable in some use cases (e.g., if the Attesting Environment is a
+physical sensor in a factory) and unacceptable in others (e.g., if the
+Attesting Environment is a user device belonging to a child).</t>
+      </section>
+    </section>
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <section anchor="cbor-tag-registration">
+        <name>CBOR Tag Registration</name>
+        <t>In the "CBOR Tags" registry <xref target="IANA.cbor-tags"/> as defined in Section <xref target="RFC8949" section="9.2" sectionFormat="bare"/> of RFC 8949 <xref target="STD94"/>, IANA has allocated the tag in <xref target="tab-tag-values"/> from
+the Specification Required space (1+2 size), with the present document
+as the specification reference.</t>
+        <table anchor="tab-tag-values">
+          <name>Values for Tags</name>
+          <thead>
+            <tr>
+              <th align="right">Tag</th>
+              <th align="left">Data Item</th>
+              <th align="left">Semantics</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="right">601</td>
+              <td align="left">map (Claims-Set as per <xref target="cddl"/> of [RFC9781])</td>
+              <td align="left">Unprotected CWT Claims Set [RFC9781]</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="media-type">
+        <name>Media-Type application/uccs+cbor Registration</name>
+        <t>IANA has added the following to the "Media Types"
+registry <xref target="IANA.media-types"/>.</t>
+        <table anchor="new-media-type">
+          <name>Media Type Registration</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Template</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">uccs+cbor</td>
+              <td align="left">application/uccs+cbor</td>
+              <td align="left">
+                <xref target="media-type"/> of RFC 9781</td>
+            </tr>
+          </tbody>
+        </table>
+        <dl newline="false" spacing="normal">
+          <dt>Type name:</dt>
+          <dd>application</dd>
+          <dt>Subtype name:</dt>
+          <dd>uccs+cbor</dd>
+          <dt>Required parameters:</dt>
+          <dd>N/A</dd>
+          <dt>Optional parameters:</dt>
+          <dd>N/A</dd>
+          <dt>Encoding considerations:</dt>
+          <dd>binary (CBOR data item)</dd>
+          <dt>Security considerations:</dt>
+          <dd><xref target="seccons"/> of RFC 9781</dd>
+          <dt>Interoperability considerations:</dt>
+          <dd>none</dd>
+          <dt>Published specification:</dt>
+          <dd>RFC 9781</dd>
+          <dt>Applications that use this media type:</dt>
+          <dd>Applications that transfer Unprotected CWT Claims Set(s) (UCCS)
+          over Secure Channels</dd>
+          <dt>Fragment identifier considerations:</dt>
+          <dd>The syntax and semantics of fragment identifiers is as specified
+          for "application/cbor".  (At publication of this document, there is
+          no fragment identification syntax defined for
+          "application/cbor".)</dd>
+          <dt>Additional information:</dt>
+          <dd><t><br/></t>
+            <dl spacing="compact" newline="false">
+              <dt>Deprecated alias names for this type:</dt>
+              <dd>N/A</dd>
+              <dt>Magic number(s):</dt>
+              <dd>N/A</dd>
+              <dt>File extension(s):</dt>
+              <dd>.uccs</dd>
+              <dt>Macintosh file type code(s):</dt>
+              <dd>N/A</dd>
+            </dl>
+          </dd>
+          <dt>Person and email address to contact for further information:</dt>
+          <dd>RATS WG mailing list (rats@ietf.org)</dd>
+          <dt>Intended usage:</dt>
+          <dd>COMMON</dd>
+          <dt>Restrictions on usage:</dt>
+          <dd>none</dd>
+          <dt>Author/Change controller:</dt>
+          <dd>IETF</dd>
+        </dl>
+      </section>
+      <section anchor="media-type-json">
+        <name>Media-Type application/ujcs+json Registration</name>
+        <t>IANA has added the following to the "Media Types"
+registry <xref target="IANA.media-types"/>.</t>
+        <table anchor="new-media-type-json">
+          <name>JSON Media Type Registration</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Template</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">ujcs+json</td>
+              <td align="left">application/ujcs+json</td>
+              <td align="left">
+                <xref target="media-type-json"/> of RFC 9781</td>
+            </tr>
+          </tbody>
+        </table>
+        <dl spacing="normal" newline="false">
+          <dt>Type name:</dt>
+          <dd>application</dd>
+          <dt>Subtype name:</dt>
+          <dd>ujcs+json</dd>
+          <dt>Required parameters:</dt>
+          <dd>N/A</dd>
+          <dt>Optional parameters:</dt>
+          <dd>N/A</dd>
+          <dt>Encoding considerations:</dt>
+          <dd>binary (UTF-8)</dd>
+          <dt>Security considerations:</dt>
+          <dd><xref target="seccons"/> of RFC 9781</dd>
+          <dt>Interoperability considerations:</dt>
+          <dd>none</dd>
+          <dt>Published specification:</dt>
+          <dd>RFC 9781</dd>
+          <dt>Applications that use this media type:</dt>
+          <dd>Applications that transfer Unprotected JWT Claims Set(s) (UJCS)
+          over Secure Channels</dd>
+          <dt>Fragment identifier considerations:</dt>
+          <dd>The syntax and semantics of fragment identifiers is as specified
+          for "application/json".  (At publication of this document, there is
+          no fragment identification syntax defined for
+          "application/json".)</dd>
+          <dt>Additional information:</dt>
+          <dd><t><br/></t>
+            <dl spacing="compact" newline="false">
+              <dt>Deprecated alias names for this type:</dt>
+              <dd>N/A</dd>
+              <dt>Magic number(s):</dt>
+              <dd>N/A</dd>
+              <dt>File extension(s):</dt>
+              <dd>.ujcs</dd>
+              <dt>Macintosh file type code(s):</dt>
+              <dd>N/A</dd>
+            </dl>
+          </dd>
+          <dt>Person and email address to contact for further information:</dt>
+          <dd>RATS WG mailing list (rats@ietf.org)</dd>
+          <dt>Intended usage:</dt>
+          <dd>COMMON</dd>
+          <dt>Restrictions on usage:</dt>
+          <dd>none</dd>
+          <dt>Author/Change controller:</dt>
+          <dd>IETF</dd>
+        </dl>
+      </section>
+      <section anchor="ct">
+        <name>Content-Format Registration</name>
+        <t>IANA has registered the following in the "CoAP
+Content-Formats" registry within the "Constrained RESTful
+Environments (CoRE) Parameters" registry group <xref target="IANA.core-parameters"/>.</t>
+        <table anchor="content-format-reg">
+          <name>Content-Format Registration</name>
+          <thead>
+            <tr>
+              <th align="left">Content Type</th>
+              <th align="left">Content Coding</th>
+              <th align="left">ID</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">application/uccs+cbor</td>
+              <td align="left">-</td>
+              <td align="left">601</td>
+              <td align="left">
+                <xref target="ct"/> of RFC 9781</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+    <section anchor="seccons">
+      <name>Security Considerations</name>
+      <t>The security considerations of <xref target="STD94"/> apply.
+The security considerations of <xref target="RFC8392"/> need to be applied analogously,
+replacing the function of COSE with that of the Secure Channel; in
+particular, "it is not only important to protect the CWT in transit but also to ensure that the recipient can authenticate the party that assembled the claims and created the CWT".</t>
+      <t><xref target="secchan"/> discusses security considerations for Secure Channels in which
+UCCS might be used.
+This document provides the CBOR tag definition for UCCS and a discussion
+on security consideration for the use of UCCS in RATS.  Uses of UCCS outside the scope of
+RATS are not covered by this document.  The UCCS specification -- and the
+use of the UCCS CBOR tag, correspondingly -- is not intended for use in a
+scope where a scope-specific security consideration discussion has not
+been conducted, vetted, and approved for that use.
+In order to be able to use the UCCS CBOR tag in another such scope,
+the secure channel and/or the application protocol (e.g., TLS and the
+protocol identified by ALPN) <bcp14>MUST</bcp14> specify the roles of the endpoints
+in a fashion that the security properties of conveying UCCS via a
+Secure Channel between the roles are well-defined.</t>
+      <section anchor="general-considerations">
+        <name>General Considerations</name>
+        <t>Implementations of Secure Channels are often separate from the application
+logic that has security requirements on them.  Similar security
+considerations to those described in <xref target="STD96"/> for obtaining the
+required levels of assurance include:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Implementations need to provide sufficient protection for private or
+secret key material used to establish or protect the Secure Channel.</t>
+          </li>
+          <li>
+            <t>Using a key for more than one algorithm can leak information about the
+key and is not recommended.</t>
+          </li>
+          <li>
+            <t>An algorithm used to establish or protect the Secure Channel may have
+limits on the number of times that a key can be used without leaking
+information about the key.</t>
+          </li>
+          <li>
+            <t>Evidence in a UCCS conveyed in a Secure Channel generally cannot be
+used to support trust in the credentials that were used to establish
+that secure channel, as this would create a circular dependency.</t>
+          </li>
+        </ul>
+        <t>The Verifier needs to ensure that the management of key material used to
+establish or protect the Secure Channel is acceptable. This may include
+factors such as:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Ensuring that any permissions associated with key ownership are respected
+in the establishment of the Secure Channel.</t>
+          </li>
+          <li>
+            <t>Using cryptographic algorithms appropriately.</t>
+          </li>
+          <li>
+            <t>Using key material in accordance with any usage restrictions such as
+freshness or algorithm restrictions.</t>
+          </li>
+          <li>
+            <t>Ensuring that appropriate protections are in place to address potential
+traffic analysis attacks.</t>
+          </li>
+        </ul>
+      </section>
+      <section anchor="algsec">
+        <name>Algorithm-Specific Security Considerations</name>
+        <t><xref target="tab-algsec"/> provides references to some security considerations of
+specific cryptography choices that are discussed in <xref target="RFC9053"/>.</t>
+        <table anchor="tab-algsec">
+          <name>Algorithm-Specific Security Considerations</name>
+          <thead>
+            <tr>
+              <th align="left">Algorithm</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">AES-CBC-MAC</td>
+              <td align="left">
+                <xref section="3.2.1" sectionFormat="of" target="RFC9053"/></td>
+            </tr>
+            <tr>
+              <td align="left">AES-GCM</td>
+              <td align="left">
+                <xref section="4.1.1" sectionFormat="of" target="RFC9053"/></td>
+            </tr>
+            <tr>
+              <td align="left">AES-CCM</td>
+              <td align="left">
+                <xref section="4.2.1" sectionFormat="of" target="RFC9053"/></td>
+            </tr>
+            <tr>
+              <td align="left">ChaCha20/Poly1305</td>
+              <td align="left">
+                <xref section="4.3.1" sectionFormat="of" target="RFC9053"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+	
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml9/reference.STD.94.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7519.xml"/>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml9/reference.BCP.225.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8392.xml"/>
+
+        <reference anchor="IANA.cbor-tags" target="https://www.iana.org/assignments/cbor-tags">
+          <front>
+            <title>Concise Binary Object Representation (CBOR) Tags</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="IANA.cwt" target="https://www.iana.org/assignments/cwt">
+          <front>
+            <title>CBOR Web Token (CWT) Claims</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8610.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9165.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="IANA.media-types" target="https://www.iana.org/assignments/media-types">
+          <front>
+            <title>Media Types</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="IANA.core-parameters" target="https://www.iana.org/assignments/core-parameters">
+          <front>
+            <title>Constrained RESTful Environments (CoRE) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4949.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9334.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9397.xml"/>
+        <xi:include                                                             
+href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9711.xml"/>         
+
+        <reference anchor="TPM2" target="https://trustedcomputinggroup.org/resource/tpm-library-specification/">
+          <front>
+            <title>Trusted Platform Module 2.0 Library</title>
+            <author>
+              <organization>Trusted Computing Group</organization>
+            </author>
+            <date month="March" year="2025"/>
+          </front>
+	  <refcontent>Version 184</refcontent>
+        </reference>
+
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml9/reference.STD.96.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9053.xml"/>
+<!-- There is an error message stating "Warning: Unused
+reference: There seems to be no reference to [RFC8747] in the document", but
+it is referenced in the CDDL source code block in Appendix A. -->
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8747.xml"/>
+        <reference anchor="NIST-SP800-90Ar1">
+          <front>
+            <title>Recommendation for Random Number Generation Using Deterministic Random Bit Generators</title>
+            <author fullname="Elaine B. Barker" initials="E." surname="Barker">
+              <organization/>
+            </author>
+            <author fullname="John M. Kelsey" initials="J." surname="Kelsey">
+              <organization/>
+            </author>
+            <date month="June" year="2015"/>
+          </front>
+	  <seriesInfo name="NIST SP" value="800-90Ar1"/>
+          <seriesInfo name="DOI" value="10.6028/nist.sp.800-90ar1"/>
+        </reference>
+      </references>
+    </references>
+
+<section anchor="cddl">
+      <name>CDDL</name>
+      <t>The Concise Data Definition Language (CDDL), as defined in <xref target="RFC8610"/> and
+<xref target="RFC9165"/>, provides an easy and unambiguous way to express
+structures for protocol messages and data formats that use CBOR or
+JSON.</t>
+      <t><xref target="RFC8392"/> does not define CDDL for CWT Claims Sets.</t>
+      <t>The CDDL model in <xref target="fig-claims-set"/> shows how to use CDDL
+for defining the CWT Claims Set defined in <xref target="RFC8392"/>.
+These CDDL rules
+have been built such that they also can describe <xref target="RFC7519"/> Claims sets by
+disabling feature "cbor" and enabling feature "json".</t>
+      <figure anchor="fig-claims-set">
+        <name>CDDL definition for Claims-Set</name>
+        <sourcecode type="cddl"><![CDATA[
+UCCS-Untagged = Claims-Set
+UCCS-Tagged = #6.601(UCCS-Untagged)
+
+Claims-Set = {
+ * $$Claims-Set-Claims
+ * Claim-Label .feature "extended-claims-label" => any
+}
+Claim-Label = CBOR-ONLY<int> / text
+string-or-uri = text
+
+$$Claims-Set-Claims //= ( iss-claim-label => string-or-uri )
+$$Claims-Set-Claims //= ( sub-claim-label => string-or-uri )
+$$Claims-Set-Claims //= ( aud-claim-label => string-or-uri )
+$$Claims-Set-Claims //= ( exp-claim-label => ~time )
+$$Claims-Set-Claims //= ( nbf-claim-label => ~time )
+$$Claims-Set-Claims //= ( iat-claim-label => ~time )
+$$Claims-Set-Claims //= ( cti-claim-label => bytes )
+
+iss-claim-label = JC<"iss", 1>
+sub-claim-label = JC<"sub", 2>
+aud-claim-label = JC<"aud", 3>
+exp-claim-label = JC<"exp", 4>
+nbf-claim-label = JC<"nbf", 5>
+iat-claim-label = JC<"iat", 6>
+cti-claim-label = CBOR-ONLY<7>  ; jti in JWT: different name and text
+
+JSON-ONLY<J> = J .feature "json"
+CBOR-ONLY<C> = C .feature "cbor"
+JC<J,C> = JSON-ONLY<J> / CBOR-ONLY<C>
+]]></sourcecode>
+      </figure>
+      <t>Specifications that define additional Claims should also supply
+additions to the $$Claims-Set-Claims socket, e.g.:</t>
+      <sourcecode type="cddl" name="uccs-additional-examples.cddl"><![CDATA[
+; [RFC8747]
+$$Claims-Set-Claims //= ( 8: CWT-cnf ) ; cnf
+CWT-cnf = {
+  (1: CWT-COSE-Key) //
+  (2: CWT-Encrypted_COSE_Key) //
+  (3: CWT-kid)
+}
+
+CWT-COSE-Key = COSE_Key
+CWT-Encrypted_COSE_Key = COSE_Encrypt / COSE_Encrypt0
+CWT-kid = bytes
+
+;;; Insert the required CDDL from RFC 9052 to complete these
+;;; definitions.  This can be done manually or automated by a
+;;; tool that implements an import directive such as:
+;# import rfc9052
+]]></sourcecode>
+      <t>The above definitions, concepts, and security considerations also define a JSON-encoded Claims-Set as encapsulated in a JWT.
+Such an unsigned Claims-Set can be referred to as a "Unprotected JWT
+Claims Set", or a "UJCS".
+The CDDL definition of <tt>Claims-Set</tt> in <xref target="fig-claims-set"/> can be used for a UJCS:</t>
+      <sourcecode type="cddl"><![CDATA[
+UJCS = Claims-Set
+]]></sourcecode>
+    </section>
+    <section anchor="example">
+      <name>Example</name>
+      <t>This appendix is informative.</t>
+      <t>The example CWT Claims Set from <xref section="A.1" sectionFormat="of" target="RFC8392"/> can be turned into
+a UCCS by enclosing it with a tag number 601:</t>
+      <sourcecode type="cbor-diag"><![CDATA[
+ 601(
+   {
+     / iss / 1: "coap://as.example.com",
+     / sub / 2: "erikw",
+     / aud / 3: "coap://light.example.com",
+     / exp / 4: 1444064944,
+     / nbf / 5: 1443944944,
+     / iat / 6: 1443944944,
+     / cti / 7: h'0b71'
+   }
+ )
+]]></sourcecode>
+
+</section>
+    <section anchor="eat">
+      <name>EAT</name>
+      <t>The following CDDL adds UCCS-format and UJCS-format tokens to EAT using its predefined extension points (see Section <xref target="RFC9711" section="4.2.18" sectionFormat="bare">submods</xref> of <xref target="RFC9711"/>).</t>
+      <sourcecode type="cddl"><![CDATA[
+$EAT-CBOR-Tagged-Token /= UCCS-Tagged
+$EAT-CBOR-Untagged-Token /= UCCS-Untagged
+
+$JSON-Selector /= [type: "UJCS", nested-token: UJCS]
+]]></sourcecode>
+
+
+</section>
+    <section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t><contact fullname="Laurence Lundblade"/> suggested some improvements to the CDDL.
+<contact fullname="Carl Wallace"/> provided a very useful review.</t>
+    </section>
+  </back>
+
+</rfc>

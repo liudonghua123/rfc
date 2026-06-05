@@ -1,0 +1,580 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-exported-authenticator-15" number="9261" submissionType="IETF"
+category="std" consensus="true" obsoletes="" updates="" xml:lang="en" tocInclude="true"
+sortRefs="true" symRefs="true" version="3">
+  
+  <!-- xml2rfc v2v3 conversion 3.12.6 -->
+  <front>
+    <title abbrev="TLS Exported Authenticator">Exported Authenticators in TLS</title>
+    <seriesInfo name="RFC" value="9261"/>
+    <author initials="N." surname="Sullivan" fullname="Nick Sullivan">
+      <organization>Cloudflare Inc.</organization>
+      <address>
+        <email>nick@cloudflare.com</email>
+      </address>
+    </author>
+    <date year="2022" month="July"/>
+
+    <area>sec</area>
+    <workgroup>tls</workgroup>
+
+    <abstract>
+      <t>This document describes a mechanism that builds on Transport Layer Security (TLS) or
+Datagram Transport Layer Security (DTLS) and enables peers to
+provide proof of ownership of an identity, such as an X.509 certificate.  This proof can
+be exported by one peer, transmitted out of band to the other peer, and verified by the
+receiving peer.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>This document provides a way to authenticate one party of a Transport Layer
+Security (TLS) or Datagram Transport Layer Security (DTLS) connection to its peer
+using authentication messages created after the session
+has been established.  This allows both the client and server to prove ownership
+of additional identities at any time after the handshake has completed.  This
+proof of authentication can be exported and transmitted out of band from one
+party to be validated by its peer.</t>
+      <t>This mechanism provides two advantages over the authentication that TLS and DTLS natively
+provide:</t>
+      <dl newline="false" spacing="normal">
+        <dt>multiple identities:</dt>
+        <dd>
+  Endpoints that are authoritative for multiple identities, but that do not have a
+single certificate that includes all of the identities, can authenticate additional
+	identities over a single connection.</dd>
+
+        <dt>spontaneous authentication:</dt>
+        <dd>
+After a connection is established, endpoints can authenticate in response to
+events in a higher-layer protocol; they can also integrate more context (such as context from the application).</dd>
+      </dl>
+      <t>Versions of TLS prior to TLS 1.3 used renegotiation as a way to enable
+post-handshake client authentication given an existing TLS connection.
+The mechanism described in this document may be used to replace the
+post-handshake authentication functionality provided by renegotiation.
+Unlike renegotiation, Exported Authenticator-based post-handshake
+      authentication does not require any changes at the TLS layer.</t>
+
+      <t>Post-handshake authentication is defined in TLS 1.3 <xref target="RFC8446" sectionFormat="of" section="4.6.2"/>, but it has the
+disadvantage of requiring additional state to be stored as part of the TLS
+state machine.  Furthermore, the authentication boundaries of TLS 1.3 post-handshake authentication align with TLS record boundaries,
+which are often not aligned with the authentication boundaries of the
+higher-layer protocol.  For example, multiplexed connection protocols
+like HTTP/2 <xref target="RFC9113" format="default"/> do not have a notion of which TLS record
+a given message is a part of.</t>
+      <t>Exported Authenticators are meant to be used as a building block for
+application protocols.  Mechanisms such as those required to advertise
+support and handle authentication errors are not handled by TLS (or DTLS).</t>
+      <t>The minimum version of TLS and DTLS required to implement the mechanisms
+      described in this document are TLS 1.2 <xref target="RFC5246" format="default"/> and DTLS 1.2 <xref target="RFC6347" format="default"/>. (These were obsoleted by TLS 1.3 <xref target="RFC8446"/> and 
+   DTLS 1.3 <xref target="RFC9147"/>.)</t>
+    </section>
+<section anchor="conventions-and-terminology" numbered="true" toc="default">
+      <name>Conventions and Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <t>This document uses terminology such as client, server, connection,
+handshake, endpoint, and peer that are defined in
+<xref target="RFC8446" sectionFormat="of" section="1.1"/>.  The term "initial connection" refers to the (D)TLS
+connection from which the Exported Authenticator messages are derived.</t>
+    </section>
+    <section anchor="message-sequences" numbered="true" toc="default">
+      <name>Message Sequences</name>
+      <t>There are two types of messages defined in this document: authenticator requests and authenticators.  These can be combined in the following three sequences:</t>
+      <t>Client Authentication</t>
+
+      <ul spacing="normal">
+        <li>Server generates authenticator request</li>
+        <li>Client generates Authenticator from Server's authenticator request</li>
+        <li>Server validates Client's authenticator</li>
+      </ul>
+      <t>Server Authentication</t>
+      <ul spacing="normal">
+        <li>Client generates authenticator request</li>
+        <li>Server generates authenticator from Client's authenticator request</li>
+        <li>Client validates Server's authenticator</li>
+      </ul>
+      <t>Spontaneous Server Authentication</t>
+      <ul spacing="normal">
+        <li>Server generates authenticator</li>
+        <li>Client validates Server's authenticator</li>
+      </ul>
+    </section>
+    <section anchor="authenticator-request" numbered="true" toc="default">
+      <name>Authenticator Request</name>
+      <t>The authenticator request is a structured message that can be created by either
+party of a (D)TLS connection using data exported from that connection.  It can
+be transmitted to the other party of the (D)TLS connection at the application
+layer.  The application-layer protocol used to send the authenticator request
+<bcp14>SHOULD</bcp14> use a secure transport channel with equivalent security to TLS, such as QUIC <xref target="RFC9001" format="default"/>, as its
+underlying transport to keep the request confidential.  The
+application <bcp14>MAY</bcp14> use the existing (D)TLS connection to transport the authenticator.</t>
+      <t>An authenticator request message can be constructed by either the client or the
+server.  Server-generated authenticator requests use the CertificateRequest
+message from <xref target="RFC8446" sectionFormat="of" section="4.3.2"/>.  Client-generated
+authenticator requests use a new message, called the "ClientCertificateRequest",
+that uses the same structure as CertificateRequest.  (Note that the latter
+is not a request for a client certificate, but rather a certificate request
+generated by the client.)  These message
+structures are used even if the connection protocol is TLS 1.2 or DTLS 1.2.</t>
+      <t>The CertificateRequest and ClientCertificateRequest messages are used to define the
+parameters in a request for an authenticator.  These are encoded as TLS handshake messages, including 
+length and type fields. They do not include any TLS record-layer framing and are not encrypted with a handshake or application-data key.</t>
+      <t>The structures are defined to be:</t>
+      <sourcecode type="tls-presentation"><![CDATA[
+   struct {
+      opaque certificate_request_context<0..2^8-1>;
+      Extension extensions<2..2^16-1>;
+   } ClientCertificateRequest;
+
+   struct {
+      opaque certificate_request_context<0..2^8-1>;
+      Extension extensions<2..2^16-1>;
+   } CertificateRequest;
+]]></sourcecode>
+      <dl newline="false" spacing="normal">
+        <dt>certificate_request_context:</dt>
+        <dd>
+  An opaque string that identifies the authenticator request and that will
+be echoed in the authenticator message.  A certificate_request_context value <bcp14>MUST</bcp14> be unique for
+each authenticator request within the scope of a connection
+(preventing replay and context confusion).  The
+certificate_request_context <bcp14>SHOULD</bcp14> be chosen to be unpredictable
+to the peer (e.g., by randomly generating it) in order to prevent
+an attacker who has temporary access to the peer's private key
+from precomputing valid authenticators.  For example, the application
+may choose this value to correspond to a value used in an existing
+data structure in the software to simplify implementation.</dd>
+        <dt>extensions:</dt>
+        <dd>
+  The set of extensions allowed in the structures of CertificateRequest
+ and ClientCertificateRequest is comprised of those
+defined in the "TLS ExtensionType Values" IANA registry containing CR in the "TLS 1.3" column (see <xref target="IANA-TLS" format='default' /> and <xref target="RFC8447" format="default"/>).  In addition, the set of
+extensions in the ClientCertificateRequest structure <bcp14>MAY</bcp14>
+include the server_name extension <xref target="RFC6066" format="default"/>.</dd>
+      </dl>
+      
+      <t>The uniqueness requirements of the certificate_request_context apply
+across CertificateRequest and ClientCertificateRequest messages that
+are used as part of authenticator requests. A certificate_request_context value used
+in a ClientCertificateRequest cannot be used in an authenticator
+CertificateRequest on the same connection, and vice versa.  There is no impact
+if the value
+of a certificate_request_context used in an authenticator
+request matches the value of a certificate_request_context in the handshake or
+in a post-handshake message.</t>
+    </section>
+    <section anchor="authenticator" numbered="true" toc="default">
+      <name>Authenticator</name>
+      <t>The authenticator is a structured message that can be exported from either
+party of a (D)TLS connection.  It can be transmitted to the other party of
+the (D)TLS connection at the application layer.  The application-layer protocol used to send the authenticator
+<bcp14>SHOULD</bcp14> use a secure transport channel with equivalent security to TLS, such as QUIC <xref target="RFC9001" format="default"/>, as its
+underlying transport to keep the authenticator confidential.
+The application <bcp14>MAY</bcp14> use the existing (D)TLS connection to transport the authenticator.</t>
+      <t>An authenticator message can be constructed by either the client or the
+server given an established (D)TLS connection; an identity, such as an X.509 certificate;
+and a corresponding private key.  Clients <bcp14>MUST NOT</bcp14> send an authenticator
+without a preceding authenticator request; for servers, an
+authenticator request is optional.  For authenticators that do not correspond
+to authenticator requests, the certificate_request_context is chosen by
+the server.</t>
+      <section anchor="authenticator-keys" numbered="true" toc="default">
+        <name>Authenticator Keys</name>
+	
+        <t>Each authenticator is computed using a Handshake Context and Finished MAC (Message Authentication Code) Key
+derived from the (D)TLS connection.  These values are derived using an exporter as
+described in <xref target="RFC5705" sectionFormat="of" section="4"/> (for (D)TLS 1.2) or <xref target="RFC8446" sectionFormat="of" section="7.5"/> (for
+(D)TLS 1.3).  For (D)TLS 1.3, the exporter_master_secret <bcp14>MUST</bcp14> be used, not the
+early_exporter_master_secret.  These values use different labels depending on the role of the
+sender:</t>
+        <ul spacing="normal">
+          <li>The Handshake Context is an exporter value that is derived using the label
+"EXPORTER-client authenticator handshake context" or "EXPORTER-server
+authenticator handshake context" for authenticators sent by the client or
+server, respectively.</li>
+          <li>The Finished MAC Key is an exporter value derived using the label
+"EXPORTER-client authenticator finished key" or "EXPORTER-server authenticator
+finished key" for authenticators sent by the client or server, respectively.</li>
+        </ul>
+        <t>The context_value used for the exporter is empty (zero length) for all four
+values.  There is no need to include additional context
+information at this stage because the application-supplied context
+is included in the authenticator itself.  The length of the exported
+value is equal to the length of the output of the hash function associated with the selected ciphersuite (for TLS 1.3) or the hash function used
+for the pseudorandom function (PRF) (for (D)TLS 1.2).  Exported Authenticators cannot be
+used with (D)TLS 1.2 ciphersuites that do not use the TLS PRF and with TLS 1.3 ciphersuites that do not have an associated
+hash function.  This hash is referred to as the "authenticator hash".</t>
+
+<t>To avoid key synchronization attacks, Exported Authenticators <bcp14>MUST NOT</bcp14> be generated or
+accepted on (D)TLS 1.2 connections that did not negotiate
+the extended master secret extension <xref target="RFC7627" format="default"/>.</t>
+      </section>
+      <section anchor="authenticator-construction" numbered="true" toc="default">
+        <name>Authenticator Construction</name>
+        <t>An authenticator is formed from the concatenation of TLS 1.3 
+Certificate, CertificateVerify, and Finished messages <xref target="RFC8446" format="default"/>. These messages are
+encoded as TLS handshake messages, including length and type fields.
+They do not include any TLS record-layer framing and are not encrypted with a handshake or application-data key.</t>
+        <t>If the peer populating the certificate_request_context field in an authenticator's Certificate message has already created or
+correctly validated an authenticator with the same value, then no
+authenticator should be constructed.  If there is no authenticator request,
+the extensions are chosen from those presented in the (D)TLS handshake's ClientHello.
+Only servers can provide an authenticator without a corresponding request.</t>
+
+        <t>ClientHello extensions are used to determine permissible extensions
+in the server's unsolicited Certificate message in order to follow the general model for
+extensions in (D)TLS in which extensions can only be included
+as part of a Certificate message if they were previously sent as
+part of a CertificateRequest message or ClientHello message.  This ensures that the recipient
+will be able to process such extensions.</t>
+        <section anchor="certificate" numbered="true" toc="default">
+          <name>Certificate</name>
+          <t>The Certificate message contains the identity to be used for authentication, such as the
+end-entity certificate and any supporting certificates in the chain. This structure is
+defined in <xref target="RFC8446" sectionFormat="of" section="4.4.2"/>.</t>
+          <t>The Certificate message contains an opaque string called
+"certificate_request_context", which is extracted from the authenticator request, if
+present.  If no authenticator request is provided, the certificate_request_context
+can be chosen arbitrarily; however, it <bcp14>MUST</bcp14> be unique within the scope of the connection
+and be unpredictable to the peer.</t>
+          <t>Certificates chosen in the Certificate message <bcp14>MUST</bcp14> conform to the
+requirements of a Certificate message in the negotiated version of (D)TLS.  In
+particular, the entries of certificate_list <bcp14>MUST</bcp14> be valid for the signature algorithms
+indicated by the peer in the "signature_algorithms" and "signature_algorithms_cert"
+extensions, as described in <xref target="RFC8446" sectionFormat="of" section="4.2.3"/> for (D)TLS 1.3 or
+in Sections <xref target="RFC5246" section="7.4.2" sectionFormat="bare"/> and <xref target="RFC5246" section="7.4.6" sectionFormat="bare"/> of <xref target="RFC5246"/> for (D)TLS 1.2.</t>
+          <t>In addition to "signature_algorithms" and "signature_algorithms_cert",
+the "server_name" <xref target="RFC6066" format="default"/>, "certificate_authorities"
+(<xref target="RFC8446" sectionFormat="of" section="4.2.4"/>), and "oid_filters"
+(<xref target="RFC8446" sectionFormat="of" section="4.2.5"/>) extensions are used to guide certificate
+selection.</t>
+          <t>Only the X.509 certificate type defined in <xref target="RFC8446" format="default"/> is supported.
+Alternative certificate formats such as Raw Public Keys as described in <xref target="RFC7250" format="default"/> are
+not supported in this version of the specification and their use in this context
+has not yet been analyzed.</t>
+          <t>If an authenticator request was provided, the Certificate message <bcp14>MUST</bcp14> contain
+only extensions present in the authenticator request.  Otherwise, the
+Certificate message <bcp14>MUST</bcp14> contain only extensions present in the (D)TLS ClientHello.
+Unrecognized extensions in the authenticator request <bcp14>MUST</bcp14> be ignored.</t>
+        </section>
+        <section anchor="certificateverify" numbered="true" toc="default">
+          <name>CertificateVerify</name>
+          <t>This message is used to provide explicit proof that an endpoint possesses the
+private key corresponding to its identity.  The format of this message is taken from TLS 1.3:</t>
+      <sourcecode type="tls-presentation"><![CDATA[
+   struct {
+      SignatureScheme algorithm;
+      opaque signature<0..2^16-1>;
+   } CertificateVerify;
+]]></sourcecode>
+          <t>The algorithm field specifies the signature algorithm used (see <xref target="RFC8446" sectionFormat="of" section="4.2.3"/>
+for the definition of this field).  The signature is a digital signature
+using that algorithm.</t>
+          <t>The signature scheme <bcp14>MUST</bcp14> be a valid signature scheme for TLS 1.3. This
+excludes all RSASSA-PKCS1-v1_5 algorithms and combinations of Elliptic Curve Digital Signature Algorithm (ECDSA) and hash
+algorithms that are not supported in TLS 1.3.</t>
+          <t>If an authenticator request is present, the signature algorithm <bcp14>MUST</bcp14> be chosen
+from one of the signature schemes present in the "signature_algorithms"
+extension of the authenticator request.
+Otherwise, with spontaneous server authentication, the signature algorithm used <bcp14>MUST</bcp14> be chosen
+from the "signature_algorithms" sent by the peer in the ClientHello of the (D)TLS
+handshake.  If there are no available signature algorithms, then no
+authenticator should be constructed.</t>
+<t>The signature is computed using the chosen signature scheme over the concatenation of:</t>
+
+          <ul spacing="normal">
+            <li>a string that consists of octet 32 (0x20) repeated 64 times,</li>
+            <li>the context string "Exported Authenticator" (which is not NUL-terminated),</li>
+            <li>a single 0 octet that serves as the separator, and</li>
+            <li>the hashed authenticator transcript.</li>
+          </ul>
+          <t>The authenticator transcript is the hash of the concatenated Handshake Context,
+authenticator request (if present), and Certificate message:</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+Hash(Handshake Context || authenticator request || Certificate)
+]]></artwork>
+
+          <t>Where Hash is the authenticator hash defined in <xref target="authenticator-keys"/>.  If the authenticator request
+is not present, it is omitted from this construction, i.e., it is zero-length.</t>
+          <t>If the party that generates the authenticator does so with a different
+connection than the party that is validating it, then the Handshake Context will
+not match, resulting in a CertificateVerify message that does not validate.
+This includes situations in which the application data is sent via TLS-terminating
+proxy.  Given a failed CertificateVerify validation, it may be helpful for
+the application to confirm that both peers share the same connection
+using a value derived from the connection secrets (such as the Handshake Context)
+before taking a user-visible action.</t>
+        </section>
+        <section anchor="finished" numbered="true" toc="default">
+          <name>Finished</name>
+          <t>An HMAC <xref target="RFC2104" format="default"/> over the hashed authenticator transcript is the
+concatenation of the Handshake Context, authenticator request (if present),
+Certificate, and CertificateVerify.  The HMAC is computed using the authenticator hash, using the Finished MAC Key as
+a key.</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+Finished = HMAC(Finished MAC Key, Hash(Handshake Context ||
+     authenticator request || Certificate || CertificateVerify))
+]]></artwork>
+        </section>
+        <section anchor="authenticator-creation" numbered="true" toc="default">
+          <name>Authenticator Creation</name>
+          <t>An endpoint constructs an authenticator by serializing the Certificate, CertificateVerify, and Finished as TLS handshake messages and concatenating the octets:</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+Certificate || CertificateVerify || Finished
+]]></artwork>
+
+          <t>An authenticator is valid if the CertificateVerify message is correctly constructed given the authenticator request (if
+used) and the Finished message matches the expected value.  When validating an authenticator, constant-time
+comparisons <bcp14>SHOULD</bcp14> be used for signature and MAC validation.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="empty-authenticator" numbered="true" toc="default">
+      <name>Empty Authenticator</name>
+      <t>If, given an authenticator request, the endpoint does not have an appropriate
+identity or does not want to return one, it constructs an authenticated
+refusal called an "empty authenticator".  This is a Finished
+message sent without a Certificate or CertificateVerify. This message is an
+HMAC over the hashed authenticator transcript with a Certificate message
+containing no CertificateEntries and the CertificateVerify message omitted.
+The HMAC is computed using the authenticator hash, using the Finished MAC Key as a key.
+This message is encoded as a TLS handshake message, including length and type field.
+It does not include TLS record-layer framing and is not encrypted with a handshake or application-data key.</t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+Finished = HMAC(Finished MAC Key, Hash(Handshake Context ||
+     authenticator request || Certificate))
+]]></artwork>
+    </section>
+    <section anchor="api-considerations" numbered="true" toc="default">
+      <name>API Considerations</name>
+      <t>The creation and validation of both authenticator requests and authenticators
+<bcp14>SHOULD</bcp14> be implemented inside the (D)TLS library even if it is possible to implement
+it at the application layer.  (D)TLS implementations supporting the use of Exported
+Authenticators <bcp14>SHOULD</bcp14> provide application programming interfaces by which clients
+and servers may request and verify Exported Authenticator messages.</t>
+      <t>Notwithstanding the success conditions described below, all APIs <bcp14>MUST</bcp14> fail if:</t>
+      <ul spacing="normal">
+        <li>the connection uses a (D)TLS version of 1.1 or earlier, or</li>
+        <li>the connection is (D)TLS 1.2 and the extended master secret extension <xref target="RFC7627" format="default"/> was not
+negotiated</li>
+      </ul>
+      <t>The following sections describe APIs that are considered necessary to
+implement Exported Authenticators.  These are informative only.</t>
+      <section anchor="the-request-api" numbered="true" toc="default">
+        <name>The "request" API</name>
+        <t>The "request" API takes as input:</t>
+        <ul spacing="normal">
+          <li>certificate_request_context (from 0 to 255 octets)</li>
+          <li>the set of extensions to include (this <bcp14>MUST</bcp14> include signature_algorithms) and the
+contents thereof</li>
+        </ul>
+        <t>It returns an authenticator request, which is a sequence of octets
+that comprises a CertificateRequest or ClientCertificateRequest message.</t>
+      </section>
+      <section anchor="the-get-context-api" numbered="true" toc="default">
+        <name>The "get context" API</name>
+        <t>The "get context" API takes as input:</t>
+        <ul spacing="normal">
+          <li>authenticator or authenticator request</li>
+        </ul>
+        <t>It returns the certificate_request_context.</t>
+      </section>
+      <section anchor="the-authenticate-api" numbered="true" toc="default">
+        <name>The "authenticate" API</name>
+        <t>The "authenticate" API takes as input:</t>
+        <ul spacing="normal">
+          <li>a reference to the initial connection</li>
+          <li>an identity, such as a set of certificate chains and associated extensions
+(OCSP <xref target="RFC6960" format="default"/>, SCT <xref target="RFC6962" format="default"/> (obsoleted by <xref target="RFC9162"/>), etc.)</li>
+
+          <li>a signer (either the private key associated with the identity or the interface to perform private key operations) for each chain</li>
+          <li>an authenticator request or certificate_request_context (from 0 to 255 octets)</li>
+        </ul>
+
+        <t>It returns either the authenticator or an empty authenticator
+as a sequence of octets.  It is <bcp14>RECOMMENDED</bcp14> that
+the logic for selecting the certificates and extensions to include
+in the exporter be implemented in the TLS library.  Implementing this
+in the TLS library lets the implementer take advantage of existing
+extension and certificate selection logic, and the implementer can more easily remember
+which extensions were sent in the ClientHello.</t>
+        <t>It is also possible to implement this API outside of the TLS library using
+TLS exporters.  This may be preferable in cases where the application
+does not have access to a TLS library with these APIs or when TLS is
+handled independently of the application-layer protocol.</t>
+      </section>
+      <section anchor="the-validate-api" numbered="true" toc="default">
+        <name>The "validate" API</name>
+        <t>The "validate" API takes as input:</t>
+        <ul spacing="normal">
+          <li>a reference to the initial connection</li>
+          <li>an optional authenticator request</li>
+          <li>an authenticator</li>
+          <li>a function for validating a certificate chain</li>
+        </ul>
+        <t>It returns a status to indicate whether or not the authenticator is valid after
+applying the function for validating the certificate chain to the chain
+contained in the authenticator.  If validation is successful, it also returns
+the identity, such as the certificate chain and its extensions.</t>
+        <t>The API should return a failure if the certificate_request_context of the
+authenticator was used in a different authenticator that was previously validated.
+Well-formed empty authenticators are returned as invalid.</t>
+        <t>When validating an authenticator, constant-time comparison should be used.</t>
+      </section>
+    </section>
+    <section anchor="iana-considerations" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section anchor="update-of-the-tls-extensiontype-registry" numbered="true" toc="default">
+        <name>Update of the TLS ExtensionType Registry</name>
+        <t>IANA has updated the entry for server_name(0) in the "TLS ExtensionType Values" registry <xref target="IANA-TLS"/> (defined in <xref target="RFC8446" format="default"/>) by replacing the value in the "TLS 1.3"
+column with the value "CH, EE, CR" and listing this document in the "Reference" column.</t>
+        <t>IANA has also added the following note to the registry:</t>
+ <blockquote>       <t>The addition of the "CR" to the "TLS 1.3" column for the server_name(0) extension only marks the extension as valid in a ClientCertificateRequest created as part of client-generated authenticator requests.</t></blockquote>
+      </section>
+      <section anchor="update-of-the-tls-exporter-labels-registry" numbered="true" toc="default">
+        <name>Update of the TLS Exporter Labels Registry</name>
+
+        <t>IANA has added the following entries to the "TLS Exporter Labels" registry <xref target="IANA-EXPORT"/> (defined in <xref target="RFC5705" format="default"/>): "EXPORTER-client authenticator handshake context",
+"EXPORTER-server authenticator handshake context", 
+"EXPORTER-client authenticator finished key" and 
+"EXPORTER-server authenticator finished key" with "DTLS-OK" and "Recommended" set to "Y" and
+this document listed as the reference.</t>
+      </section>
+      <section anchor="update-of-the-tls-handshaketype-registry" numbered="true" toc="default">
+        <name>Update of the TLS HandshakeType Registry</name>
+
+        <t>IANA has added the following entry to the "TLS HandshakeType" registry <xref target="IANA-HANDSHAKE"/> (defined in <xref target="RFC8446" format="default"/>): "client_certificate_request" (17) 
+with "DTLS-OK" set to "Y" and this document listed
+as the reference.  In addition, the following appears in the "Comment" column:</t>
+<blockquote><t>Used in TLS versions prior to 1.3.</t></blockquote>
+
+      </section>
+    </section>
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The Certificate/Verify/Finished pattern intentionally looks like the
+      TLS 1.3 pattern that now has been analyzed several times. For example,
+<xref target="SIGMAC" format="default"/> presents a relevant framework for analysis, and  <xref target="RFC8446" sectionFormat="of" section="E.1.6"/>
+contains a comprehensive set of references.</t>
+
+
+
+      <t>Authenticators are independent and unidirectional.  There is no explicit state change
+inside TLS when an authenticator is either created or validated.  The application in
+possession of a validated authenticator can rely on any semantics associated with data
+in the certificate_request_context.</t>
+      <ul spacing="normal">
+        <li>This property makes it difficult to formally prove that a server is jointly authoritative
+over multiple identities, rather than individually authoritative over each.</li>
+        <li>There is no indication in (D)TLS about which point in time an authenticator was
+computed.  Any feedback about the time of creation or validation of the authenticator
+should be tracked as part of the application-layer semantics if required.</li>
+      </ul>
+      <t>The signatures generated with this API cover the context string
+"Exported Authenticator"; therefore, they cannot be transplanted into other
+protocols.</t>
+      <t>In TLS 1.3, the client cannot explicitly learn from the TLS layer whether its
+Finished message was accepted. Because the application traffic keys are not
+dependent on the client's final flight, receiving messages from the server
+does not prove that the server received the client's Finished message.
+To avoid disagreement between the client and server
+on the authentication status of Exported Authenticators, servers <bcp14>MUST</bcp14> verify the client Finished message
+before sending an EA or processing a received Exported Authenticator.</t>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="RFC2104" to="HMAC"/>
+    
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6347.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5246.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8447.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6066.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5705.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7627.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2104.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9147.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+
+   <reference anchor="SIGMAC" target="https://eprint.iacr.org/2016/711.pdf">
+	 <front>
+	   <title>A Unilateral-to-Mutual Authentication Compiler for Key Exchange (with Applications to Client Authentication in TLS 1.3)</title>
+	   <author initials="H" surname="Krawczyk" fullname="Hugo Krawczyk">
+	     <organization/>
+	   </author>
+	   <date month="August" year="2016"/>
+	 </front>
+	 <refcontent>Proceedings of the 2016 ACM SIGSAC Conference on Computer and Communications Security</refcontent>
+	 <seriesInfo name="DOI" value="10.1145/2976749.2978325"/>
+</reference>
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9113.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9001.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7250.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6960.xml"/>
+
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6962.xml"/>
+
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9162.xml"/>
+
+<reference anchor="IANA-TLS"
+           target="https://www.iana.org/assignments/tls-extensiontype-values/">
+		  
+  <front>
+    <title>TLS ExtensionType Values</title>
+    <author><organization>IANA</organization></author>
+  </front>
+</reference>
+
+<reference anchor="IANA-EXPORT"
+           target="https://www.iana.org/assignments/tls-parameters/">
+  <front>
+    <title>TLS Exporter Labels</title>
+    <author><organization>IANA</organization></author>
+  </front>
+</reference>
+
+<reference anchor="IANA-HANDSHAKE"
+           target="https://www.iana.org/assignments/tls-parameters/">
+  <front>
+    <title>TLS HandshakeType</title>
+    <author><organization>IANA</organization></author>
+  </front>
+</reference>
+	
+      </references>
+    </references>
+    <section anchor="ack" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>Comments on this proposal were provided by <contact fullname="Martin Thomson"/>.  Suggestions for
+<xref target="security" format="default"/> were provided by <contact fullname="Karthikeyan Bhargavan"/>.</t>
+    </section>
+
+  </back>
+
+</rfc>

@@ -1,0 +1,705 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-bier-evpn-14" number="9624" ipr="trust200902" consensus="true" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="EVPN BUM Using BIER">EVPN Broadcast, Unknown Unicast, or Multicast (BUM) Using Bit Index             
+   Explicit Replication (BIER)</title>
+    <seriesInfo name="RFC" value="9624"/>
+    <author fullname="Zhaohui Zhang" initials="Z." surname="Zhang">
+      <organization>Juniper Networks</organization>
+      <address>
+        <email>zzhang@juniper.net</email>
+      </address>
+    </author>
+    <author fullname="Tony Przygienda" initials="T." surname="Przygienda">
+      <organization>Juniper Networks</organization>
+      <address>
+        <email>prz@juniper.net</email>
+      </address>
+    </author>
+    <author fullname="Ali Sajassi" initials="A." surname="Sajassi">
+      <organization>Cisco Systems</organization>
+      <address>
+        <email>sajassi@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Jorge Rabadan" initials="J." surname="Rabadan">
+      <organization>Nokia</organization>
+      <address>
+        <email>jorge.rabadan@nokia.com</email>
+      </address>
+    </author>
+
+    <date month="August" year="2024"/>
+
+    <area>RTF</area>
+    <workgroup>BIER</workgroup>
+    <abstract>
+      <t>This document specifies protocols and procedures for forwarding
+         Broadcast, Unknown Unicast, or Multicast (BUM) traffic
+         of Ethernet VPNs (EVPNs) using Bit Index Explicit Replication (BIER).
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t><xref target="RFC7432" format="default"/> and <xref target="RFC8365" format="default"/> specify
+       the protocols and procedures for Ethernet VPNs (EVPNs). For Broadcast,
+       Unknown Unicast, or Multicast (BUM) traffic, provider/underlay tunnels
+       are used to carry the BUM traffic. Several
+       kinds of tunnel technologies can be used as specified in <xref target="RFC7432" format="default"/> and
+	   <xref target="RFC8365" format="default"/>, and this document specifies the protocols and procedures to
+	   use Bit Index Explicit Replication (BIER)
+   <xref target="RFC8279" format="default"/> as provider tunnels for EVPN BUM traffic.
+      </t>
+      <t>
+   BIER is an
+   architecture that provides optimal multicast forwarding through a
+   "multicast domain" without requiring intermediate routers to
+   maintain any per-flow state or to engage in an explicit tree-building
+   protocol.
+      </t>
+      <t>
+       The EVPN BUM procedures specified in <xref target="RFC7432" format="default"/> and extended in <xref target="RFC9572" format="default"/>, <xref target="RFC9251" format="default"/>, and <xref target="I-D.zzhang-bess-mvpn-evpn-cmcast-enhancements" format="default"/>
+       are much aligned with Multicast VPN (MVPN) procedures <xref target="RFC6514" format="default"/>,
+	   and an EVPN Broadcast Domain (BD) corresponds to a VPN in MVPN.
+	   As such, this document is also very much aligned with <xref target="RFC8556" format="default"/>, which specifies MVPN with BIER.
+       For terseness, some background, terms, and concepts are not
+       repeated here. Additionally, some text is borrowed verbatim from
+       <xref target="RFC8556" format="default"/>.
+      </t>
+      <section numbered="true" toc="default">
+        <name>Terminology</name>
+        <dl newline="false" spacing="normal">
+            <dt>ES:</dt> <dd>Ethernet Segment</dd>
+            <dt>ESI:</dt> <dd>Ethernet Segment Identifier</dd>
+            <dt>BFR:</dt> <dd>Bit-Forwarding Router</dd>
+            <dt>BFIR:</dt> <dd>Bit-Forwarding Ingress Router</dd>
+            <dt>BFER:</dt> <dd>Bit-Forwarding Egress Router</dd>
+            <dt>BFR-Prefix:</dt> <dd>An IP address that uniquely identifies a BFR
+            and is routable in a BIER domain.</dd>
+            <dt>C-S:</dt> <dd>A multicast source address identifying a multicast source
+          located at an EVPN customer site. "C-" stands for "Customer-".
+            </dd>
+            <dt>C-G:</dt> <dd>A multicast group address used by an EVPN customer.</dd>
+            <dt>C-flow:</dt> <dd>A customer multicast flow.  Each C-flow is identified by
+          the ordered pair (source address, group address), where each
+          address is in the customer's address space.  The identifier of a
+          particular C-flow is usually written as (C-S, C-G).
+          Sets of C-flows can be denoted by the use of the "C-*" wildcard
+          (see <xref target="RFC6625" format="default"/>), e.g., (C-*, C-G).</dd>
+          <dt>P-tunnel:</dt>  <dd>A multicast tunnel through the network of one or more
+          service providers used to transport C-flows. "P-" stands for "Provider-".
+            </dd>
+            <dt>IMET A-D Route:</dt> <dd>Inclusive Multicast Ethernet Tag
+          Auto-Discovery route.  Carried in BGP Update messages, these
+          routes are used to advertise the "default" P-tunnel for a
+          particular BD.</dd>
+          <dt>SMET A-D Route:</dt> <dd>Selective Multicast Ethernet Tag
+          Auto-Discovery route.  Carried in BGP Update messages, these
+          routes are used to advertise the C-flows that the advertising Provider Edge (PE)
+          is interested in.</dd>
+          <dt>PMSI:</dt> <dd>Provider Multicast Service Interface <xref target="RFC6513" format="default"/>. A conceptual interface used by a PE
+          to send customer multicast traffic to all or some PEs in the same
+          VPN.</dd>
+          <dt>I-PMSI:</dt> <dd>Inclusive PMSI. For all PEs in the same VPN.</dd>
+          <dt>S-PMSI:</dt> <dd>Selective PMSI. For some of the PEs in the same VPN.</dd>
+          <dt>I-PMSI A-D Route:</dt> <dd>Inclusive PMSI Auto-Discovery route used to advertise the tunnels that instantiate an I-PMSI.</dd>
+          <dt>S-PMSI A-D Route:</dt> <dd>Selective PMSI Auto-Discovery route used to advertise that particular C-flows are
+          bound to (i.e., are traveling through) particular P-tunnels.</dd>
+          <dt>PTA:</dt> <dd>PMSI Tunnel Attribute. A BGP attribute used
+          to identify a particular P-tunnel.</dd>
+          <dt>VXLAN:</dt> <dd>Virtual eXtensible Local Area Network <xref target="RFC7348" format="default"/></dd>
+          <dt>NVGRE:</dt> <dd>Network Virtualization Using Generic Routing Encapsulation  <xref target="RFC7637" format="default"/></dd>
+          <dt>GENEVE:</dt> <dd>Generic Network Virtualization Encapsulation <xref target="RFC8926" format="default"/></dd>
+          <dt>VNI:</dt> <dd>VXLAN Network Identifier</dd>
+          <dt>VSID:</dt> <dd>Virtual Subnet Identifier</dd>
+          <dt>RSVP-TE P2MP:</dt> <dd>Resource Reservation Protocol for Point-to-Multipoint TE Label Switched Paths (LSPs) <xref target="RFC4875" format="default"/></dd> 
+         <dt>mLDP P2MP:</dt> <dd>Multipoint Label Distribution Protocol extensions
+    for Point-to-Multipoint LSPs <xref target="RFC6388" format="default"/></dd>
+        </dl>
+      </section>
+    <section>
+      <name>Requirements Language</name>
+              <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>	
+      </section>
+    <section anchor="pta" numbered="true" toc="default">
+      <name>Use of the PMSI Tunnel Attribute</name>
+      <t><xref target="RFC7432" format="default"/> specifies that Inclusive Multicast Ethernet Tag (IMET)
+       routes carry a PMSI Tunnel Attribute (PTA) to identify the particular
+       P-tunnel to which one or more BUM flows are being assigned, which is the same as
+       specified in <xref target="RFC6514" format="default"/> for MVPN.
+       <xref target="RFC8556" format="default"/> specifies the encoding of the
+       PTA for the use of BIER with MVPN. Much of that specification is reused
+       for the use of BIER with EVPN, and much of the text below is borrowed
+       verbatim from <xref target="RFC8556" format="default"/>.
+      </t>
+      <t>The PTA contains the following fields:
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>Tunnel Type. The same codepoint 0x0B that IANA has assigned for
+	  BIER for MVPN <xref target="RFC8556" format="default"/> is used for EVPN as well.
+          </t>
+        </li>
+        <li>
+          <t>Tunnel Identifier.  This field contains three subfields for BIER.
+	  The text below is exactly as in
+        <xref target="RFC8556" format="default"/>.
+          </t>
+          <ol spacing="normal" type="1"><li>
+              <t>
+       The first subfield is a single octet, containing a BIER 
+       sub-domain-id (see <xref target="RFC8279"/>). This indicates that
+       packets sent on the PMSI will be sent on the specified BIER sub-domain.
+       How that sub-domain is chosen is outside the scope of this
+       document.
+              </t>
+            </li>
+            <li>
+              <t>   The second subfield is a two-octet field containing the
+          BFR-id in the sub-domain identified in the first subfield of
+          the router that is constructing the PTA.    </t>
+            </li>
+            <li>
+              <t>
+       The third subfield is the BFR-Prefix (see
+       <xref target="RFC8279" format="default"/>) of the
+       router (a BFIR) that is constructing the PTA. The BFR-Prefix will
+       either be a /32 IPv4 address or a /128 IPv6 address.  Whether
+       the address is IPv4 or IPv6 can be inferred from the total
+       length of the PTA.
+              </t>
+              <t>
+          The BFR-Prefix need not be the same IP address that is carried
+          in any other field of the x-PMSI A-D route, even if the BFIR
+          is the originating router of the x-PMSI A-D route.
+              </t>
+            </li>
+          </ol>
+          <t>
+          </t>
+        </li>
+        <li>
+          <t>MPLS Label.  For EVPN-MPLS <xref target="RFC7432" format="default"/>, this field contains an upstream-assigned
+       MPLS label.  It is assigned by the BFIR.  Constraints on how the originating router selects this label are discussed in
+       <xref target="label" format="default"/>. For EVPN-VXLAN/NVGRE/GENEVE
+       <xref target="RFC8365" format="default"/> <xref target="RFC7348" format="default"/> <xref target="RFC7637" format="default"/> <xref target="RFC8926" format="default"/>, this field is a 24-bit
+       VNI/VSID of global significance.
+          </t>
+        </li>
+        <li>
+          <t>Flags.  When the tunnel type is BIER, two of the flags in the
+       PTA Flags field are meaningful.  Details about the use of these
+       flags can be found in <xref target="tracking" format="default"/>.
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>Leaf Info Required per Flow (LIR-pF) <xref target="RFC8534" format="default"/>
+              </t>
+            </li>
+            <li>
+              <t>Leaf Info Required (LIR)
+              </t>
+            </li>
+          </ul>
+        </li>
+    </ul>
+      <t>
+   Note that if a PTA specifying "BIER" is attached to an IMET, S-PMSI A-D,
+   or per-region I-PMSI A-D route, the route <bcp14>MUST NOT</bcp14> be distributed beyond the
+   boundaries of a BIER domain.  That is, any routers that receive the
+   route must be in the same BIER domain as the originator of the route.
+   If the originator is in more than one BIER domain, the route must be
+   distributed only within the BIER domain in which the BFR-Prefix in
+   the PTA uniquely identifies the originator.  As with all MVPN routes,
+   the distribution of these routes is controlled by the provisioning of
+   Route Targets.
+      </t>
+    <section anchor="php-address" numbered="true" toc="default">
+        <name>IP-Based Tunnel and BIER PHP</name>
+        <t>When VXLAN/NVGRE/GENEVE is used for EVPN, by default, the outer IP header
+       (and UDP header in the case of VXLAN/GENEVE) is not included in the BIER
+       payload, except when it is known a priori that BIER Penultimate Hop
+	   Popping (PHP)
+       <xref target="I-D.ietf-bier-php" format="default"/> is used in the BIER domain and
+       the encapsulation (after the BIER header is
+       popped) between the BIER Penultimate Hop and the egress PE does not have
+       a way to indicate the next header is VXLAN/NVGRE/GENEVE. In that case,
+       the full VXLAN/NVGRE/GENEVE encapsulation <bcp14>MUST</bcp14> be used. In the outer
+	   IP header, a well-known IP multicast address
+       (224.0.0.122 in the case of IPv4 or FF02:0:0:0:0:0:0:14 in the case of IPv6) is used as the destination address, and the 
+       egress PEs <bcp14>MUST</bcp14> be set up to receive and process packets addressed to
+       the destination address. The address is used for all BDs, and the inner
+       VXLAN/NVGRE/GENEVE header will be used to identify BDs.
+        </t>
+      </section>
+      <section anchor="tracking" numbered="true" toc="default">
+        <name>Explicit Tracking</name>
+        <t>
+   When using BIER to transport an EVPN BUM data packet through a BIER
+   domain, an ingress PE functions as a BFIR (see
+   <xref target="RFC8279" format="default"/>).  The
+   BFIR must determine the set of BFERs to which the packet needs to be
+   delivered.  This can be done in either of two ways as described in the following
+   two sections.
+        </t>
+        <section numbered="true" toc="default">
+          <name>Using IMET/SMET Routes</name>
+          <t>Both IMET and SMET routes provide explicit tracking functionality.
+          </t>
+          <t>For an inclusive PMSI, the set of BFERs (egress PEs) includes
+       the originators of all IMET routes for a BD. For a selective
+       PMSI, the set of BFERs (egress PEs) includes the originators
+       of corresponding SMET routes.
+          </t>
+          <t>The SMET routes do not carry a PTA. When an ingress
+       PE sends traffic on a selective tunnel using BIER, it uses the upstream-assigned label that is advertised in its IMET route.
+          </t>
+          <t>When only selective forwarding is used for all flows and without tunnel
+       segmentation, SMET routes are used without the need for S-PMSI A-D routes.
+       Otherwise, the procedures in the following section apply.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Using S-PMSI/Leaf A-D Routes</name>
+          <t>There are two cases where S-PMSI/Leaf A-D routes are used as discussed
+       in the following two sections.
+          </t>
+          <section numbered="true" toc="default">
+            <name>Selective Forwarding Only for Some Flows</name>
+            <t>With the SMET procedure, a PE advertises a SMET route for each
+      (C-S, C-G) or (C-*, C-G) state that it learns on its Attachment Circuits (ACs), and each SMET
+      route is tracked by every PE in the same BD. It may be desired
+      that SMET routes are not used in order to reduce the burden of explicit tracking.
+            </t>
+            <t>In this case, most multicast traffic will follow the I-PMSI (advertised
+       via the IMET route) and only some flows will follow S-PMSIs. To achieve that,
+       S-PMSI/Leaf A-D routes can be used, as specified in <xref target="RFC9572" format="default"/>.
+            </t>
+            <t>The rules specified in Sections <xref target="RFC8556" section="2.2.1" sectionFormat="bare" format="default"/> and <xref target="RFC8556" section="2.2.2" sectionFormat="bare" format="default"/> of <xref target="RFC8556"/> apply.
+            </t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Tunnel Segmentation</name>
+            <t>Another case where S-PMSI/Leaf A-D routes are necessary is tunnel
+       segmentation, which is also specified in <xref target="RFC9572" format="default"/> and further
+       clarified in
+       <xref target="I-D.zzhang-bess-mvpn-evpn-cmcast-enhancements" format="default"/> for
+       segmentation with SMET routes. This is only applicable to EVPN-MPLS.
+            </t>
+            <t>The rules specified in <xref target="RFC8556" section="2.2.1" sectionFormat="of" format="default"/> apply. <xref target="RFC8556" section="2.2.2" sectionFormat="of" format="default"/> does not apply, because
+       like in MVPN, the LIR-pF flag cannot be used with
+       segmentation.
+            </t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Applicability of Additional MVPN Specifications</name>
+            <t>As with the MVPN case, "Use of the PMSI Tunnel Attribute
+       in Leaf A-D Routes" (<xref target="RFC8556" format="default" sectionFormat="of" section="3"/>) applies.
+            </t>
+            <t>Notice that <xref target="RFC8556" format="default"/> refers to procedures
+       specified in <xref target="RFC6625" format="default"/> and
+       <xref target="RFC8534" format="default"/>. Those two documents
+       were specified for MVPN but apply to IP multicast
+       payload in EVPN as well.
+            </t>
+          </section>
+        </section>
+      </section>
+       <section anchor="label" numbered="true" toc="default">
+        <name>MPLS Label in the PTA</name>
+        <t>Rules in <xref target="RFC8556" section="2.1" sectionFormat="of" format="default"/> apply,
+       EXCEPT the following three bullets (they do NOT apply to EVPN) in that
+       section:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>
+      If the two routes do not have the same Address Family Identifier
+      (AFI) value, then their respective PTAs <bcp14>MUST</bcp14> contain different
+      MPLS label values.  This ensures that when an egress PE receives a
+      data packet with the given label, the egress PE can infer from the
+      label whether the payload is an IPv4 packet or an IPv6 packet.
+            </t>
+          </li>
+          <li>
+            <t>
+      If the BFIR is an ingress PE supporting MVPN extranet <xref target="RFC7900" format="default"/>
+      functionality, and if the two routes originate from different VRFs
+      on this ingress PE, then the respective PTAs of the two routes
+      <bcp14>MUST</bcp14> contain different MPLS label values.
+            </t>
+          </li>
+          <li>
+            <t>
+      If the BFIR is an ingress PE supporting the "Extranet Separation"
+      feature of MVPN extranet (see <xref target="RFC7900" section="7.3" sectionFormat="of" format="default"/>), and if
+      one of the routes carries the "Extranet Separation" extended
+      community but the other does not, then the respective PTAs of the
+      two routes <bcp14>MUST</bcp14> contain different MPLS label values.
+            </t>
+          </li>
+        </ul>
+      </section>
+    </section>
+    <section anchor="multihoming" numbered="true" toc="default">
+      <name>Multihoming Split Horizon</name>
+      <t>For EVPN-MPLS, <xref target="RFC7432" format="default"/> specifies the use of ESI labels to identify
+       the ES from which a BUM packet originates. A PE receiving that packet
+       from the core side will not forward it to the same ES. The procedure
+       works for both Ingress Replication (IR) and RSVP-TE/mLDP P2MP tunnels,
+       using downstream- and upstream-assigned ESI labels, respectively. For
+       EVPN-VXLAN/NVGRE/GENEVE, <xref target="RFC8365" format="default"/> specifies local bias
+       procedures, where a PE receiving a BUM packet from the core
+       side knows the ingress PE due to encapsulation; therefore, the PE
+       does not forward the packet to any multihoming ESes that the ingress PE is on. This is
+	   because the ingress PE already forwarded the packet to those ESes,
+	   regardless of whether the ingress PE is a Designated Forwarder for
+	   those ESes.
+      </t>
+      <t>With BIER, the local bias procedure still applies for EVPN-VXLAN/NVGRE/GENEVE,
+       as the BFIR-id in the BIER header identifies the ingress PE.
+       For EVPN-MPLS, ESI label procedures also still apply, though two upstream-assigned labels will be used (one for identifying the BD
+       and one for identifying the ES) -- the same as in the case of using
+       a single P2MP tunnel for multiple BDs. The BFIR-id in
+       the BIER header identifies the ingress PE that assigned those
+       two labels.
+      </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Data Plane</name>
+      <t>Like MVPN, the EVPN application plays the role of the "multicast
+       flow overlay" as described in <xref target="RFC8279" format="default"/>. 
+      </t>
+      <section numbered="true" toc="default">
+        <name>Encapsulation and Transmission</name>
+        <t>A BFIR could be either an ingress PE or a P-tunnel segmentation point.
+       The procedures are slightly different as described below.
+        </t>
+        <section anchor="ingresspe" numbered="true" toc="default">
+          <name>At a BFIR That Is an Ingress PE</name>
+          <t>To transmit a BUM data packet, an ingress PE first determines the
+       route matched for transmission and routes for tracking leaves according
+       to the following rules.
+          </t>
+          <ol spacing="normal" type="1"><li anchor="inclusive">
+              <t>If selective forwarding is not used or is not an IP multicast packet
+       after the Ethernet header, the IMET route originated for the BD by the
+       ingress PE is the route matched for transmission. Leaf-tracking routes
+       are all other received IMET routes for the BD.
+              </t>
+            </li>
+            <li>
+              <t>Otherwise, if selective forwarding is used for all IP multicast traffic
+       based on SMET routes, the IMET route originated for the BD by the ingress
+       PE is the route matched for transmission. Received SMET
+       routes for the BD, whose source and destination address fields match
+	   the packet's source and destination IP address,
+       are leaf-tracking routes.
+              </t>
+            </li>
+            <li>
+              <t>Otherwise, the route matched for transmission is the S-PMSI A-D route
+       originated by the ingress PE for the BD,
+       whose source and destination address fields match the packet's source and
+       destination IP address and have a PTA specifying a valid tunnel type that
+       is not "no tunnel info". Leaf-tracking routes are determined
+       as follows:
+              </t>
+		 <ol spacing="normal" type="a"><li>
+                  <t>If the match for the transmission route carries a  PTA that has the LIR
+           flag set but does not have the LIR-pF flag set, the routes matched for
+           tracking are Leaf A-D routes whose Route Key field is identical to
+           the NLRI of the S-PMSI A-D route.
+                  </t>
+                </li>
+                <li>
+                  <t>If the match for the transmission route carries a PTA that has the LIR-pF
+           flag, the leaf-tracking routes are Leaf A-D routes whose
+           Route Key field is derived from the NLRI of the S-PMSI A-D
+           route according to the procedures described in <xref target="RFC8534" section="5.2" sectionFormat="of" format="default"/>.
+                  </t>
+                </li>
+              </ol>
+              <t>
+           Note that in both cases, SMET routes may be used in lieu of
+           Leaf A-D routes, as a PE may omit the Leaf A-D route in response to
+           an S-PMSI A-D route with the LIR or LIR-pF bit set if a SMET route
+           with the corresponding Tag, Source, and Group fields is already
+           originated <xref target="RFC9572" format="default"/>.
+           In particular, in the second case above, even though the SMET route
+           does not have a PTA attached, it is still considered a Leaf A-D
+           route in response to a wildcard S-PMSI A-D route with the LIR-pF bit
+           set.
+              </t>
+            </li>
+            <li>
+              <t>Otherwise, the route matched for transmission and leaf-tracking routes are
+       determined as in rule <xref target="inclusive" format="counter"/>.
+              </t>
+            </li>
+          </ol>
+          <t>If no route is matched for transmission, the packet is not forwarded
+       onto a P-tunnel. If the tunnel that the ingress determines to use
+       based on the route matched for transmission (and considering
+       interworking with PEs that do not support certain tunnel types
+       per procedures in <xref target="RFC9251" format="default"/>)
+       requires leaf tracking (e.g., Ingress Replication, RSVP-TE P2MP tunnel,
+       or BIER) but there are no leaf-tracking routes,
+       the packet will not be forwarded onto a P-tunnel either.
+          </t>
+          <t>The following text assumes that BIER is the determined tunnel type.
+       The ingress PE pushes an upstream-assigned ESI label per <xref target="RFC7432" format="default"/>
+       if the following conditions are all met:
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>The packet is received on a multihomed ES.
+              </t>
+            </li>
+            <li>
+              <t>It is EVPN-MPLS.
+              </t>
+            </li>
+            <li>
+              <t>The ESI label procedure is used for split horizon.
+              </t>
+            </li>
+          </ul>
+          <t>The MPLS label from the PTA of the route matched
+       for transmission is then pushed onto the packet's label stack for
+       EVPN-MPLS. For EVPN-VXLAN/NVGRE/GENEVE, a VXLAN/NVGRE/GENEVE header is prepended to
+       the packet with the VNI/VSID set to the value in the PTA's Label field,
+       and then an IP/UDP header is prepended if needed (e.g., for PHP purposes). 
+          </t>
+          <t>Then, the packet is encapsulated in a BIER
+       header and forwarded according to the procedures of
+       <xref target="RFC8279" format="default"/> and <xref target="RFC8296" format="default"/>.
+       Specifically, see "Imposing and Processing
+       the BIER Encapsulation" (<xref target="RFC8296" format="default" sectionFormat="of" section="3"/>).      
+       The Proto field in the BIER header is set to 2 in the case of EVPN-MPLS,
+       7/8/9 in the case of EVPN-VXLAN/NVGRE/GENEVE (<xref target="IANA" format="default"/>) when an IP header is not used, or 4/6 if an IP header is used
+       for EVPN-VXLAN/NVGRE/GENEVE.
+          </t>
+          <t>To create the proper BIER header for a given packet, the
+       BFIR must know all the BFERs that need to receive that packet.
+       This is determined from the set of leaf-tracking routes.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>At a BFIR That Is a P-Tunnel Segmentation Point</name>
+          <t>In this case, the encapsulation for the upstream segment of the P-tunnel
+       includes (among other things) a label that identifies the x-PMSI or
+       IMET A-D route that
+       is the match for reception on the upstream segment. The segmentation point
+       re-advertised the route into one or more downstream regions. Each
+       instance of the re-advertised route for a downstream region has a PTA
+       that specifies the tunnel for that region. For any particular downstream
+       region, the route matched for transmission is the re-advertised route,
+	   and the leaf-tracking routes are determined as follows, if needed,
+       for the tunnel type:
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>If the route matched for transmission is an x-PMSI route, it must have
+       the LIR flag set in its PTA, and the leaf-tracking routes are all the
+       matching Leaf A-D and SMET routes received in the downstream region.
+              </t>
+            </li>
+            <li>
+              <t>If the route matched for transmission is an IMET route, the leaf-tracking
+       routes are all the IMET routes for the same BD received in the downstream
+       region.
+              </t>
+            </li>
+          </ul>
+          <t>If the downstream region uses BIER, the packet is forwarded as follows:
+    the upstream segmentation's encapsulation is removed and the
+	above-mentioned label is swapped to the
+       upstream-assigned label in the PTA of the route matched for transmission,
+       and then a BIER header is imposed as in <xref target="ingresspe" format="default"/>.
+          </t>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Disposition</name>
+        <t>The same procedures in <xref target="RFC8556" section="4.2" sectionFormat="of" format="default"/>
+       are followed for EVPN-MPLS, except for some EVPN specifics that are discussed in
+       the following two subsections of this document.
+        </t>
+        <t>For EVPN-VXLAN/NVGRE/GENEVE, the only differences are that the payload is
+       VXLAN/NVGRE/GENEVE (with or without an IP header) and the VNI/VSID
+       field in the VXLAN/NVGRE/GENEVE header is used to determine the corresponding
+       BD.
+        </t>
+        <section numbered="true" toc="default">
+          <name>At a BFER That Is an Egress PE</name>
+          <t>Once the corresponding BD is determined from
+       the upstream-assigned label or VNI/VSID, EVPN forwarding procedures per
+       <xref target="RFC7432" format="default"/> or <xref target="RFC8365" format="default"/> are followed.
+       In the case of EVPN-MPLS, if there is an inner label in the label stack
+       following the BIER header, that inner label is considered the
+       upstream-assigned ESI label for split-horizon purposes.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>At a BFER That Is a P-Tunnel Segmentation Point</name>
+          <t>This is only applicable to EVPN-MPLS. The same procedures in
+       <xref target="RFC8556" section="4.2.2" sectionFormat="of" format="default"/> are followed,
+       subject to multihoming procedures specified in
+       <xref target="RFC9572" format="default"/>.
+          </t>
+        </section>
+      </section>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>Per this document, IANA has registered the following three values in the
+         "BIER Next Protocol Identifiers" registry:
+      </t>
+      <table align="center">
+       <name>BIER Next Protocol Identifiers Registry</name>
+        <thead>
+	  <tr>
+	    <th>Value</th>
+	    <th>Description</th>
+	    <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>7</td>
+	    <td>Payload is VXLAN encapsulated (no IP/UDP header)</td>
+	    <td>RFC 9624</td>
+	  </tr>
+	  <tr>
+	    <td>8</td>
+	    <td>Payload is NVGRE encapsulated (no IP header)</td>
+	    <td>RFC 9624</td>
+	  </tr>
+	  <tr>
+	    <td>9</td>
+	    <td>Payload is GENEVE encapsulated (no IP/UDP header)</td>
+	    <td>RFC 9624</td>
+	  </tr>
+	</tbody>
+      </table>
+      <t>IANA has also assigned an IPv4 and an IPv6 multicast
+      address for the case discussed in <xref target="php-address" format="default"/>.</t>
+
+      <t>
+      The following entry has been added to the "Local Network Control Block (224.0.0.0 - 224.0.0.255 (224.0.0/24))" registry for IPv4:</t>
+
+      <dl spacing="compact">
+      <dt>Address(es):</dt><dd> 224.0.0.122</dd>
+      <dt>Description:</dt><dd> Network Virtualization Overlay (NVO) BUM Traffic</dd>
+      <dt>Reference:</dt><dd> RFC 9624</dd>
+    </dl>
+<t>
+The following entry has been added to the "Link-Local Scope Multicast Addresses" registry for IPv6:</t>
+
+      <dl spacing="compact">
+      <dt>Address(es):</dt><dd>FF02:0:0:0:0:0:0:14</dd>
+      <dt>Description:</dt><dd> Network Virtualization Overlay (NVO) BUM Traffic</dd>
+      <dt>Reference:</dt><dd> RFC 9624</dd>
+      </dl>
+
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document is about using BIER as provider tunnels for EVPN.
+	  It is very similar to using BIER as MVPN provider tunnels and
+	  does not introduce additional security implications
+	  beyond what have been discussed in the EVPN base protocol specification
+	  <xref target="RFC7432" format="default"/> and MVPN using BIER <xref target="RFC8556" format="default"/>.
+      </t>
+    </section>
+  </middle>
+
+  <back>
+    <displayreference target="I-D.zzhang-bess-mvpn-evpn-cmcast-enhancements" to="CMCAST-ENHANCEMENTS"/>
+    <displayreference target="I-D.ietf-bier-php" to="BIER-PHP"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7900.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6625.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7432.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8279.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8296.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8556.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8534.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9251.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8365.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8926.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6513.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6514.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9572.xml"/>	
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+<reference anchor="I-D.zzhang-bess-mvpn-evpn-cmcast-enhancements" target="https://datatracker.ietf.org/doc/html/draft-zzhang-bess-mvpn-evpn-cmcast-enhancements-04">
+<front>
+<title>MVPN/EVPN C-Multicast Routes Enhancements</title>
+<author initials="Z." surname="Zhang" fullname="Zhaohui (Jeffrey) Zhang">
+<organization>Juniper Networks</organization>
+</author>
+<author initials="R." surname="Kebler" fullname="Robert Kebler">
+<organization>Juniper Networks</organization>
+</author>
+<author initials="W." surname="Lin" fullname="Wen Lin">
+<organization>Juniper Networks</organization>
+</author>
+<author initials="E." surname="Rosen" fullname="Eric C. Rosen"> </author>
+<date month="March" day="17" year="2024"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-zzhang-bess-mvpn-evpn-cmcast-enhancements-04"/>
+</reference>	
+
+<reference anchor="I-D.ietf-bier-php" target="https://datatracker.ietf.org/doc/html/draft-ietf-bier-php-11">
+<front>
+<title>BIER Penultimate Hop Popping</title>
+<author initials="Z." surname="Zhang" fullname="Zhaohui (Jeffrey) Zhang">
+<organization>Juniper Networks</organization>
+</author>
+<date month="February" day="6" year="2024"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-ietf-bier-php-11"/>
+</reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7348.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7637.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4875.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6388.xml"/>
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The authors thank <contact fullname="Eric Rosen"/> for his review and suggestions.
+         Additionally, much of the text is borrowed verbatim from
+         <xref target="RFC8556" format="default"/>.
+      </t>
+    </section>
+  </back>
+</rfc>

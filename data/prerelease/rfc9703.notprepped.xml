@@ -1,0 +1,742 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-mpls-sr-epe-oam-19" number="9703" consensus="true" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="LSP Ping/Traceroute for SR EPE-SIDs with MPLS">Label Switched Path (LSP) Ping/Traceroute for
+    Segment Routing (SR) Egress Peer Engineering (EPE) Segment Identifiers (SIDs)
+    with MPLS Data Plane</title>
+    <seriesInfo name="RFC" value="9703"/>
+    <author initials="S." surname="Hegde" fullname="Shraddha Hegde">
+      <organization>Juniper Networks Inc.</organization>
+      <address>
+        <postal>
+          <street>Exora Business Park</street>
+          <city>Bangalore</city>
+          <region>Karnataka</region>
+          <code>560103</code>
+          <country>India</country>
+        </postal>
+        <email>shraddha@juniper.net</email>
+      </address>
+    </author>
+    <author initials="M." surname="Srivastava" fullname="Mukul Srivastava">
+      <organization>Juniper Networks Inc.</organization>
+      <address>
+        <email>msri@juniper.net</email>
+      </address>
+    </author>
+    <author initials="K." surname="Arora" fullname="Kapil Arora">
+      <organization>Individual Contributor</organization>
+      <address>
+        <email>kapil.it@gmail.com</email>
+      </address>
+    </author>
+    <author initials="S." surname="Ninan" fullname="Samson Ninan">
+      <organization>Ciena</organization>
+      <address>
+        <email>samson.cse@gmail.com</email>
+      </address>
+    </author>
+    <author initials="X." surname="Xu" fullname="Xiaohu Xu">
+      <organization>China Mobile</organization>
+      <address>
+        <postal>
+          <city>Beijing</city>
+          <country>China</country>
+        </postal>
+        <email>xuxiaohu_ietf@hotmail.com </email>
+      </address>
+    </author>
+    <date year="2024" month="December"/>
+    <area>RTG</area>
+    <workgroup>mpls</workgroup>
+    <keyword>OAM</keyword>
+    <keyword>EPE</keyword>
+    <keyword>BGP-LS</keyword>
+    <keyword>BGP</keyword>
+    <keyword>SPRING</keyword>
+    <keyword>SDN</keyword>
+    <keyword>SID</keyword>
+    <abstract>
+      <t>Egress Peer Engineering (EPE) is an application of Segment Routing
+      (SR) that solves the problem of egress peer selection.  The SR-based
+      BGP-EPE solution allows a centralized controller, e.g., a
+      Software-Defined Network (SDN) controller, to program any egress peer.
+      The EPE solution requires the node or the SDN controller to program 1) the
+      PeerNode Segment Identifier (SID) describing a session between two
+      nodes, 2) the PeerAdj SID describing the link or links that are
+      used by the sessions between peer nodes, and 3) the PeerSet SID
+      describing any connected interface to any peer in the related group.
+      This document provides new sub-TLVs for EPE-SIDs that are used in
+      the Target FEC Stack TLV (Type 1) in MPLS Ping and Traceroute
+      procedures.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t> Egress Peer Engineering (EPE), as defined in <xref target="RFC9087"
+      format="default"/>, is an effective mechanism that is used to select the egress peer
+      link based on different criteria.  In this scenario, egress peers may
+      belong to a completely different ownership.  The EPE-SIDs provide the
+      means to represent egress peer nodes, links, sets of links, and sets of
+      nodes. Many network deployments have built their networks consisting of
+      multiple Autonomous Systems (ASes) either for the ease of operations or as a
+      result of network mergers and acquisitions. The inter-AS links
+      connecting any two ASes could be traffic-engineered using
+      EPE-SIDs in this case, where there is single ownership but different
+      AS numbers.  It is important to validate the control
+      plane to forwarding plane synchronization for these SIDs so that any
+      anomaly can be easily detected by the network operator. EPE-SIDs may
+      also be used in an ingress Segment Routing (SR) policy <xref target="RFC9256"
+      format="default"/> to choose exit points where the remote AS has
+      a completely different ownership. This scenario is out of scope for this
+      document.
+      </t>
+      <figure anchor="reference_diagram">
+        <name>Reference Diagram</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+   +---------+      +------+
+   |         |      |      |
+   |    H    B------D      G
+   |         | +---/| AS2  |\  +------+
+   |         |/     +------+ \ |      |---L/8
+   A   AS1   C---+            \|      |
+   |         |\\  \  +------+ /| AS4  |---M/8
+   |         | \\  +-E      |/ +------+
+   |    X    |  \\   |      K
+   |         |   +===F AS3  |
+   +---------+       +------+]]></artwork>
+      </figure>
+      <t>In <xref target="reference_diagram" format="default"/>, EPE-SIDs are
+      configured on AS1 towards AS2 and AS3 and advertised in the Border
+      Gateway Protocol - Link State (BGP-LS) <xref target="RFC9086"
+      format="default"/>.  In certain cases, the EPE-SIDs advertised by the
+      control plane may not be in synchronization with the label programmed in
+      the data plane.  For example, on C, a PeerAdj SID could be advertised to
+      indicate it is for the link C-&gt;D.  Due to some software anomaly, the
+      actual data forwarding on this PeerAdj SID could be happening over the
+      C-&gt;E link.  If E had relevant data paths for further forwarding the
+      packet, this kind of anomaly would go unnoticed by the network operator.
+      A detailed example of a correctly programmed state and an incorrectly
+      programmed state along with a description of how the incorrect state can
+      be detected is described in <xref target="Appendix" format="default"/>.
+      A Forwarding Equivalence Class (FEC) definition for the EPE-SIDs will
+      detail the control plane association of the SID.  The
+      data plane validation of the SID will be done during the MPLS Traceroute
+      procedure.  When there is a multi-hop External BGP (EBGP) session
+      between the ASBRs, a PeerNode SID is advertised, and the traffic
+      <bcp14>MAY</bcp14> be load-balanced between the interfaces connecting
+      the two nodes.  In <xref target="reference_diagram" format="default"/>,
+      C and F could have a PeerNode SID advertised.  When the Operations,
+      Administration, and Maintenance (OAM) packet is received on F, it needs
+      to be validated that the packet came from one of the two interfaces
+      connected to C.
+      </t>
+      <t> This document provides Target Forwarding Equivalence Class (FEC)
+      Stack TLV definitions for EPE-SIDs.  This solution requires the
+      node constructing the Target FEC Stack TLV to determine the types of
+      SIDs along the path of the LSP. Other procedures for MPLS Ping and
+      Traceroute, as defined in <xref target="RFC8287" sectionFormat="of"
+      section="7"/> and clarified in <xref target="RFC8690" format="default"/>,
+      are applicable for EPE-SIDs as well.</t>
+    </section>
+    <section anchor="operation" numbered="true" toc="default">
+      <name>Theory of Operation</name>
+      <t><xref target="RFC9086" format="default"/> provides mechanisms to
+      advertise the EPE-SIDs in BGP-LS. These EPE-SIDs may be used to build SR
+      paths and may be communicated using extensions described in <xref
+      target="I-D.ietf-idr-bgp-sr-segtypes-ext" format="default"/> and <xref
+      target="I-D.ietf-idr-sr-policy-safi" format="default"/> or Path
+      Computation Element Protocol (PCEP) extensions as defined in <xref
+      target="RFC8664" format="default"/>. Data plane monitoring for such
+      paths that consist of EPE-SIDs will use extensions defined in this
+      document to build the Target FEC Stack TLV.  The MPLS Ping and
+      Traceroute procedures <bcp14>MAY</bcp14> be initiated by the head-end of
+      the SR path or a centralized topology-aware data plane monitoring
+      system, as described in <xref target="RFC8403" format="default"/>.  The
+      extensions in <xref target="I-D.ietf-idr-bgp-sr-segtypes-ext"
+      format="default"/>, <xref target="I-D.ietf-idr-sr-policy-safi"
+      format="default"/>, and <xref target="RFC8664" format="default"/> do not
+      define how to acquire and carry the details of the SID that can be used
+      to construct the FEC.  Such extensions are out of scope for this
+      document.  The node initiating the data plane monitoring may acquire the
+      details of EPE-SIDs through BGP-LS advertisements, as described in <xref
+      target="RFC9086" format="default"/>.  There may be other possible
+      mechanisms that can be used to learn the definition of the SID from the
+      controller.  Details of such mechanisms are out of scope for this
+      document.</t>
+      <t>The EPE-SIDs are advertised for inter-AS links that run EBGP
+      sessions. <xref target="RFC9086" format="default"/> does not define the
+      detailed procedures of how to operate EBGP sessions in a scenario with
+      unnumbered interfaces. Therefore, these scenarios are out of scope for
+      this document.  Anycast and multicast addresses are not in the scope of
+      this document. During the AS migration scenario, procedures described in
+      <xref target="RFC7705" format="default"/> may be in force.  In these
+      scenarios, if the local and remote AS fields in the FEC (as described in
+      <xref target="FEC_definitions" format="default"/>) carry the globally
+      configured AS Number and not the "local AS" (as defined in <xref
+      target="RFC7705" format="default"/>), then the FEC validation procedures may
+      fail. </t>
+      <t>As described in <xref target="intro" format="default"/>, this
+      document defines Target FEC Stack TLVs for EPE-SIDs that can be used in
+      detecting MPLS data plane failures <xref target="RFC8029"
+      format="default"/>. This mechanism applies to paths created across
+      ASes of cooperating administrations. If the ping or traceroute
+      packet enters a non-cooperating AS domain, it might be dropped by the
+      routers in the non-cooperating domain. Although a complete path
+      validation cannot be done across non-cooperating domains, it still
+      provides useful information that the ping or traceroute packet entered a
+      non-cooperating domain.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Requirements Language</name>
+      <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+      "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+      NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+      "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+      "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are
+      to be interpreted as described in BCP 14, <xref target="RFC2119"
+      format="default"/>, <xref target="RFC8174" format="default"/> when, and
+      only when, they appear in all capitals, as shown here. </t>
+    </section>
+    <section anchor="FEC_definitions" numbered="true" toc="default">
+      <name>FEC Definitions</name>
+      <t> In this document, three new sub-TLVs are defined for the Target FEC Stack TLV (Type
+      1), the Reverse-Path Target FEC Stack TLV (Type 16), and the Reply Path
+      TLV (Type 21); see <xref target="sub_tlv"/>.</t>
+
+      <section anchor="peer_node_sid" numbered="true" toc="default">
+        <name>PeerNode SID Sub-TLV</name>
+        <figure anchor="peer_node_sid_tlv">
+          <name>PeerNode SID Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Type = 39                      |          Length               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local AS Number (4 octets)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote AS Number (4 octets)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local BGP Router ID (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote BGP Router ID (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+	<dl>
+	  <dt>Type:</dt><dd>2 octets</dd>
+	  <dt>Value:</dt><dd>39</dd>
+	  <dt>Length:</dt><dd>2 octets</dd>
+	  <dt>Value:</dt><dd>16</dd>
+          <dt>Local AS Number:</dt><dd>4 octets. The unsigned integer
+          representing the AS number <xref target="RFC6793" format="default"/>
+          of the AS to which the PeerNode SID advertising node belongs. If
+          Confederations <xref target="RFC5065" format="default"/> are in use,
+          and if the remote node is a member of a different Member-AS within
+          the local Confederation, this is the Member-AS Number inside the
+          Confederation and not the Confederation Identifier.</dd>
+          <dt>Remote AS Number:</dt><dd>4 octets. The unsigned integer
+          representing the AS number <xref target="RFC6793" format="default"/>
+          of the AS of the remote node for which the PeerNode SID is
+          advertised. If Confederations <xref target="RFC5065"
+          format="default"/> are in use, and if the remote node is a member of
+          a different Member-AS within the local Confederation, this is the
+          Member-AS Number inside the Confederation and not the Confederation
+          Identifier.</dd>
+	  <dt>Local BGP Router ID:</dt><dd>4 octets.  The unsigned integer
+	  representing the BGP Identifier of the PeerNode SID advertising node
+	  as defined in <xref target="RFC4271" format="default"/> and <xref
+	  target="RFC6286" format="default"/>. </dd>
+          <dt>Remote BGP Router ID:</dt><dd>4 octets.  The unsigned integer
+          representing the BGP Identifier of the remote node as defined in
+          <xref target="RFC4271" format="default"/> and <xref target="RFC6286"
+          format="default"/>. </dd>
+	</dl>
+	
+        <t>When there is a multi-hop EBGP session between two ASBRs, a
+        PeerNode SID is advertised for this session, and traffic can be
+        load-balanced across these interfaces.  An EPE controller that
+        performs bandwidth management for these links should be aware of the
+        links on which the traffic will be load-balanced. As per <xref
+        target="RFC8029" format="default"/>, the node advertising the EPE-SIDs
+        will send a Downstream Detailed Mapping (DDMAP) TLV specifying the
+        details of the next-hop interfaces. Based on this information, the
+        controller <bcp14>MAY</bcp14> choose to verify the actual forwarding
+        state with the topology information that the controller has.  On the
+        router, the validation procedures will include the received DDMAP
+        validation, as specified in <xref target="RFC8029" format="default"/>,
+        to verify the control state and the forwarding state synchronization
+        on the two routers. Any discrepancies between the controller's state
+        and the forwarding state will not be detected by the procedures
+        described in this document.</t>
+      </section>
+      <section anchor="peer_adj_sid" numbered="true" toc="default">
+        <name>PeerAdj SID Sub-TLV</name>
+        <figure anchor="peer_adj_sid_tlv">
+          <name>PeerAdj SID Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Type = 38                      |          Length               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Adj type      |            RESERVED                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local AS Number (4 octets)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote AS Number (4 octets)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local BGP Router ID (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote BGP Router ID (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local Interface Address (4/16 octets)            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote Interface Address (4/16 octets)           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+	<dl>
+	  
+        <dt>Type:</dt><dd>2 octets </dd>
+        <dt>Value:</dt><dd>38</dd>
+        <dt>Length:</dt><dd>2 octets</dd>
+        <dt>Value:</dt><dd>Variable based on the IPv4/IPv6 interface
+        address. Length excludes the length of the Type and Length fields. For
+        IPv4 interface addresses, the length will be 28 octets.  In the case of an
+        IPv6 address, the length will be 52 octets.</dd>
+        <dt>Adj type:</dt><dd>1 octet</dd>
+        <dt>Value:</dt><dd>Set to 1 when the Adjacency Segment is IPv4. Set to
+        2 when the Adjacency Segment is IPv6.</dd>
+        <dt>RESERVED:</dt><dd>3 octets. <bcp14>MUST</bcp14> be zero when
+        sending and ignored on receiving.</dd>
+        <dt>Local AS Number:</dt><dd>4 octets. The unsigned integer
+        representing the AS number <xref target="RFC6793" format="default"/>
+        of the AS to which the PeerAdj SID advertising node belongs. If
+        Confederations <xref target="RFC5065" format="default"/> are in use,
+        and if the remote node is a member of a different Member-AS within the
+        local Confederation, this is the Member-AS Number inside the
+        Confederation and not the Confederation Identifier.</dd>
+        <dt>Remote AS Number:</dt><dd>4 octets.  The unsigned integer
+        representing the AS number <xref target="RFC6793" format="default"/> of
+        the remote node's AS for which the PeerAdj SID is advertised. If
+        Confederations <xref target="RFC5065" format="default"/> are in use,
+        and if the remote node is a member of a different Member-AS within the
+        local Confederation, this is the Member-AS Number inside the
+        Confederation and not the Confederation Identifier.</dd>
+        <dt>Local BGP Router ID:</dt><dd>4 octets. The unsigned integer
+        representing the BGP Identifier of the PeerAdj SID advertising node as
+        defined in <xref target="RFC4271" format="default"/> and <xref
+        target="RFC6286" format="default"/>.</dd>
+        <dt>Remote BGP Router ID:</dt><dd>4 octets. The unsigned integer
+        representing the BGP Identifier of the remote node as defined in <xref
+        target="RFC4271" format="default"/> and <xref target="RFC6286"
+        format="default"/>.</dd>
+        <dt>Local Interface Address:</dt><dd>4 octets or 16 octets. In the case of
+        PeerAdj SID, the local interface address corresponding to the PeerAdj SID 
+        should be specified in this field.  For IPv4, this field is 4 octets;
+        for IPv6, this field is 16 octets. Link-local IPv6 addresses are not
+        in the scope of this document.</dd>
+        <dt>Remote Interface Address:</dt><dd>4 octets or 16 octets.  In the
+        case of PeerAdj SID, the remote interface address corresponding to the
+        PeerAdj SID should be specified in this field.  For IPv4, this field
+        is 4 octets; for IPv6, this field is 16 octets. Link-local IPv6
+        addresses are not in the scope of this document.</dd>
+	</dl>
+	  
+        <t><xref target="RFC9086" format="default"/> mandates sending a local
+        interface ID and remote interface ID in the link descriptors and
+        allows a value of 0 in the remote descriptors.  It is useful to
+        validate the incoming interface for an OAM packet, but if the remote
+        descriptor is 0, this validation is not possible.  Optional link
+        descriptors of local and remote interface addresses are allowed as
+        described in <xref target="RFC9086" sectionFormat="of"
+        section="4.2"/>. In this document, it is <bcp14>RECOMMENDED</bcp14>
+        to send these optional descriptors and use them to validate incoming
+        interfaces.  When these local and remote interface addresses are not
+        available, an ingress node can send 0 in the local and/or remote
+        interface address field.  The receiver <bcp14>SHOULD</bcp14> skip the
+        validation for the incoming interface if the address field contains
+        0.</t>
+      </section>
+      <section anchor="peer_set_sid" numbered="true" toc="default">
+        <name>PeerSet SID Sub-TLV</name>
+        <figure anchor="peer_set_sid_tlv">
+          <name>PeerSet SID Sub-TLV</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Type = 40                     |          Length               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local AS Number (4 octets)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Local BGP Router ID (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|    No. of elements in set     |          Reserved             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote AS Number (4 octets)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote BGP Router ID (4 octets)                  |
+++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-++
+
+
+ One element in set consists of the details below
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote AS Number (4 octets)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Remote BGP Router ID (4 octets)                  |
+++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-++]]></artwork>
+        </figure>
+	
+	<dl>
+        <dt>Type:</dt><dd>2 octets</dd>
+        <dt>Value:</dt><dd>40</dd>
+        <dt>Length:</dt><dd>2 octets</dd>
+        <dt>Value:</dt><dd>Expressed in octets and is a variable based on the
+        number of elements in the set.  The length field does not include the
+        length of Type and Length fields.</dd>
+        <dt>Local AS Number:</dt><dd>4 octets.  The unsigned integer
+        representing the AS number <xref target="RFC6793" format="default"/>
+        of the AS to which the PeerSet SID advertising node belongs. If
+        Confederations <xref target="RFC5065" format="default"/> are in use,
+        and if the remote node is a member of a different Member-AS within the
+        local Confederation, this is the Member-AS Number inside the
+        Confederation and not the Confederation Identifier.</dd>
+        <dt>Local BGP Router ID:</dt><dd>4 octets.  The unsigned integer
+        representing the BGP Identifier of the PeerSet SID advertising node, as
+        defined in <xref target="RFC4271" format="default"/> and <xref
+        target="RFC6286" format="default"/>. </dd>
+        <dt>No. of elements in set:</dt><dd>2 octets.  The number of remote
+        ASes over which the set SID performs load-balancing.</dd>
+        <dt>Reserved:</dt><dd>2 octets. <bcp14>MUST</bcp14> be zero when sent
+        and ignored when received.</dd>
+        <dt>Remote AS Number:</dt><dd>4 octets.  The unsigned integer
+        representing the AS number <xref target="RFC6793" format="default"/>
+        of the remote node's AS for which the PeerSet SID is
+        advertised. If Confederations <xref target="RFC5065"
+        format="default"/> are in use, and if the remote node is a member of a
+        different Member-AS within the local Confederation, this is the
+        Member-AS Number inside the Confederation and not the Confederation
+        Identifier.</dd>
+        <dt>Remote BGP Router ID:</dt><dd>4 octets.  The unsigned integer
+        representing the BGP Identifier of the remote node as defined in <xref
+        target="RFC4271" format="default"/> and <xref target="RFC6286"
+        format="default"/>. </dd>
+	  </dl>
+        <t>PeerSet SID may be associated with a number of PeerNode SIDs and
+        PeerAdj SIDs.  The remote AS number and the Router ID of each of these
+        PeerNode SIDs and PeerAdj SIDs <bcp14>MUST</bcp14> be included in the
+        FEC.</t>
+      </section>
+    </section>
+    <section anchor="validation" numbered="true" toc="default">
+      <name>EPE-SID FEC Validation</name>
+      <t>When a remote ASBR of the EPE-SID advertisement receives the MPLS OAM
+      packet with the top FEC being the EPE-SID, it <bcp14>MUST</bcp14>
+      perform validity checks on the content of the EPE-SID FEC sub-TLV.  The
+      basic length check should be performed on the received FEC.</t>
+      <figure anchor="length_check">
+        <name>Length Validation</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ PeerAdj SID sub-TLV
+ -----------
+ If Adj type = 1, Length should be 28 octets
+ If Adj type = 2, Length should be 52 octets
+ 
+ PeerNode SID sub-TLV
+ -------------
+ Length = (20 + No. of IPv4 interface pairs * 8 +
+           No. of IPv6 interface pairs * 32) octets
+ 
+ PeerSet SID sub-TLV
+ -----------
+ Length = (9 + No. of elements in the set *
+          (8 + No. of IPv4 interface pairs * 8 +
+           No. of IPv6 interface pairs * 32) octets]]></artwork>
+      </figure>
+
+      <t>If a malformed FEC sub-TLV is received, then a return code of 1,
+      "Malformed echo request received", as defined in <xref target="RFC8029"
+      format="default"/> <bcp14>MUST</bcp14> be sent.  The section below is
+      appended to the procedure given in step 4a of <xref target="RFC8287"
+      sectionFormat="of" section="7.4"/>.
+      </t>
+
+      <section anchor="fec_validation" numbered="true" toc="default">
+        <name>EPE-SID FEC Validation Rules</name>
+	<t>This is an example of Segment Routing IGP-Prefix, IGP-Adjacency
+	SID, and EPE-SID validations.  Note that the term "receiving node" in
+	this section corresponds to the node that receives the OAM message
+	with the Target FEC Stack TLV.</t>
+
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+Else, if the Label-stack-depth is 0 and the Target FEC Stack sub-TLV
+at FEC stack-depth is 38 (PeerAdj SID sub-TLV), {
+
+    Set the Best-return-code to 10, "Mapping for this FEC is not
+    the given label at stack-depth <RSC>" [RFC8029].  Check if 
+    any below conditions fail:
+
+           -  Validate that the receiving node's BGP Local AS matches
+              with the remote AS field in the received PeerAdj SID
+              sub-TLV.
+
+           -  Validate that the receiving node's BGP Router-ID
+              matches with the Remote Router ID field in the
+              received PeerAdj SID sub-TLV.
+
+           -  Validate that there is an EBGP session with a peer
+              having a local AS number and BGP Router-ID as
+              specified in the local AS number and Local Router-ID
+              field in the received PeerAdj SID sub-TLV.
+
+    If the remote interface address is not zero, validate the
+    incoming interface.  Set the Best-return-code to 35, 
+    "Mapping for this FEC is not associated with the incoming 
+    interface" [RFC8287].  Check if any below conditions fail:
+
+           -  Validate that the incoming interface on which the
+              OAM packet was received matches with the remote
+              interface specified in the PeerAdj SID sub-TLV.
+
+    If all above validations have passed, set the return code to 3,
+    "Replying router is an egress for the FEC at stack-depth <RSC>"
+    [RFC8029].
+    }
+
+Else, if the Target FEC Stack sub-TLV at FEC stack-depth is 39
+     (PeerNode SID sub-TLV), {
+
+    Set the Best-return-code to 10, "Mapping for this FEC is not
+    the given label at stack-depth <RSC>" [RFC8029].  Check if any 
+    below conditions fail:
+
+       -  Validate that the receiving node's BGP Local AS matches
+          with the remote AS field in the received PeerNode SID 
+          FEC sub-TLV.
+
+       -  Validate that the receiving node's BGP Router-ID matches
+          with the Remote Router ID field in the received
+          PeerNode SID FEC.
+
+       -  Validate that there is an EBGP session with a peer
+          having a local AS number and BGP Router-ID as
+          specified in the local AS number and Local Router-ID
+          field in the received PeerNode SID FEC sub-TLV.
+
+    If all above validations have passed, set the return code to 3,
+    "Replying router is an egress for the FEC at stack-depth <RSC>"
+    [RFC8029].
+    }
+Else, if the Target FEC Stack sub-TLV at FEC stack-depth is 40
+     (PeerSet SID sub-TLV), {
+
+    Set the Best-return-code to 10, "Mapping for this FEC is not
+    the given label at stack-depth <RSC>" [RFC8029].  Check if any 
+    below conditions fail:
+
+       -  Validate that the receiving node's BGP Local AS matches
+          with one of the remote AS fields in the received 
+          PeerSet SID FEC sub-TLV.
+
+       -  Validate that the receiving node's BGP Router-ID matches
+          with one of the Remote Router ID fields in the 
+          received PeerSet SID FEC sub-TLV.
+
+       -  Validate that there is an EBGP session with a peer having
+          a local AS number and BGP Router-ID as specified in the
+          local AS number and Local Router-ID fields in the received 
+          PeerSet SID FEC sub-TLV.
+
+    If all above validations have passed, set the return code to 3,
+    "Replying router is an egress for the FEC at stack-depth <RSC>"
+    [RFC8029].
+    }]]></artwork>
+      </section>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      
+      <t>IANA has allocated three new Target FEC Stack sub-TLVs
+    in the "Sub-TLVs for TLV Types 1, 16, and 21" registry <xref target="MPLS-LSP-PING" format="default"/>
+    within the "TLVs" registry of the "Multiprotocol Label Switching (MPLS)
+    Label Switched Paths (LSPs) Ping Parameters" registry group. </t>
+
+    <table anchor="sub_tlv" align="center">
+      <name>Sub-TLVs for TLV Types 1, 16, and 21 Registry</name>
+	<thead>
+	  <tr>
+	    <th>Sub-Type</th>
+	    <th>Sub-TLV Name</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>38</td>
+            <td>PeerAdj SID</td>
+	  </tr>
+	  <tr>
+	    <td>39</td>
+	    <td>PeerNode SID</td>
+	  </tr>
+	  <tr>
+	    <td>40</td>
+            <td>PeerSet SID</td>
+	  </tr>
+	</tbody>
+      </table>
+    </section>
+    <section anchor="sec-con" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The EPE-SIDs are advertised for egress links for EPE 
+       purposes or for inter-AS links between cooperating ASes.  
+       When cooperating domains are involved, they can allow the packets
+       arriving on trusted interfaces to reach the control plane
+       and be processed.</t>
+      <t> When EPE-SIDs are created for egress
+       TE links where the neighbor AS is an independent entity, it may
+       not allow the packets arriving from the external world to reach the 
+       control plane.  In such deployments, the MPLS OAM packets will be 
+       dropped by the neighboring AS that receives the MPLS OAM packet.</t>
+      <t>In MPLS Traceroute applications, when the AS boundary is 
+       crossed with the EPE-SIDs, the Target FEC Stack TLV is changed.
+       <xref target="RFC8287" format="default"/> does not mandate that the initiator,
+       upon receiving an MPLS Echo Reply message that includes the
+       Target FEC Stack Change TLV with one or more of the original 
+       segments being popped, remove the corresponding FEC(s) from
+       the Target FEC Stack TLV in the next (TTL+1) traceroute
+       request. </t>
+      <t>If an initiator does not remove the FECs belonging
+       to the previous AS that has traversed, it may expose the 
+       internal AS information to the following AS being traversed in 
+       the traceroute.
+      </t>
+    </section>
+
+
+  </middle>
+  <back>
+    <displayreference target="I-D.ietf-idr-bgp-sr-segtypes-ext" to="SR-SEGTYPES"/>
+    <displayreference target="I-D.ietf-idr-sr-policy-safi" to="SR-BGP-POLICY"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8287.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8029.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9086.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8690.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6793.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9087.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7705.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8403.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8664.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4271.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5065.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6286.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9256.xml"/>
+
+	<reference anchor="MPLS-LSP-PING" target="https://www.iana.org/assignments/mpls-lsp-ping-parameters">
+	<front>
+	  <title>Sub-TLVs for TLV Types 1, 16, and 21</title>
+	  <author>
+	    <organization>IANA</organization>
+	  </author>
+	</front>
+      </reference>
+
+      <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-idr-bgp-sr-segtypes-ext.xml"/>
+      <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-idr-sr-policy-safi.xml"/>
+
+      </references>
+    </references>
+    <section anchor="Appendix" numbered="true" toc="default">
+      <name>Examples of Programmed States</name>
+      <t> This section describes examples of both a correctly and an
+      incorrectly programmed state and provides details on how the new
+      sub-TLVs described in this document can be used to validate the
+      correctness.  Consider the diagram from <xref target="reference_diagram"
+      format="default"/>.</t>
+      <t>Correctly programmed state:</t>
+      
+      <ul spacing="normal">
+        <li>
+          <t>C assigns label 16001 and binds it to adjacency C-&gt;E </t>
+        </li>
+        <li>
+          <t>C signals that label 16001 is bound to adjacency C-&gt;E (e.g., via BGP-LS)</t>
+        </li>
+        <li>
+          <t>The controller/ingress programs an SR path that has SID/label 16001
+          to steer the packet on the exit point from C onto adjacency C-&gt;E</t>
+        </li>
+        <li>
+          <t>Using MPLS Traceroute procedures defined in this document, the PeerAdj
+          SID sub-TLV is populated with entities to be validated by C when the
+          OAM packet reaches it</t>
+        </li>
+        <li>
+          <t>C receives the OAM packet and validates that the top label
+          (16001) is indeed corresponding to the entities populated in the
+          PeerAdj SID sub-TLV</t>
+        </li>
+      </ul>
+      <t>Incorrectly programmed state:</t>
+      <ul spacing="normal">
+        <li>
+          <t>C assigns label 16001 and binds it to adjacency C-&gt;D</t>
+        </li>
+        <li>
+          <t>The controller learns that PeerAdj SID label 16001 is bound to
+          adjacency C-&gt;E (e.g., via BGP-LS) -- this could be a software bug
+          on C or on the controller</t>
+        </li>
+        <li>
+          <t>The controller/ingress programs an SR path that has SID/label
+          16001 to steer the packet on the exit point from C onto adjacency
+          C-&gt;E</t>
+        </li>
+        <li>
+          <t>Using MPLS Traceroute procedures defined in this document, the PeerAdj
+          SID sub-TLV is populated with entities to be validated by C
+          (including a local/remote interface address of C-&gt;E) when the OAM
+          packet reaches it</t>
+        </li>
+        <li>
+          <t>C receives the OAM packet and validates that the top label
+          (16001) is NOT bound to C-&gt;E as populated in the PeerAdj SID
+          sub-TLV and then responds with the respective error code</t>
+        </li>
+      </ul>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Acknowledgments</name>
+
+      <t>Thanks to <contact fullname="Loa Andersson"/>, <contact
+      fullname="Dhruv Dhody"/>, <contact fullname="Ketan Talaulikar"/>,
+      <contact fullname="Italo Busi"/>, <contact fullname="Alexander
+      Vainshtein"/>, and <contact fullname="Deepti Rathi"/> for careful reviews and
+      comments. Thanks to <contact fullname="Tarek Saad"/> for providing the
+      example described in <xref target="Appendix"/>.</t>
+    </section>
+
+  </back>
+
+</rfc>

@@ -1,0 +1,856 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" consensus="true" docName="draft-ietf-dnsop-compact-denial-of-existence-07" number="9824" ipr="trust200902" updates="4034, 4035" obsoletes="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="Compact Denial of Existence in DNSSEC">Compact Denial of Existence in DNSSEC</title>
+    <seriesInfo name="RFC" value="9824"/>
+
+    <author fullname="Shumon Huque" initials="S." surname="Huque">
+      <organization>Salesforce</organization>
+      <address>
+        <postal>
+          <street>415 Mission Street, 3rd Floor</street>
+          <city>San Francisco</city>
+          <region>CA</region>
+          <code>94105</code>
+          <country>United States of America</country>
+        </postal>
+        <email>shuque@gmail.com</email>
+      </address>
+    </author>
+
+    <author fullname="Christian Elmerot" initials="C." surname="Elmerot">
+      <organization>Cloudflare</organization>
+      <address>
+        <postal>
+          <street>101 Townsend St.</street>
+          <city>San Francisco</city>
+          <region>CA</region>
+          <code>94107</code>
+          <country>United States of America</country>
+        </postal>
+        <email>elmerot@cloudflare.com</email>
+      </address>
+    </author>
+
+    <author fullname="Olafur Gudmundsson" initials="O." surname="Gudmundsson">
+      <organization></organization>
+      <address>
+        <email>ogud@ogud.com</email>
+      </address>
+    </author>
+
+    <date month="September" year="2025"/>
+
+    <area>OPS</area>
+    <workgroup>dnsop</workgroup>
+
+    <keyword>DNS</keyword>
+    <keyword>DNSSEC</keyword>
+    <keyword>Denial of Existence</keyword>
+    <keyword>Compact Denial of Existence</keyword>
+    <keyword>Compact Answers</keyword>
+    <keyword>Black Lies</keyword>
+    <keyword>NXDOMAIN</keyword>
+    <keyword>NODATA</keyword>
+    <keyword>Empty Non-Terminal</keyword>
+
+    <abstract>
+
+     <t>
+       This document describes a technique to generate a signed DNS response
+       on demand for a nonexistent name by claiming that the name exists
+       but doesn't have any data for the queried record type. Such responses
+       require only one minimally covering NSEC or NSEC3 record, allow online
+       signing servers to minimize signing operations and response sizes,
+       and prevent zone content disclosure.
+     </t>
+     <t>
+       This document updates RFCs 4034 and 4035.
+     </t>
+    </abstract>
+  </front>
+
+  <middle>
+
+    <section anchor="intro">
+      <name>Introduction and Motivation</name>
+      <t>
+        One of the functions of DNS Security Extensions
+        (DNSSEC) <xref target="RFC9364" /> is
+        "authenticated denial of existence",
+        i.e., proving that a DNS name or record type does not exist.
+        Normally, this is done by means of signed NSEC or NSEC3 records.
+        In the precomputed signature model, these records chain together
+        existing names, or cryptographic hashes of them, in the zone. In
+        the online signing model, described for NSEC in <xref target="RFC4470" /> and for NSEC3 in
+        <xref target="RFC7129" sectionFormat="of" section="B"/>,
+        they are used to dynamically compute an epsilon
+        function around the QNAME. The Type Bit Maps field in the data
+        of the NSEC or NSEC3 record asserts which resource record (RR) types are
+        present at the name.
+      </t>
+      <t>
+        The response for a nonexistent name requires up to two signed NSEC
+        records or up to three signed NSEC3 records (and for online signers,
+        the associated cryptographic computation) to prove that (1) the
+        name did not explicitly exist in the zone and (2) it could
+        not have been synthesized by a wildcard.
+      </t>
+
+      <t>
+        This document describes an alternative technique, "Compact Denial
+        of Existence" or "Compact Answers",
+        to generate a signed DNS response on demand for a nonexistent
+        name by claiming that the name exists but has no resource record sets
+        associated with the queried type, i.e., it returns a NODATA response
+        rather than an NXDOMAIN response. A NODATA response, which has a
+        response code (RCODE) of NOERROR and an empty ANSWER section,
+        requires only one NSEC or NSEC3 record matching the QNAME.
+        This has two advantages: The DNS response size is smaller, and it
+        reduces the online cryptographic work involved in generating the
+        response.
+      </t>
+
+      <t>
+        The use of minimally covering NSEC or NSEC3 records also prevents
+        adversaries from enumerating the entire contents of DNS zones
+        by walking the NSEC chain or performing an offline dictionary
+        attack on the hashes in the NSEC3 chain.
+      </t>
+      <t>
+        This document assumes a reasonable level of familiarity with DNS
+        operations and protocol terms.  Much of the terminology is explained
+        in further detail in "DNS Terminology" <xref target="RFC9499" />.
+      </t>
+
+      <section anchor="reserved-words"><name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+
+    <section anchor="distinguish">
+      <name>Distinguishing Nonexistent Names</name>
+      <t>
+        This method generates NODATA responses for nonexistent names
+        that don't match a DNS wildcard. Since there are clearly no
+        record types for such names, the NSEC Type Bit Maps field in
+        the response will only contain the NSEC and RRSIG types
+        (and in the case of NSEC3, the Type Bit Maps field will be empty).
+        Tools that need to accurately identify nonexistent names in
+        responses cannot rely on this specific type bitmap because Empty
+        Non-Terminal (ENT) names (which positively exist) also have no
+        record types at the name and will return exactly the same Type
+        Bit Maps field.
+      </t>
+      <t>
+        This specification defines the use of NXNAME (128), a synthetic RR
+        type to signal the presence of a nonexistent name. See <xref target="iana"/>. The
+        mnemonic for this RR type is NXNAME, chosen to clearly
+        distinguish it from the response code mnemonic NXDOMAIN.
+      </t>
+
+      <t>
+        This RR type is added to the NSEC Type Bit Maps field for responses
+        to nonexistent names, in addition to the mandated RRSIG and
+        NSEC types. If NSEC3 is being used, this RR type is the sole
+        entry in the Type Bit Maps field. It is a "Meta-TYPE", as defined in
+        <xref target="RFC6895" />, and it stores no data in a DNS zone and
+        cannot be usefully queried. <xref target="response-nxname"/>
+        describes what a DNS resolver or authoritative server should
+        do if it receives an explicit query for NXNAME.
+      </t>
+      <t>
+
+        No special handling of this RR type is required on the part of
+        DNS resolvers. However, resolvers may optionally implement the
+        behavior described in <xref target="signaled-rcode"/> ("Signaled Response Code Restoration")
+        to better restore NXDOMAIN visibility
+        to various applications that may remain oblivious to the new
+        NXNAME signal.
+      </t>
+    </section>
+
+    <section anchor="responses">
+      <name>Generating Responses with NSEC</name>
+
+    <t>
+    This section describes various types of answers generated by
+    authoritative servers implementing Compact Denial of Existence
+    using NSEC. <xref target="nsec3" /> describes changes needed to
+    support NSEC3.
+    </t>
+
+    <section anchor="response-nxd">
+      <name>Responses for Nonexistent Names</name>
+      <t>
+        When the authoritative server receives a query for a nonexistent
+        name in a zone that it serves, a NODATA response (response code
+        NOERROR, empty Answer section) is generated with a dynamically
+        constructed NSEC record with the owner name matching the
+        QNAME placed in the Authority section.
+      </t>
+      <t>
+        The Next Domain Name field <bcp14>SHOULD</bcp14> be set to the immediate
+        lexicographic successor of the QNAME. This is accomplished by
+        adding a leading label with a single null (zero-value) octet.
+        The Type Bit Maps field <bcp14>MUST</bcp14> only have the bits set for the
+        following RR Types: RRSIG, NSEC, and NXNAME.
+      </t>
+      <t>
+        For example, a request for the nonexistent name "a.example.com."
+        would result in the generation of the following NSEC record (in DNS
+        presentation format):
+      </t>
+      <sourcecode type=""><![CDATA[
+a.example.com. 300 IN NSEC \000.a.example.com. RRSIG NSEC NXNAME
+]]></sourcecode>
+
+      <t>
+        The NSEC record <bcp14>MUST</bcp14> have corresponding RRSIGs generated.
+      </t>
+    </section>
+
+    <section anchor="response-nodata">
+      <name>Responses for Nonexistent Types</name>
+      <t>
+        When the authoritative server receives a query for a name
+        that exists but has no resource record sets associated with
+        the queried type, it generates a NODATA response with
+        a dynamically constructed signed NSEC record in the Authority
+        section. The owner name of the NSEC record matches the QNAME.
+        The Next Domain Name field is set to the immediate lexicographic
+        successor of the QNAME. The Type Bit Maps field lists the available
+        RR types at the name.
+      </t>
+      <t>
+        An ENT is a special subset of this category,
+        where the name has no resource record sets of any type (but
+        has descendant names that do). For a query for an ENT,
+        the NSEC Type Bit Maps field will only contain RRSIG
+        and NSEC. (Note that this is substantially different than the
+        ENT response in precomputed NSEC, where the NSEC record has the
+        same type bitmap but "covers" rather than matches the ENT and
+        has the Next Domain Name field set to the next lexicographic
+        descendant of the ENT in the zone.)
+      </t>
+    </section>
+
+    <section anchor="response-wildcard">
+      <name>Responses for Wildcard Matches</name>
+
+      <t>
+        For wildcard matches, the authoritative server will provide
+        a dynamically signed response that claims that the QNAME
+        exists explicitly. Specifically, the answer RRset will
+        have an RRSIG record demonstrating an exact match (i.e., the
+        label count in the RRSIG RDATA will be equal to the number of
+        labels in the query name minus the root label). This obviates
+        the need to include an NSEC record in the Authority section
+        of the response that shows that no closer match than the wildcard
+        was possible.
+      </t>
+      <t>
+        For a wildcard NODATA match (where the QNAME matches
+        a wildcard but no data for the queried type exists), a response
+        akin to a non-wildcard NODATA is returned. The Answer section
+        is empty, and the Authority section contains a single NSEC
+        record that matches the query name with a Type Bit Maps field
+        representing the list of types available at the wildcard.
+      </t>
+    </section>
+
+    <section anchor="response-referral">
+      <name>Responses for Unsigned Referrals</name>
+      <t>
+        Per the DNSSEC protocol, a referral to an unsigned subzone
+        includes an NSEC record whose owner name matches the subzone
+        and proves the delegation is unsigned by the absence of
+        the Delegation Signer (DS) RR type bit in the Type Bit Maps field.
+      </t>
+      <t>
+        With Compact Denial of Existence, the Next Domain Name field
+        for this NSEC record is computed with a slightly different
+        epsilon function than the immediate lexicographic successor of
+        the owner name, as that name would then fall under the delegated
+        subzone. Instead, the Next Domain Name field is formed by appending
+        a zero octet to the first label of the owner name.
+      </t>
+      <t>
+        For example, a referral response for the subzone sub.example.com
+        would include an NSEC record like the following:
+      </t>
+      <sourcecode type=""><![CDATA[
+sub.example.com. 300 IN NSEC sub\000.example.com. NS RRSIG NSEC
+]]></sourcecode>
+
+    </section>
+
+    <section anchor="response-nxname">
+      <name>Responses to Explicit Queries for NXNAME</name>
+      <t>
+        NXNAME is a Meta-TYPE that <bcp14>SHOULD NOT</bcp14> appear anywhere in
+        a DNS message apart from the NSEC type bitmap of a Compact
+        Answer response for a nonexistent name. However, if a DNS
+        server implementing this specification receives an explicit
+        query for the NXNAME RR type, this section describes what the
+        response ought to be.
+      </t>
+      <t>
+        If an explicit query for the NXNAME RR type is received, the
+        DNS server <bcp14>MUST</bcp14> return a Format Error (response code FORMERR).
+        A resolver <bcp14>MUST NOT</bcp14> forward these queries upstream or attempt
+        iterative resolution. Many DNS server implementations already
+        return errors for all types in the range for Meta-TYPEs and QTYPEs, except
+        those types that are already defined to support queries.
+      </t>
+      <t>
+        Optionally, a DNS server <bcp14>MAY</bcp14> also include the following
+         Extended DNS Error (EDE) code <xref target="RFC8914" /> in the
+        response: 30 (Invalid Query Type). See <xref target="iana" />.
+      </t>
+      <t>
+        Note that this EDE code is generally applicable to any
+        RR type that ought not appear in DNS queries.
+      </t>
+    </section>
+
+    </section>
+
+    <section anchor="nsec3">
+      <name>Generating Responses with NSEC3</name>
+      <t>
+        NSEC3 <xref target="RFC5155" /> uses hashed names to
+        provide zone enumeration defense. This protection is better
+        provided by minimally covering NSEC records. NSEC3's Opt-Out feature
+        also provides no specific benefit for online signing implementations
+        (minimally covering NSEC3 records provide no useful Opt-Out span).
+        Hence, there is no known advantage to implementing Compact Denial
+        of Existence with NSEC3. However, an existing implementation of
+        conventional NSEC3 online signing migrating to Compact Denial of
+        Existence may find it simpler to do so with NSEC3 rather than implementing
+        NSEC from scratch.
+      </t>
+      <t>
+        For NSEC3, the functional details of the protocol remain as
+        described in <xref target="responses"/>, with the following
+        changes.
+      </t>
+      <t>
+        NSEC3 records and their signatures are dynamically generated
+        instead of NSEC.
+      </t>
+      <t>
+        The NSEC3 parameters <bcp14>SHOULD</bcp14> be set to algorithm 1, a flags field
+        of 0, an additional hash iteration count of 0, and an empty salt.
+        In DNS presentation format, this is "1 0 0 -".
+      </t>
+      <t>
+        The owner name of the NSEC3 resource record is the NSEC3 hash of
+        the relevant domain name, encoded in Base32 with Extended Hex
+        Alphabet (<xref target="RFC4648" sectionFormat="comma" section="7"/>), prepended as a
+        single label to the name of the zone. The Next Hashed Owner Name
+        is the immediate name successor of the unencoded binary form of
+        the previous hash, which can be computed by adding one to the
+        binary hash value.
+      </t>
+      <t>
+        In responses for nonexistent names, the Type Bit Maps field will
+        contain only the NXNAME Meta-TYPE. In responses to ENT
+        names, the Type Bit Maps field will be empty.
+      </t>
+      <t>
+        For example, a request for the nonexistent name "a.example.com."
+        would result in the generation of the following NSEC3 record:
+      </t>
+      <sourcecode type=""><![CDATA[
+H64KFA4P1ACER2EBPS9QSDK6DNP8B3JQ.example.com. IN NSEC3 1 0 0 - (
+                  H64KFA4P1ACER2EBPS9QSDK6DNP8B3JR NXNAME )
+]]></sourcecode>
+
+
+      <t>
+        Unlike Compact Denial of Existence with NSEC, no special form of
+        the Next Hashed Owner Name field for unsigned referrals is needed. The
+        Next Hashed Owner Name field remains the NSEC3 hash of original owner
+        name plus one.
+      </t>
+    </section>
+
+    <section anchor="rcode">
+      <name>Response Code Restoration</name>
+
+      <t>
+        For nonexistent names, implementations should try 
+        to preserve the response code value of 3 (NXDOMAIN) whenever possible.  This is
+        generally possible for non-DNSSEC-enabled queries, namely those that
+        do not set the DO bit ("DNSSEC answer OK") in the EDNS0 OPT header.  For such queries,
+        authoritative servers implementing Compact Denial of Existence could
+        return a normal NXDOMAIN response. However, there may be limited benefit to
+        doing this since most modern DNS resolvers are DNSSEC aware,
+        and per <xref target="RFC3225" sectionFormat="of" section="3"/>,
+        DNSSEC-aware recursive servers are required to set the DO bit on
+        outbound queries, regardless of the status of the DO bit on incoming
+        requests.
+      </t>
+      <t>
+        A validating resolver that understands the NXNAME signal from an
+        authoritative server could modify the response code from NOERROR
+        to NXDOMAIN in responses they return to downstream queriers that
+        have not set the DO bit in their requests.
+      </t>
+
+      <section anchor="signaled-rcode">
+        <name>Signaled Response Code Restoration</name>
+        <t>
+          This section describes an optional but recommended scheme
+          to permit signaled restoration of the NXDOMAIN RCODE for
+          DNSSEC-enabled responses. A new EDNS0
+          <xref target="RFC6891"></xref> header flag is defined
+          in the second most significant bit of the flags field in the EDNS0
+          OPT header. This flag is referred to as the
+          Compact Answers OK (CO) flag.
+        </t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+          +0 (MSB)                +1 (LSB)
+   +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+0: |   EXTENDED-RCODE      |       VERSION         |
+   +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+2: |DO|CO|                 Z                       |
+   +--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+--+
+]]></artwork>
+
+      <t>
+          When this flag is sent in a query by a resolver, it indicates
+          that the resolver will accept a NODATA response with a signed NXNAME
+          for a nonexistent name, together with the
+          response code field set to NXDOMAIN (3).
+        </t>
+
+        <t>
+          In responses to such queries, an authoritative server implementing
+          both Compact Denial of Existence and this signaling scheme will set
+          the Compact Answers OK EDNS header flag and, for nonexistent names,
+          will additionally set the response code field to NXDOMAIN.
+        </t>
+        <t>
+          EDNS is a hop-by-hop signal, so resolvers will need to
+          record the presence of this flag in associated cache data
+          and respond to downstream DNSSEC-enabled queriers
+          appropriately. If the querier does not set the Compact
+          Answers OK flag, the resolver will need to reset the
+          response code back to NOERROR (0) for an NXNAME response.
+        </t>
+      </section>
+
+    </section>
+
+    <section anchor="operational">
+      <name>Operational Implications</name>
+      <t>
+        For DNSSEC-enabled queries, a signed zone at an authoritative
+        server implementing Compact Answers will never return a response
+        with a response code of NXDOMAIN, unless they have implemented
+        the optional response code restoration feature described in
+        <xref target="signaled-rcode"/>. Similarly, resolvers not
+        implementing this feature will also not be able to return NXDOMAIN.
+        In the absence of this, tools that rely on accurately determining
+        nonexistent names will need to infer them from the presence of
+        the NXNAME RR type in the Type Bit Maps field of the NSEC record
+        in NODATA responses from these servers.
+      </t>
+      <t>
+        Address lookup functions typically invoked by applications
+        may need to do more work when dealing with implementations of
+        Compact Answers. For example, a NODATA response to the lookup
+        of a AAAA record for a nonexistent name can cause such
+        functions to issue another query at the same name for an A record,
+        whereas an NXDOMAIN response to the first query could suppress
+        additional queries for other types at that name. Address lookup
+        functions could be enhanced to issue DNSSEC-enabled queries and
+        to examine the NSEC Type Bit Maps field in responses to accurately
+        determine nonexistent names. Note that this is less of a concern
+        with
+        connection functions like Happy Eyeballs <xref target="RFC8305" /> that typically issue back-to-back DNS queries without
+        waiting for individual responses.
+      </t>
+
+      <t>
+        Protocol optimizations that enable DNS resolvers to synthesize
+        NXDOMAIN or wildcard responses, like those described in <xref target="RFC8020" /> and
+        <xref target="RFC8198" />, cannot be realized from responses
+        that use Compact Denial of Existence. In general, no online signing
+        scheme that employs minimally covering NSEC or NSEC3 records
+        (including this one) permits NXDOMAIN or wildcard
+        response synthesis in the style described in <xref target="RFC8198" />. Additionally, this protocol also precludes
+        NXDOMAIN synthesis for DNSSEC-enabled responses in the style described in <xref target="RFC8020" />.
+      </t>
+    </section>
+
+    <section anchor="updates">
+      <name>Updates to RFCs</name>
+	
+      <section anchor="updates4034" title="Updates to RFC 4034">
+        <t><xref target="RFC4034" sectionFormat="of" section="4.1.2"/> 
+        ("The Type Bit Maps Field") states the following:</t>
+
+	<blockquote>
+          <t>Bits representing pseudo-types <bcp14>MUST</bcp14> be clear, as they do not appear
+          in zone data.  If encountered, they <bcp14>MUST</bcp14> be ignored upon being read.</t>
+	</blockquote>
+
+        <t>This paragraph is updated to the following:</t>
+
+	
+<blockquote>
+          <t>Bits representing pseudo-types <bcp14>MUST</bcp14> be clear, as
+          they do not appear in zone data.  If encountered, they
+          <bcp14>MUST</bcp14> be ignored upon being read.  There is one
+          exception to this rule for Compact Denial of Existence (RFC 9824),
+          where the NXNAME pseudo-type is allowed to appear in responses to
+          nonexistent names.</t>
+	</blockquote>
+
+       <t>
+          Note: As a practical matter, no known resolver insists that
+          pseudo-types not be set in the NSEC Type Bit Maps field, so this
+          restriction (prior to its revision) has posed no problem for
+          the deployment of this mechanism.
+       </t>
+       
+      </section>
+
+      <section anchor="updates4035">
+	<name>Updates to RFC 4035</name>
+        <t><xref target="RFC4035" sectionFormat="of" section="2.3"/> 
+        ("Including NSEC RRs in a Zone") states the following:</t>
+
+	<blockquote>
+
+          <t>An NSEC record (and its associated RRSIG RRset) <bcp14>MUST
+          NOT</bcp14> be the only RRset at any particular owner name.  That
+          is, the signing process <bcp14>MUST NOT</bcp14> create NSEC or RRSIG
+          RRs for owner name nodes that were not the owner name of any RRset
+          before the zone was signed.  The main reasons for this are a desire
+          for namespace consistency between signed and unsigned versions of
+          the same zone and a desire to reduce the risk of response
+          inconsistency in security oblivious recursive name servers.</t>
+	</blockquote>
+
+        <t>
+          This paragraph is updated to the following:
+        </t>
+
+	<blockquote>
+          <t>An NSEC record (and its associated RRSIG RRset) <bcp14>MUST NOT</bcp14> be the only
+          RRset at any particular owner name.  That is, the signing process
+          <bcp14>MUST NOT</bcp14> create NSEC or RRSIG RRs for owner name nodes that were not
+          the owner name of any RRset before the zone was signed.  The main
+          reasons for this are a desire for namespace consistency between
+          signed and unsigned versions of the same zone and a desire to reduce
+          the risk of response inconsistency in security oblivious recursive
+          name servers. This concern only applies to implementations of DNSSEC
+          that employ precomputed signatures. There is an exception to this
+          rule for online signing implementations of DNSSEC (e.g., minimally
+          covering NSEC and Compact Denial of Existence), where
+          dynamically generated NSEC records can be produced for owner names
+          that don't exist or are ENTs.</t>
+	</blockquote>
+
+      </section>
+    </section>
+
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>
+        Online signing of DNS records requires authoritative servers
+        for the DNS zone to have access to the private signing keys.
+        Exposing signing keys on Internet-reachable servers makes them
+        more vulnerable to attack.
+      </t>
+      <t>
+        Additionally, generating signatures on demand is more
+        computationally intensive than returning precomputed
+        signatures. Although the Compact Answers scheme reduces the
+        number of online signing operations compared to previous
+        techniques like White Lies, it still may make authoritative
+        servers more vulnerable to computational denial-of-service
+        attacks than precomputed signatures. The use of signature
+        algorithms (like those based on elliptic curves) that have
+        a comparatively low cost for signing is recommended.
+      </t>
+      <t>
+        Some security tools rely on detection of nonexistent
+        domain names by examining the response code field of DNS
+        response messages. A NOERROR (rather than
+        NXDOMAIN) code in that field will impact such tools. Implementation of the
+        optional response code restoration scheme will help recover
+        NXDOMAIN visibility for these tools. Note that the DNS
+        header is not cryptographically protected, so the response
+        code field cannot be authenticated. Thus, inferring the status
+        of a response from signed data in the body of the DNS message
+        is actually more secure. These tools could be enhanced to
+        recognize the (signed) NXNAME signal.
+      </t>
+      <t>
+        Because this method does not allow for aggressive negative
+        caching among resolvers, it allows for certain types
+        of denial-of-service attacks to be more effective. This
+        includes so-called Pseudorandom Subdomain Attacks
+        <xref target="PRSD-ATTACK" format="default"/>, where random names
+        are queried, either directly via botnets or across a wide
+        range of public resolver services, in order to intentionally
+        generate nonexistent responses from the authoritative
+        servers for a domain. If the resolver cannot synthesize NXDOMAIN
+        responses from NSEC records, it must pass all queries on to the
+        domain's authority servers, making resource exhaustion more likely
+        at those latter servers if they do not have the capacity
+        to absorb those additional queries.
+      </t>
+      <t>
+        If the motivating aspects of this specification (minimizing
+        response size and computational costs) are not a concern,
+        DNSSEC deployments can opt for a different method (e.g.,
+        conventional online signing or precomputed signatures)
+        and avoid imposing the challenges of NXDOMAIN visibility.
+      </t>
+    </section>
+
+
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+
+      <t>
+        IANA has allocated the following in
+        the "Resource Record (RR) TYPEs" registry in the "Domain Name System (DNS) Parameters"
+        registry group, from the range for Meta-TYPEs. 
+        A lower number in this range lowers the size of the
+        Type Bit Maps field, which reduces the overall size of the DNS
+        response message.
+      </t>
+      <table>
+	<thead>
+          <tr><th>Type</th><th>Value</th><th>Meaning</th><th>Reference</th></tr>
+	</thead>
+	<tbody>
+          <tr>
+	    <td>NXNAME</td>
+	    <td>128</td>
+	    <td>NXDOMAIN indicator for Compact Denial of Existence</td>
+	    <td>RFC 9824</td>
+	  </tr>
+	</tbody>
+      </table>
+
+      <t>
+        IANA has also allocated the following flag in the "EDNS Header Flags
+        (16 bits)" registry in the "Domain Name System (DNS) Parameters"
+        registry group. This flag is described in <xref target="signaled-rcode"/>.
+      </t>
+<table anchor="blah">
+  <name></name> 
+  <thead>
+    <tr>
+      <th>Bit</th>
+      <th>Flag</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Bit 1</td>
+      <td>CO</td>
+      <td>Compact Answers OK</td>
+      <td>RFC 9824</td>
+    </tr>
+  </tbody>
+</table>
+      
+      <t>
+        Last, IANA has allocated the following code point in the
+        "Extended DNS Error Codes" registry in the "Domain Name System
+        (DNS) Parameters" registry group. This code point is described in
+        <xref target="response-nxname"/>.
+      </t>
+      <table>
+	<thead>
+          <tr>
+	  <th>INFO-CODE</th>
+	  <th>Purpose</th>
+	  <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+          <tr>
+	  <td>30</td>
+	  <td>Invalid Query Type</td>
+	  <td>RFC 9824</td></tr>
+	</tbody>
+      </table>
+
+    </section>
+
+  </middle>
+
+
+  <back>
+    <displayreference target="I-D.valsorda-dnsop-black-lies" to="COMPACT"/>
+    <displayreference target="I-D.huque-dnsop-blacklies-ent" to="ENT-SENTINEL"/>
+    <displayreference target="I-D.ogud-fake-nxdomain-type" to="NXDOMAIN-TYPE"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3225.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4034.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4035.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4470.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4648.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5155.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6891.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6895.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8914.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9364.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7129.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8020.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8198.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8305.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9499.xml"/>
+
+<reference anchor="I-D.valsorda-dnsop-black-lies" target="https://datatracker.ietf.org/doc/html/draft-valsorda-dnsop-black-lies-00">
+<front>
+<title>Compact DNSSEC Denial of Existence or Black Lies</title>
+<author fullname="Filippo Valsorda" initials="F." surname="Valsorda">
+<organization>CloudFlare Inc.</organization>
+</author>
+<author fullname="Olafur Gudmundsson" initials="O." surname="Gudmundsson">
+<organization>CloudFlare Inc.</organization>
+</author>
+<date day="21" month="March" year="2016"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-valsorda-dnsop-black-lies-00"/>
+</reference>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.huque-dnsop-blacklies-ent.xml"/>
+
+<reference anchor="I-D.ogud-fake-nxdomain-type" target="https://datatracker.ietf.org/doc/html/draft-ogud-fake-nxdomain-type-00">
+<front>
+<title>Signaling NSEC record owner name nonexistence</title>
+<author fullname="Olafur Gudmundsson" initials="O." surname="Gudmundsson">
+<organization>CloudFlare Inc.</organization>
+</author>
+<author fullname="Filippo Valsorda" initials="F." surname="Valsorda">
+<organization>CloudFlare Inc.</organization>
+</author>
+<date day="7" month="May" year="2015"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-ogud-fake-nxdomain-type-00"/>
+</reference>
+
+      <reference anchor="PRSD-ATTACK"
+                 target="https://conference.apnic.net/data/39/dnswatertortureonqtnet_1425130417_1425507043.pptx">
+        <front>
+          <title>Water Torture: A Slow Drip DNS DDoS Attack on QTNet</title>
+          <author fullname="Kei Nishida" initials="K" surname="Nishida" />
+          <date />
+        </front>
+      </reference>
+      </references>
+    </references>
+
+    <section anchor="other-approaches">
+      <name>Other Approaches</name>
+      <t>
+        In the past, some implementations of Compact Denial of Existence
+        have used other means to differentiate NXDOMAIN from ENTs.
+      </t>
+      <t>
+        One method employed by both Cloudflare and Amazon Route53 for
+        a period of time was the following: For responses to ENTs,
+        they synthesized the NSEC Type Bit Maps field to include
+        all record types supported except for the queried type. This
+        method has the undesirable effect of no longer being able to
+        reliably determine the existence of ENTs and of making the Type
+        Bit Maps field larger than it needs to be. It also has the potential
+        to confuse validators and others tools that infer type existence
+        from the NSEC record.
+      </t>
+      <t>
+        Another way to distinguish NXDOMAIN from ENT is to
+        define the synthetic RR type for ENTs instead,
+        as specified in <xref target="I-D.huque-dnsop-blacklies-ent" format="default"/>.
+        This method was successfully deployed in the field by NS1 for a
+        period of time. This typically imposes less work on the server
+        since NXDOMAIN responses are a lot more common than ENTs. At the
+        time it was deployed, it also allowed a common bitmap pattern
+        ("NSEC RRSIG") to identify NXDOMAIN across this and other
+        implementations that returned a broad bitmap pattern for 
+        ENTs. However, the advantage of the NXNAME RR type is
+        that it explicitly identifies NXDOMAIN responses and allows
+        them to be distinguished conclusively from potential ENT responses
+        in other online signing NSEC implementations.
+      </t>
+    </section>
+
+    
+    <section anchor="implementations">
+      <name>Historical Implementation Notes</name>
+      <t>
+        At the time of publication, the basic Compact Denial of Existence
+        method using NSEC is implemented by Cloudflare, NS1, Amazon Route53,
+        and Knot DNS's optional online signing module. From early 2021 until
+        November 2023, NS1 had deployed the ENT distinguisher
+        <xref target="I-D.huque-dnsop-blacklies-ent" format="default"/> using the private
+        RR type code 65281. A version of the NXNAME distinguisher using
+        the private RR type code 65238 was deployed by both Cloudflare
+        (from July 2023) and NS1 (from November 2023) until roughly
+        September 2024. Since September 2024, both Cloudflare and NS1 have
+        deployed NXNAME using the officially allocated code point of 128.
+        Oracle Cloud Initiative implemented Compact Denial of Existence
+        using NSEC3 in October 2024.
+      </t>
+    </section>
+
+    <section anchor="acks" numbered="false">
+      <name>Acknowledgements</name>
+      <t>The Compact Answers technique was
+      originally proposed in <xref target="I-D.valsorda-dnsop-black-lies"
+      format="default"/> by <contact fullname="Filippo Valsorda"/> and
+      <contact fullname="Olafur Gudmundsson"/> and implemented by
+      Cloudflare. The ENT distinguisher RR type was originally
+      proposed in <xref target="I-D.huque-dnsop-blacklies-ent"
+      format="default"/> by <contact fullname="Shumon Huque"/> and deployed by
+      NS1.  The NXNAME type is based on the FDOM type proposed in <xref
+      target="I-D.ogud-fake-nxdomain-type" format="default"/> by Gudmundsson
+      and Valsorda.</t>
+      <t>Especially detailed discussions on many technical aspects of this
+      document were conducted with <contact fullname="Paul Vixie"/>, <contact
+      fullname="Jan Včelák"/>, <contact fullname="Viktor Dukhovni"/>, <contact
+      fullname="Ed Lewis"/>, and <contact fullname="John Levine"/>. The
+      authors would also like to thank the many other members of the IETF DNS
+      Operations Working Group for helpful comments and discussions.</t>
+    </section>
+
+  </back>
+
+</rfc>

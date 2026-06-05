@@ -1,0 +1,579 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" submissionType="IETF" ipr="trust200902" docName="draft-ietf-ipsecme-ikev2-qr-alt-10" number="9867" consensus="true" updates="" obsoletes="" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="false" version="3">
+
+<front>
+    <title abbrev="Enhanced Mixing PSKs in IKEv2 for PQ Security">Mixing Preshared Keys in the IKE_INTERMEDIATE and CREATE_CHILD_SA Exchanges of the Internet Key Exchange Protocol Version 2 (IKEv2) for Post-Quantum Security</title>
+    <seriesInfo name="RFC" value="9867"/>
+    <author initials="V." surname="Smyslov" fullname="Valery Smyslov">
+      <organization>ELVIS-PLUS</organization>
+      <address>
+        <postal>
+          <street>PO Box 81</street>
+          <city>Moscow (Zelenograd)</city>
+          <code>124460</code>
+          <country>Russian Federation</country>
+        </postal>
+        <phone>+7 495 276 0211</phone>
+        <email>svan@elvis.ru</email>
+      </address>
+    </author>
+    <date month="November" year="2025"/>
+
+    <keyword>internet key exchange</keyword>
+    <keyword>quantum computer</keyword>
+    <keyword>post quantum</keyword>
+    <keyword>post-quantum</keyword>
+    <keyword>quantum safe</keyword>
+    <keyword>PPK</keyword>
+
+    <abstract>
+      <t> An Internet Key Exchange Protocol Version 2 (IKEv2) extension defined in RFC 8784 allows IPsec 
+            traffic to be protected against someone storing VPN communications 
+            and decrypting them later, when (and if) a Cryptographically Relevant Quantum Computer (CRQC) is available. 
+            The protection is achieved by means of a Post-quantum Preshared Key (PPK) that is mixed into the session keys calculation.
+            However, this protection does not cover an initial IKEv2 Security Association (SA), which might be unacceptable in some scenarios. 
+            This specification defines an alternative way to provide protection against quantum computers, which 
+            is similar to the solution defined in RFC 8784, but it also protects the initial IKEv2 SA.
+      </t>
+      <t> RFC 8784 assumes that PPKs are static and thus they are only used when 
+            an initial IKEv2 SA is created. If a fresh PPK is available before the IKE SA expires, 
+            then the only way to use it is to delete the current IKE SA and create a new one from scratch, which is inefficient.
+            This specification defines a way to use PPKs in active IKEv2 SAs for creating additional IPsec SAs and rekey operations.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t> The Internet Key Exchange Protocol Version 2 (IKEv2), defined in <xref target="RFC7296"/>,
+            is used in the IPsec architecture for performing authenticated key exchange.
+            An extension to IKEv2 for mixing preshared keys for post-quantum security is defined in <xref target="RFC8784"/>.
+            This extension allows today's IPsec traffic to be protected against future quantum computers. 
+            The protection is achieved by means of using a Post-quantum Preshared Key (PPK) that is mixed into the session keys calculation.
+            At the time this extension was being developed, the consensus in the IPsecME
+            WG was that it was more important to protect the IPsec traffic than the IKE traffic.
+It was believed that information transferred over IKE SA (including peers' identities) is less important
+            and that extending the protection to also cover the initial IKE SA would require serious modifications to the core IKEv2 protocol.
+            One of the goals was to minimize such changes. It was also decided that immediate rekey of initial IKE SA
+            would add this protection to the new IKE SA (albeit it would not provide protection of the identity of the peers).
+      </t>
+      <t> However, in some situations, it is desirable to have this protection for the IKE SA from the very beginning,
+            when an initial IKE SA is created. An example of such a situation is the Group Key Management protocol using IKEv2, 
+            defined in <xref target="RFC9838"/>. In this protocol, the group policy and session keys are transferred 
+            from a Group Controller/Key Server (GCKS) to the Group Members (GMs) immediately once an initial IKE SA is created. 
+            While session keys are additionally protected with a key derived from SK_d (and thus are immune to quantum computers if PPKs 
+            <xref target="RFC8784"/> are employed), the other sensitive data, including group policy, is not.
+      </t>
+      <t> Another issue with using PPKs as defined in <xref target="RFC8784"/> is that this approach assumes that PPKs are static entities, 
+            which are changed very infrequently. For this reason, PPKs are only used once when an initial IKE SA is established. 
+            This restriction makes it difficult to use PPKs as defined in <xref target="RFC8784"/> when 
+            they are changed relatively frequently, for example, via the use of Quantum Key Distribution (QKD).
+            If a fresh PPK becomes available before the IKE SA is expired, there is no way to use it except
+            for deleting the IKE SA and recreating a new one from scratch using the fresh PPK.
+      </t>
+      <t> Some time after the protocol extension for mixing preshared keys in IKEv2 for post-quantum security was defined in <xref target="RFC8784"/>, 
+            a new IKE_INTERMEDIATE exchange for IKEv2 <xref target="RFC9242"/> was developed. While the primary motivation for developing 
+            this exchange was to allow multiple key exchanges to be used in IKEv2 (which is defined in <xref target="RFC9370"/>),
+            the IKE_INTERMEDIATE exchange itself can be used for other purposes too. 
+      </t>
+      <t> This specification defines the use of PPKs in the IKE_INTERMEDIATE exchange of IKEv2 for post-quantum security, 
+            which allows getting full protection against quantum computers for initial IKE SA.
+      </t>
+      <t> This specification also defines the use of PPKs in the CREATE_CHILD_SA exchange
+            for creating additional IPsec SAs and for rekeying IKE and IPsec SAs.
+            This allows implementations to leverage fresh PPKs without the need to delete the IKE SA and create it from scratch.
+      </t>
+      <t> This specification does not replace the approach defined in <xref target="RFC8784"/>.
+            Both approaches for using PPKs in IKEv2 can be used depending on the circumstances
+            (see <xref target="comparison"/>).
+      </t>
+    </section>
+    <section anchor="mustshouldmay">
+      <name>Terminology and Notation</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+      <t> This document uses the terms defined in <xref target="RFC7296"/>. In particular, 
+            readers should be familiar with the terms "initiator" and "responder" as used in that document.
+      </t>
+      <t> The approach defined in <xref target="RFC8784"/> is referred to as "using PPKs in the IKE_AUTH exchange" or simply 
+            "using PPKs in IKE_AUTH" throughout this document.
+      </t>
+    </section>
+    <section anchor="protocol">
+      <name>Protocol Description</name>
+      <section anchor="init">
+        <name>Creating Initial IKE SA</name>
+        <t> The IKE initiator, which supports the IKE_INTERMEDIATE exchange and wants to use a PPK to protect the initial IKE SA, 
+            includes the INTERMEDIATE_EXCHANGE_SUPPORTED notification and a notification of type USE_PPK_INT in the IKE_SA_INIT request.
+            If the responder supports the IKE_INTERMEDIATE exchange and is willing to use PPK for initial IKE SA protection,
+            it includes both these notifications in the IKE_SA_INIT response.
+        </t>
+        <artwork align="left"><![CDATA[
+Initiator                       Responder
+------------------------------------------------------------------
+HDR, SAi1, KEi, Ni,
+N(INTERMEDIATE_EXCHANGE_SUPPORTED),
+N(USE_PPK_INT)              --->
+                        <---    HDR, SAr1, KEr, Nr, [CERTREQ,]
+                                N(INTERMEDIATE_EXCHANGE_SUPPORTED),
+                                N(USE_PPK_INT)]]></artwork>
+
+        <t> The USE_PPK_INT is a Status Type IKEv2 notification. Its Notify
+        Message Type is 16445; the Protocol ID is set to 0; the Security
+        Parameter Index (SPI) is absent, so the SPI Size is set to 0 too. This
+        specification does not define any data that this notification may
+        contain, so the Notification Data is left empty. However, future
+        extensions of this specification may make use of it.  Implementations
+        <bcp14>MUST</bcp14> ignore any data in the notification that they do
+        not understand.
+        </t>
+        <t> Note that this negotiation is independent from the negotiation of using PPKs as specified in <xref target="RFC8784"/>.
+            An initiator that supports both the use of PPKs in IKE_AUTH <xref target="RFC8784"/> and IKE_INTERMEDIATE <bcp14>MAY</bcp14> include both 
+            the USE_PPK_INT and USE_PPK notifications if 
+            configured to do so. However, if the responder supports both specifications 
+            and is configured to use PPKs, it has to choose one to use; thus, it <bcp14>MUST</bcp14> return 
+            either a USE_PPK_INT or a USE_PPK notification in the response but not both.
+        </t>
+        <t> If the initiator did not propose using this extension in the IKE_SA_INIT request and the responder's policy
+            mandates protecting initial IKE SA with a PPK, then the responder <bcp14>MUST</bcp14> return the NO_PROPOSAL_CHOSEN notification.
+        </t>
+        <t> If the negotiation was successful, the initiator includes one or more 
+            PPK_IDENTITY_KEY notifications in the IKE_INTERMEDIATE request with PPK identities that the initiator believes 
+            are appropriate for the IKE SA being created.
+        </t>
+        <t> The PPK_IDENTITY_KEY is a Status Type IKEv2 notification. Its Notify Message Type
+            is 16446; the Protocol ID and the SPI Size fields are both set to 0.
+            The format of the Notification Data is shown below in <xref target="ppk_identity_key_format"/>.
+        </t>
+
+        <figure anchor="ppk_identity_key_format">
+          <name>PPK_IDENTITY_KEY Notification Data Format</name>
+          <artwork><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+~                             PPK_ID                            ~
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                        PPK Confirmation                       +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+        <t>Where:</t>
+        <dl spacing="normal" newline="false">
+          <dt>PPK_ID (variable):</dt><dd> PPK_ID as defined in <xref
+          target="RFC8784" section="5.1"/>.  The receiver can determine the
+          length of PPK_ID by subtracting 8 (the length of PPK Confirmation)
+          from the Notification Data length.</dd>
+          <dt>PPK Confirmation (8 octets):</dt><dd><t>A value that allows the
+          responder to check whether it has the same PPK as the initiator for
+          a given PPK_ID.  This field contains the first 8 octets of a string
+          computed as prf( PPK, Ni | Nr | SPIi | SPIr ), where:</t>
+	  <ul spacing="compact">
+	    <li>"prf" is the negotiated PRF;</li>
+	    <li>PPK is the key value for a specified PPK_ID;</li>
+	    <li>Ni, Nr, SPIi, SPIr are nonces and IKE SPIs for the SA being established.</li>
+	  </ul>
+	</dd>
+        </dl>
+        <t>If a series of the IKE_INTERMEDIATE exchanges takes place, the
+        PPK_IDENTITY_KEY notification(s) <bcp14>MUST</bcp14> be sent in the
+        last one, i.e., in the IKE_INTERMEDIATE exchange immediately preceding
+        the IKE_AUTH exchange. If this IKE_INTERMEDIATE exchange contains
+        other payloads aimed for some other purpose, then the notification(s)
+        <bcp14>MAY</bcp14> be piggybacked with these payloads. Note that
+        future IKEv2 extensions utilizing the IKE_INTERMEDIATE exchange may
+        allow one or more of these exchanges to happen after the one concerned
+        with PPK for the case when such extensions are negotiated.</t>
+
+        <artwork align="left"><![CDATA[
+Initiator                         Responder
+------------------------------------------------------------------
+HDR, SK { ... N(PPK_IDENTITY_KEY, PPK_ID_1)
+           [, N(PPK_IDENTITY_KEY, PPK_ID_2)] ...
+           [, N(PPK_IDENTITY_KEY, PPK_ID_n)]}   --->]]></artwork>
+
+        <t>
+            Depending on the responder's capabilities and policy, the following situations are possible:
+        </t>
+
+        <ol type="1">
+          <li anchor="case1">
+            <t>If the responder is configured with a PPK with an ID that is
+            among the IDs sent by the initiator, and if this PPK matches the
+            initiator's PPK (based on the information from the PPK
+            Confirmation field), then the responder selects this PPK and
+            returns its identity in the PPK_IDENTITY notification.  The
+            PPK_IDENTITY notification is defined in <xref target="RFC8784"/>.
+            </t>
+            <artwork align="left"><![CDATA[
+Initiator                       Responder
+---------------------------------------------------------------
+               <---    HDR, SK { ... N(PPK_IDENTITY, PPK_ID_i)}]]></artwork>
+            <t>
+              In this case, the IKE_AUTH exchange is performed as defined in IKEv2 <xref target="RFC7296"/>.
+              However, the keys for the IKE SA are computed using PPK, as described in <xref target="init_keys"/>.
+              If the responder returns a PPK identity that was not proposed by the initiator, then the initiator
+              <bcp14>MUST</bcp14> treat this as fatal and abort the IKE SA establishment.
+            </t>
+          </li>
+          <li anchor="case2">
+            <t>If the responder does not have a PPK with an ID that matches any
+            of IDs sent by the initiator, or if the responder has some of the
+            proposed PPKs but their values are mismatched from the initiator's
+            PPKs (based on the information from the PPK Confirmation field),
+            and if using PPK is mandatory for the responder, then it
+            <bcp14>MUST</bcp14> return an AUTHENTICATION_FAILED notification
+            and abort creating the IKE SA.
+            </t>
+            <artwork align="left"><![CDATA[
+Initiator                       Responder
+---------------------------------------------------------------
+                 <---    HDR, SK {... N(AUTHENTICATION_FAILED)}]]></artwork>
+          </li>
+          <li anchor="case3">
+            <t>
+              If the responder does not have any PPKs proposed by the initiator,
+              or if it has only some of the proposed PPKs but their values mismatch the initiator's ones 
+              (based on the information from the PPK Confirmation field), and if using PPK is optional for the responder,
+              then it does not include any PPK_IDENTITY notification to the response. 
+            </t>
+            <artwork align="left"><![CDATA[
+Initiator                       Responder
+---------------------------------------------------------------
+                        <---    HDR, SK {...}]]></artwork>
+            <t>
+              In this case, the initiator cannot achieve quantum computer resistance using the proposed PPKs.
+              If this is a requirement for the initiator, then it <bcp14>MUST</bcp14> abort creating the IKE SA. 
+              Otherwise, the initiator continues with the IKE_AUTH exchange as described in IKEv2 <xref target="RFC7296"/>. 
+            </t>
+          </li>
+        </ol>
+        <t><xref target="responders_behavior"/> summarizes the above logic for the responder:</t>
+        <table anchor="responders_behavior">
+          <name>Responder's Behavior</name>
+          <thead>
+            <tr>
+              <th>Received USE_PPK_INT</th>
+              <th>Supports USE_PPK_INT</th>
+              <th>Has one of the proposed PPKs</th>
+              <th>PPK is mandatory for initial IKE SA</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>No</td>
+              <td>*</td>
+              <td>*</td>
+              <td>No</td>
+              <td>
+                <xref target="RFC8784"/> (if proposed) or standard IKEv2 protocol</td>
+            </tr>
+            <tr>
+              <td>No</td>
+              <td>Yes</td>
+              <td>*</td>
+              <td>Yes</td>
+              <td>Send NO_PROPOSAL_CHOSEN</td>
+            </tr>
+            <tr>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>*</td>
+              <td>
+                <xref target="case1"/> (use this extension)</td>
+            </tr>
+            <tr>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>No</td>
+              <td>Yes</td>
+              <td>
+                <xref target="case2"/> (abort negotiation)</td>
+            </tr>
+            <tr>
+              <td>Yes</td>
+              <td>Yes</td>
+              <td>No</td>
+              <td>No</td>
+              <td>
+                <xref target="case3"/> (standard IKEv2 protocol)</td>
+            </tr>
+          </tbody>
+        </table>
+        <t> Since the responder selects a PPK before it knows the identity of the initiator, a situation may occur
+            where the responder agrees to use some PPK in the IKE_INTERMEDIATE exchange but then, during the IKE_AUTH exchange, 
+            discovers that this particular PPK is not associated with the initiator's identity in its local policy.
+            Note that the responder does have this PPK, but it is just not listed among the PPKs to be used with this initiator.
+            In this case, the responder <bcp14>SHOULD</bcp14> abort negotiation and return back the AUTHENTICATION_FAILED notification
+            to be consistent with its policy. However, the responder <bcp14>MAY</bcp14> continue creating IKE SA using the negotiated 
+            "wrong" PPK if this is acceptable according to its local policy.
+        </t>
+        <section anchor="init_keys">
+          <name>Computing IKE SA Keys</name>
+	  <t>Once the PPK is negotiated in the IKE_INTERMEDIATE exchange, the
+	  IKE SA keys are recalculated.  Note that if the IKE SA keys are also
+	  recalculated as a result of other actions performed in this
+	  IKE_INTERMEDIATE exchange (for example, as defined in <xref
+	  target="RFC9370"/>), then applying the PPK <bcp14>MUST</bcp14> be
+	  done after all of them so that recalculating IKE SA keys with the
+	  PPK is the last action before they are used in the next
+	  exchange. Note that future IKEv2 extensions utilizing the
+	  IKE_INTERMEDIATE exchange may update this requirement for the case
+	  when such extensions are negotiated.
+          </t>
+          <t> The IKE SA keys are computed differently compared to how PPKs
+          are used in IKE_AUTH.  A new SKEYSEED' value is computed using the
+          negotiated PPK and the most recently computed SK_d key.  Note that
+          the PPK is applied to SK_d exactly how it is specified in <xref
+          target="RFC8784"/>, and the result is used as SKEYSEED'.
+          </t>
+          <artwork align="left"><![CDATA[
+SKEYSEED' = prf+ (PPK, SK_d)]]></artwork>
+          <t>
+              Then the SKEYSEED' is used to recalculate all SK_* keys as defined in <xref target="RFC7296" section="2.14"/>.
+
+          </t>
+          <artwork align="left"><![CDATA[
+{SK_d | SK_ai | SK_ar | SK_ei | SK_er | SK_pi | SK_pr}
+                           = prf+ (SKEYSEED', Ni | Nr | SPIi | SPIr )]]></artwork>
+          <t>
+
+              In the formula above, Ni and Nr are nonces from the IKE_SA_INIT exchange, and SPIi and SPIr are the SPIs of the IKE SA being created.
+              Note that SK_d, SK_pi, and SK_pr are not individually recalculated using PPK, as defined in <xref target="RFC8784"/>.
+          </t>
+          <t> The resulting keys are then used in the IKE_AUTH exchange and in the created IKE SA.
+          </t>
+        </section>
+      </section>
+      <section anchor="create_child_sa">
+        <name>Using PPKs in the CREATE_CHILD_SA Exchange</name>
+        <t> If a fresh PPK is available to both peers at the time when an IKE SA is active, 
+            peers <bcp14>MAY</bcp14> use this fresh PPK without creating a new IKE SA from scratch
+            when they have a need to create additional IPsec SAs or to rekey existing SAs.
+            In this case, the PPK can be used for creating additional IPsec SAs and for rekeying both IKE and IPsec SAs
+            regardless of whether the current IKE SA was created with the use of a PPK 
+            (no matter how: in IKE_AUTH, in IKE_INTERMEDIATE, or in CREATE_CHILD_SA) or not.
+        </t>
+        <t> If the initiator wants to use a PPK in the CREATE_CHILD_SA exchange, it includes one or more 
+            PPK_IDENTITY_KEY notifications containing PPK identities that the initiator believes 
+            are appropriate for the SA being created in the CREATE_CHILD_SA request.
+            In this case, the PPK Confirmation field contains the first 8 octets of a string computed as prf( PPK, Ni | SPIi | SPIr ),
+            where Ni is the initiator's nonce from the CREATE_CHILD_SA request and SPIi/SPIr are the SPIs of the current IKE SA.
+            If the responder supports using PPKs in the CREATE_CHILD_SA exchange and is configured and ready to do it, 
+            then it sends back the PPK_IDENTITY notification containing the ID of the selected PPK, as depicted in the figures below.
+
+</t>
+        <figure>
+          <name>CREATE_CHILD_SA Exchange for Creating or Rekeying Child SAs</name>
+          <artwork align="left"><![CDATA[
+Initiator                         Responder
+------------------------------------------------------------------
+HDR, SK {[N(REKEY_SA),] SA, Ni, [KEi,] TSi, TSr,
+        N(PPK_IDENTITY_KEY, PPK_ID_1)
+        [, N(PPK_IDENTITY_KEY, PPK_ID_2)] ...
+        [, N(PPK_IDENTITY_KEY, PPK_ID_n)]}   --->
+
+                         <---    HDR, SK {SA, Nr [KEr,] TSi, TSr,
+                                         N(PPK_IDENTITY, PPK_ID_i)}]]></artwork>
+        </figure>
+        <figure>
+          <name>CREATE_CHILD_SA Exchange for Rekeying IKE SA</name>
+          <artwork align="left"><![CDATA[
+Initiator                         Responder
+------------------------------------------------------------------
+HDR, SK {SA, Ni, KEi,
+        N(PPK_IDENTITY_KEY, PPK_ID_1)
+        [, N(PPK_IDENTITY_KEY, PPK_ID_2)] ...
+        [, N(PPK_IDENTITY_KEY, PPK_ID_n)]}   --->
+
+                         <---    HDR, SK {SA, Nr, KEr,
+                                         N(PPK_IDENTITY, PPK_ID_i)}]]></artwork>
+        </figure>
+
+	<t>
+	  If the responder does not support (or is not configured for) using
+	  PPKs in the CREATE_CHILD_SA exchange or does not have a PPK with an
+	  ID that matches any of IDs sent by the initiator, or if the
+	  responder has some of the proposed PPKs but their values are
+	  mismatched from the initiator's PPKs (based on the information from
+	  the PPK Confirmation field), then it will not include any
+	  PPK_IDENTITY notifications in the response, and new SA is created as
+	  defined in IKEv2 <xref target="RFC7296"/>. If this is inappropriate
+	  for the initiator, it can immediately delete this SA.
+        </t>
+	<t>
+	  If using PPKs in CREATE_CHILD_SA is mandatory for the responder, and
+	  the initiator does not include any PPK_IDENTITY_KEY notifications in
+	  the request, or if the responder does not have a PPK with an ID that
+	  matches any of IDs sent by the initiator, or if the responder has
+	  some of the proposed PPKs but with mismatched values from the
+	  initiator's PPKs (based on the information from the PPK Confirmation
+	  field), then the responder <bcp14>MUST</bcp14> return the
+	  NO_PROPOSAL_CHOSEN notification.
+        </t>
+        <t> Otherwise, the new SA is created using the selected PPK.
+        </t>
+        <section anchor="create_child_sa_keys">
+          <name>Computing Keys</name>
+          <t> For the purpose of calculation session keys for the new SA, the current SK_d key is first
+              mixed with the selected PPK:
+
+          </t>
+          <artwork align="left"><![CDATA[
+SK_d' = prf+ (PPK, SK_d)]]></artwork>
+          <t>
+
+              The resulting key SK_d' is then used instead of SK_d in all formulas for computing keys for the new SA
+              (Sections <xref target="RFC7296" sectionFormat="bare" section="2.17"/> and <xref target="RFC7296" sectionFormat="bare" section="2.18"/> of <xref target="RFC7296"/> and <xref target="RFC9370" section="2.2.4"/>).
+          </t>
+          <t> Note that if the PPK that was used for the IKE SA establishment is not changed, then there is no point
+              to use it in the CREATE_CHILD_SA exchange.
+          </t>
+        </section>
+      </section>
+    </section>
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t> Security considerations for using Post-quantum Preshared Keys
+            in the IKEv2 protocol are discussed in <xref target="RFC8784"/>.
+            Unlike using PPKs in IKE_AUTH, this specification makes even initial IKE SA quantum
+            secure. In addition, a PPK is mixed into the SK_* keys calculation 
+            before the IKE_AUTH exchange starts, and since the PPK is used in authentication too, 
+            this exchange is quantum secure even against an active attacker.
+      </t>
+      <t> This specification relies on the IKE_INTERMEDIATE exchange.
+            Refer to <xref target="RFC9242"/> for discussion of related security issues.
+      </t>
+
+      <t> <xref target="RFC9370" section="4"/> discusses the potential impact
+      of when a CRQC is accessible on various cryptographic primitives used in
+      IKEv2.  It is worthwhile to repeat here that it is believed that the
+      security of symmetric key cryptographic primitives will not be affected
+      by CRQC.
+      </t>
+    </section>
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <t>Per this document, IANA has added the following Notify Message Types in the "IKEv2 Notify Message Status Types" registry:</t>
+
+<dl spacing="compact" newline="false">
+  <dt>16445</dt><dd>USE_PPK_INT</dd>
+  <dt>16446</dt><dd>PPK_IDENTITY_KEY</dd>
+</dl>
+    </section>
+
+  </middle>
+  <back>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7296.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8784.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9242.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+
+
+<reference anchor="RFC9838" target="https://www.rfc-editor.org/info/rfc9838">
+<front>
+<title>Group Key Management Using the Internet Key Exchange Protocol Version 2 (IKEv2)</title>
+<author initials='V' surname='Smyslov' fullname='Valery Smyslov'>
+  <organization/>
+</author>
+<author initials='B' surname='Weis' fullname='Brian Weis'>
+  <organization/>
+</author>
+<date month='November' year='2025'/>
+</front>
+<seriesInfo name="RFC" value="9838"/>
+<seriesInfo name="DOI" value="10.17487/RFC9838"/>
+</reference>
+
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9370.xml"/>
+      </references>
+    </references>
+    <section anchor="comparison">
+      <name>Comparison of this Specification with RFC 8784</name>
+      <t> This specification is not intended to be a replacement for using PPKs in IKE_AUTH as defined in <xref target="RFC8784"/>.
+            Instead, it is supposed to be used in situations where the approach defined there 
+            does not meet the requirements, like the need to make the initial IKE SA quantum-secure or 
+            the need to choose between several available PPKs.
+            However, if the peers support both using PPKs in IKE_AUTH and this specification, 
+            then the latter may also be used in situations where using PPKs in IKE_AUTH suffices
+            (e.g., when the initial IKE SA is not required to be quantum-protected).
+      </t>
+      <t> The approach defined in this document has the following advantages:
+      </t>
+      <ol spacing="normal" type="1">
+	<li>
+          <t> The main advantage of using PPK in the IKE_INTERMEDIATE exchange instead of the IKE_AUTH exchange is that it allows IKE_AUTH to be fully protected. 
+                This means that the ID payloads and any other sensitive content sent in the IKE_AUTH are protected against quantum computers.
+                The same is true for the sensitive data sent in the GSA_AUTH exchange in the G-IKEv2 protocol <xref target="RFC9838"/>.
+          </t>
+        </li>
+        <li>
+          <t> In addition to the IKE_AUTH exchange being fully protected, the initial IKE SA is also fully protected, which is important when
+                sensitive information is transferred over initial IKE SA. Examples of such a
+                situation are the CREATE_CHILD_SA exchange of IKEv2 and the GSA_REGISTRATION exchange of G-IKEv2 <xref target="RFC9838"/>.
+          </t>
+        </li>
+        <li>
+          <t> As the PPK exchange happens as a separate exchange before IKE_AUTH, this means that initiator can propose several PPKs and
+                the responder can pick one. This is not possible when the PPK exchange happens in the IKE_AUTH. This feature could simplify PPK
+                rollover.
+          </t>
+        </li>
+        <li>
+          <t> With this specification there is no need for the initiator to calculate the content of the AUTH payload twice (with and
+                without PPK) to support a situation when using PPK is optional for both sides.
+          </t>
+        </li>
+      </ol>
+      <t>
+            The main disadvantage of the approach defined in this document is that it always requires an additional round trip (the IKE_INTERMEDIATE exchange)
+            to set up the IKE SA and the initial IPsec SA. However, if the IKE_INTERMEDIATE exchange has to be used for some other purposes in any case,
+            then the PPK-related payloads can be piggybacked with other payloads, thus eliminating this penalty.
+      </t>
+    </section>
+
+
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t> Author would like to thank <contact fullname="Paul Wouters"/> for
+      valuable comments and <contact fullname="Tero Kivinen"/> who made a
+      thorough review of the document and proposed a lot of text improvements,
+      and who also pointed out to the problem of mismatched preshared
+      keys. Thanks to <contact fullname="Rebecca Guthrie"/> for providing
+      comments and proposals for the document and to <contact
+      fullname="Mikhail Borodin"/> for discovering the problem of calculating
+      PPK Confirmation in CREATE_CHILD_SA.</t>
+    </section>
+  </back>
+
+</rfc>

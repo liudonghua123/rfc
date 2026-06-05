@@ -1,0 +1,1263 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-dtls-rrc-20" number="9853" category="std" consensus="true" submissionType="IETF" updates="9146, 9147" obsoletes="" xml:lang="en" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <front>
+    <title abbrev="DTLS Return Routability Check">Return Routability Check for DTLS 1.2 and 1.3</title>
+    <seriesInfo name="RFC" value="9853"/>
+    <author initials="H." surname="Tschofenig" fullname="Hannes Tschofenig" role="editor">
+      <organization abbrev="UniBw M.">University of the Bundeswehr Munich</organization>
+      <address>
+	<postal>
+	  <extaddr>Institute of Distributed Intelligent Systems</extaddr>
+	  <street>Werner-Heisenberg-Weg 39</street>
+	  <city>Neubiberg</city>
+	  <code>85577</code>
+	  <country>Germany</country>
+	</postal>
+        <email>Hannes.Tschofenig@gmx.net</email>
+      </address>
+    </author>
+    <author initials="A." surname="Kraus" fullname="Achim Kraus">
+      <organization/>
+      <address>
+        <email>achimkraus@gmx.net</email>
+      </address>
+    </author>
+    <author initials="T." surname="Fossati" fullname="Thomas Fossati">
+      <organization>Linaro</organization>
+      <address>
+        <email>thomas.fossati@linaro.org</email>
+      </address>
+    </author>
+    <date year="2026" month="March"/>
+    <area>SEC</area>
+    <workgroup>tls</workgroup>
+    <keyword>DTLS</keyword>
+    <keyword>RRC</keyword>
+    <keyword>CID</keyword>
+
+    <abstract>
+<t>This document specifies a Return Routability Check (RRC) subprotocol for use in the context of the
+Connection ID (CID) construct for the Datagram Transport Layer Security (DTLS)
+protocol versions 1.2 and 1.3.</t>
+      <t>Implementations offering the CID functionality described in RFCs 9146 and 9147 are encouraged to also provide the RRC functionality described in this document.
+For this reason, this document updates RFCs 9146 and 9147.</t>
+    </abstract>
+  </front>
+  <middle>
+
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>A Connection ID (CID) is an identifier carried in the record layer header of a DTLS datagram
+that gives the receiver additional information for selecting the appropriate
+security context.  The CID mechanism has been specified in <xref target="RFC9146"/> for
+DTLS 1.2 and in <xref target="RFC9147"/> for DTLS 1.3.</t>
+      <t><xref section="6" sectionFormat="of" target="RFC9146"/> describes how the use of CID increases the attack
+surface of DTLS 1.2 and 1.3 by providing both on-path and off-path attackers an opportunity for
+DoS or DDoS.  It also describes the steps a DTLS principal must take when a
+record with a CID is received that has a source address different
+from the one currently associated with the DTLS connection.  However, the
+actual mechanism for ensuring that the new peer address is willing to receive
+and process DTLS records is left open.  To address the gap, this document defines a Return
+Routability Check (RRC) subprotocol for DTLS 1.2 and 1.3, inspired by the path validation procedure defined in <xref section="8.2" sectionFormat="of" target="RFC9000"/>.
+As such, this document updates <xref target="RFC9146"/> and <xref target="RFC9147"/>.</t>
+      <t>The return routability check is performed by the receiving endpoint before the
+CID-address binding is updated in that endpoint's session state.
+This is done in order to give the receiving endpoint confidence
+that the sending peer is in fact reachable at the source address indicated in the received datagram.
+For an illustration of the handshake and address validation phases, see <xref target="overview"/>.</t>
+      <t><xref target="regular"/> of this document explains the fundamental mechanism that aims to reduce the DDoS attack surface.
+Additionally, <xref target="enhanced"/> discusses a more advanced address validation mechanism.
+This mechanism is designed to counteract off-path attackers trying to place themselves on-path by racing packets that trigger address rebinding at the receiver.
+To gain a detailed understanding of the attacker model, please refer to <xref target="attacker"/>.</t>
+      <t>Apart from of its use in the context of CID-address binding updates,
+the path validation capability offered by RRC can be used at any time by either endpoint. For
+instance, an endpoint might use RRC to check that a peer is still reachable at
+its last known address after a period of quiescence.</t>
+    </section>
+    <section anchor="conventions-and-terminology">
+      <name>Conventions and Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+<t>This document assumes familiarity with the CID format and protocol defined for
+DTLS 1.2 <xref target="RFC9146"/> and for DTLS 1.3 <xref target="RFC9147"/>.  The presentation language
+used in this document is described in <xref section="4" sectionFormat="of" target="RFC8446"/>.</t>
+      <t>In this document, the term "anti-amplification limit" means three times the amount of data received from an unvalidated address.
+This includes all DTLS records originating from that source address, excluding those that have been discarded.
+This follows the pattern of <xref target="RFC9000"/>, applying a similar concept to DTLS.</t>
+      <t>The term "address" is defined in <xref section="1.2" sectionFormat="of" target="RFC9000"/>.</t>
+      <t>The terms "client", "server", "peer", and "endpoint" are defined in <xref section="1.1" sectionFormat="of" target="RFC8446"/>.</t>
+    </section>
+    <section anchor="rrc-extension">
+      <name>RRC Extension</name>
+      <t>The use of RRC is negotiated via the <tt>rrc</tt> extension.
+The <tt>rrc</tt> extension is only defined for DTLS 1.2 and 1.3.
+On connecting, a client wishing to use RRC includes the <tt>rrc</tt> extension in its ClientHello.
+If the server is capable of meeting this requirement, it responds with an
+<tt>rrc</tt> extension in its ServerHello.  The <tt>extension_type</tt> value for this
+extension is 61, and the <tt>extension_data</tt> field of this extension is empty.
+A client offering the <tt>rrc</tt> extension <bcp14>MUST</bcp14> also offer the <tt>connection_id</tt> extension <xref target="RFC9146"/>.
+If the client includes the <tt>rrc</tt> extension in its ClientHello but omits the <tt>connection_id</tt> extension, the server <bcp14>MUST NOT</bcp14> include the <tt>rrc</tt> extension in its ServerHello.
+A client offering the <tt>connection_id</tt> extension <bcp14>SHOULD</bcp14> also offer the <tt>rrc</tt> extension, unless the application using DTLS has its own address validation mechanism.
+The client and server <bcp14>MUST NOT</bcp14> use RRC unless both sides have successfully exchanged <tt>rrc</tt> extensions.</t>
+      <section anchor="rrc-and-cid-interplay">
+        <name>RRC and CID Interplay</name>
+        <t>RRC offers an in-protocol mechanism to perform peer address validation that
+complements the "peer address update" procedure described in <xref section="6" sectionFormat="of" target="RFC9146"/>.  Specifically, when both CID <xref target="RFC9146"/> and RRC have been
+successfully negotiated for the session, if a record with CID is received that
+has the source address of the enclosing UDP datagram different from what is
+currently associated with that CID value, the receiver <bcp14>SHOULD</bcp14> perform a return
+routability check as described in <xref target="path-validation"/>, unless an application-specific
+address validation mechanism can be triggered instead (e.g., Constrained Application Protocol (CoAP) Echo <xref target="RFC9175"/>).</t>
+      </section>
+    </section>
+    <section anchor="return-routability-check-message-types">
+      <name>Return Routability Check Message Types</name>
+      <t>This document defines the <tt>return_routability_check</tt> content type
+(<xref target="fig-rrc-msg"/>) to carry Return Routability Check messages.</t>
+      <t>The RRC subprotocol consists of three message types: <tt>path_challenge</tt>, <tt>path_response</tt>,
+and <tt>path_drop</tt>. These message types are used for path validation and selection as described in
+<xref target="path-validation"/>.</t>
+      <t>Each message carries a <tt>Cookie</tt>, an 8-byte field containing 64 bits of entropy (e.g., obtained from the cryptographically secure pseudorandom number generator (CSPRNG) used by the TLS implementation; see <xref section="C.1" sectionFormat="of" target="RFC8446"/>).</t>
+      <t>The <tt>return_routability_check</tt> message <bcp14>MUST</bcp14> be authenticated and encrypted
+using the currently active security context.</t>
+      <figure anchor="fig-rrc-msg">
+        <name>Return Routability Check Message and Content Type</name>
+        <sourcecode type="tls-presentation"><![CDATA[
+enum {
+    invalid(0),
+    change_cipher_spec(20),
+    alert(21),
+    handshake(22),
+    application_data(23),
+    heartbeat(24),  /* RFC 6520 */
+    tls12_cid(25),  /* RFC 9146, DTLS 1.2 only */
+    return_routability_check(27), /* NEW */
+    (255)
+} ContentType;
+
+uint64 Cookie;
+
+enum {
+    path_challenge(0),
+    path_response(1),
+    path_drop(2),
+    (255)
+} rrc_msg_type;
+
+struct {
+    rrc_msg_type msg_type;
+    select (return_routability_check.msg_type) {
+        case path_challenge: Cookie;
+        case path_response:  Cookie;
+        case path_drop:      Cookie;
+    };
+} return_routability_check;
+]]></sourcecode>
+      </figure>
+      <t>Future extensions to the RRC subprotocol may
+define new message types.
+Implementations <bcp14>MUST</bcp14> be able to parse and understand the three RRC message types defined in this document.
+In addition, implementations <bcp14>MUST</bcp14> be able to parse and gracefully ignore messages with an unknown <tt>msg_type</tt>.</t>
+    </section>
+    <section anchor="path-validation">
+      <name>Path Validation Procedure</name>
+      <t>A receiver that observes the peer's address change <bcp14>MUST</bcp14> stop sending
+any buffered application data or limit the data sent to the unvalidated
+address to the anti-amplification limit.
+It then initiates the return routability check.</t>
+      <t>This document describes two kinds of checks: basic (<xref target="regular"/>) and enhanced (<xref target="enhanced"/>).
+The choice of one or the other depends on whether the off-path attacker scenario described in <xref target="off-path"/> is to be considered.
+(The decision on what strategy to choose depends mainly on the threat model but
+may also be influenced by other considerations.  Examples of impacting factors
+include the need to minimise implementation complexity, privacy concerns, and the
+need to reduce the time it takes to switch path.  The choice may be offered as
+a configuration option to the user of the TLS implementation.)</t>
+      <t>After the path validation procedure is complete, any pending send operation is
+resumed to the bound peer address.</t>
+      <t>Sections <xref target="path-challenge-reqs" format="counter"/> and <xref target="path-response-reqs" format="counter"/> list the requirements for
+the initiator and responder roles, broken down per protocol phase.</t>
+      <t>Please note that the presented algorithms are not designed to handle nested rebindings, i.e. rebindings that may occur while a path is being validated following a previous rebinding.
+This should rarely occur, but if it happens, the <tt>path_response</tt> message is dropped, the address validation times out, and the address will not be updated.
+A new path validation will start when new data is received.</t>
+      <t>Also, note that in the event of a NAT rebind, the initiator and responder will have different views of the path: The initiator will see a new path, while the responder will still see the old one.</t>
+      <section anchor="regular">
+        <name>Basic</name>
+        <t>The basic return routability check comprises the following steps:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>The receiver (i.e., the initiator) creates a <tt>return_routability_check</tt> message of
+type <tt>path_challenge</tt> and places the unpredictable cookie into the message.</t>
+          </li>
+          <li>
+            <t>The message is sent to the observed new address and a timer T (see
+<xref target="timer-choice"/>) is started.</t>
+          </li>
+          <li>
+            <t>The peer (i.e., the responder) cryptographically verifies the received
+<tt>return_routability_check</tt> message of
+type <tt>path_challenge</tt> and responds by echoing the cookie value in a
+<tt>return_routability_check</tt> message of type <tt>path_response</tt>.</t>
+          </li>
+          <li>
+            <t>When the initiator receives the <tt>return_routability_check</tt>
+message  of type <tt>path_response</tt> and verifies that it contains the sent cookie, it updates the peer
+address binding.</t>
+          </li>
+          <li>
+            <t>If T expires, the peer address binding is not updated.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="enhanced">
+        <name>Enhanced</name>
+        <t>The enhanced return routability check comprises the following steps:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>The receiver (i.e., the initiator) creates a <tt>return_routability_check</tt> message of
+type <tt>path_challenge</tt> and places the unpredictable cookie into the message.</t>
+          </li>
+          <li>
+            <t>The message is sent to the previously valid address, which corresponds to the
+old path. Additionally, a timer T is started (see <xref target="timer-choice"/>).</t>
+          </li>
+          <li>
+            <t>If the path is still functional, the peer (i.e., the responder) cryptographically verifies the received
+<tt>return_routability_check</tt> message of
+type <tt>path_challenge</tt>.
+The action to be taken depends on whether the path through which the message was received remains the preferred one.
+            </t>
+            <ul spacing="normal">
+              <li>
+                <t>If the path through which the message was received is preferred,
+a <tt>return_routability_check</tt> message of type <tt>path_response</tt> <bcp14>MUST</bcp14> be returned. (Note that, from the responder's perspective, the preferred path and the old path coincide in the event of a NAT rebind.)</t>
+              </li>
+              <li>
+                <t>If the path through which the message was received is no longer preferred,
+a <tt>return_routability_check</tt> message of type <tt>path_drop</tt> <bcp14>MUST</bcp14> be returned.  (Note that the responder must have initiated a voluntary path migration in order to know that this path is no longer the preferred one.)</t>
+              </li>
+            </ul>
+            <t>
+In either case, the peer echoes the cookie value in the response.</t>
+          </li>
+          <li>
+            <t>The initiator receives and verifies that the <tt>return_routability_check</tt>
+message contains the previously sent cookie. The actions taken by the
+initiator differ based on the received message:
+            </t>
+            <ul spacing="normal">
+              <li>
+                <t>When a <tt>return_routability_check</tt> message of type <tt>path_response</tt> is received,
+the initiator <bcp14>MUST</bcp14> continue using the previously valid address, i.e., no switch
+to the new path takes place and the peer address binding is not updated.</t>
+              </li>
+              <li>
+                <t>When a <tt>return_routability_check</tt> message of type <tt>path_drop</tt> is received,
+the initiator <bcp14>MUST</bcp14> perform a basic return routability check on the observed new
+address, as described in <xref target="regular"/>.</t>
+              </li>
+            </ul>
+          </li>
+          <li>
+            <t>If T expires, the peer address binding is not updated. In this case, the
+initiator <bcp14>MUST</bcp14> perform a basic return routability check on the observed new
+address, as described in <xref target="regular"/>.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="path-challenge-reqs">
+        <name>Path Challenge Requirements</name>
+        <ul spacing="normal">
+
+          <li>
+            <t>The initiator <bcp14>MAY</bcp14> send multiple <tt>return_routability_check</tt> messages of type
+<tt>path_challenge</tt> to account for packet loss on the probed path.
+            </t>
+	    
+            <ul spacing="normal">
+              <li>
+                <t>Each <tt>path_challenge</tt> <bcp14>SHOULD</bcp14> go into different transport packets.  (Note that
+the DTLS implementation may not have control over the packetization done by
+the transport layer.)</t>
+              </li>
+              <li>
+                <t>The transmission of subsequent <tt>path_challenge</tt> messages <bcp14>SHOULD</bcp14> be paced to
+decrease the chance of loss.</t>
+              </li>
+              <li>
+                <t>Each <tt>path_challenge</tt> message <bcp14>MUST</bcp14> contain random data.</t>
+              </li>
+              <li>
+                <t>In general, the number of "backup" <tt>path_challenge</tt> messages depends on the application, since some are more sensitive than others to latency caused by changes in the path.
+In the absence of application-specific requirements, the initiator can send a <tt>path_challenge</tt> message once per round-trip time (RTT), up to the anti-amplification limit.</t>
+              </li>
+            </ul>
+          </li>
+          <li>
+
+            <t>The initiator <bcp14>MAY</bcp14> use the record padding mechanism available in
+DTLS 1.3 (and in DTLS 1.2, when CID is enabled on the sending direction) to add padding up
+to the anti-amplification limit to probe if the Path MTU (PMTU) for the new
+path is still acceptable.</t>
+          </li>
+        </ul>
+      </section>
+      <section anchor="path-response-reqs">
+        <name>Path Response/Drop Requirements</name>
+        <ul spacing="normal">
+          <li>
+            <t>The responder <bcp14>MUST NOT</bcp14> delay sending an elicited <tt>path_response</tt> or
+<tt>path_drop</tt> messages.</t>
+          </li>
+          <li>
+            <t>The responder <bcp14>MUST</bcp14> send exactly one <tt>path_response</tt> or <tt>path_drop</tt> message
+for each valid <tt>path_challenge</tt> it received.</t>
+          </li>
+          <li>
+            <t>The responder <bcp14>MUST</bcp14> send the <tt>path_response</tt> or the <tt>path_drop</tt> to the address from
+which the corresponding <tt>path_challenge</tt> was received.  This ensures that the
+path is functional in both directions.</t>
+          </li>
+          <li>
+            <t>The initiator <bcp14>MUST</bcp14> silently discard any invalid <tt>path_response</tt> or
+<tt>path_drop</tt> it receives.</t>
+          </li>
+        </ul>
+        <t>Note that RRC does not account for PMTU discovery on the reverse path.  If the
+responder wants to do PMTU discovery using RRC, it should initiate a new path
+validation procedure.</t>
+      </section>
+      <section anchor="timer-choice">
+        <name>Timer Choice</name>
+        <t>When setting T, implementations are cautioned that the new path could have a
+	longer RTT than the original.</t>
+
+        <t>In settings where there is external information about the RTT of the active
+path (i.e., the old path), implementations <bcp14>SHOULD</bcp14> use T = 3xRTT.</t>
+        <t>If an implementation has no way to obtain information regarding the RTT of the
+active path, T <bcp14>SHOULD</bcp14> be set to 1 second.</t>
+        <t>Profiles for specific deployment environments -- for example, constrained
+networks <xref target="I-D.ietf-uta-tls13-iot-profile"/> -- <bcp14>MAY</bcp14> specify a different, more
+suitable value for T.</t>
+      </section>
+    </section>
+    <section anchor="overview">
+      <name>Example</name>
+      <t><xref target="fig-handshake"/> shows an example of a DTLS 1.3 handshake in which a client and a server successfully negotiate support for both the CID and RRC extensions.</t>
+      <figure anchor="fig-handshake">
+        <name>Message Flow for Full DTLS Handshake</name>
+        <artwork><![CDATA[
+       Client                                           Server
+
+Key  ^ ClientHello
+Exch | + key_share
+     | + signature_algorithms
+     | + rrc
+     v + connection_id=empty
+                               -------->
+                                                  ServerHello  ^ Key
+                                                 +  key_share  | Exch
+                                          + connection_id=100  |
+                                                        + rrc  v
+                                        {EncryptedExtensions}  ^  Server
+                                         {CertificateRequest}  v  Params
+                                                {Certificate}  ^
+                                          {CertificateVerify}  | Auth
+                               <--------           {Finished}  v
+
+     ^ {Certificate}
+Auth | {CertificateVerify}
+     v {Finished}              -------->
+       [Application Data]      <------->  [Application Data]
+
+
+              +  Indicates noteworthy extensions sent in the
+                 previously noted message.
+
+              {} Indicates messages protected using keys
+                 derived from a [sender]_handshake_traffic_secret.
+
+              [] Indicates messages protected using keys
+                 derived from [sender]_application_traffic_secret_N.]]></artwork>
+      </figure>
+
+      <t>Once a connection has been established, the client and the server
+exchange application payloads protected by DTLS with a unilaterally used
+CID. In this case, the client is requested to use CID 100 for records
+sent to the server.</t>
+      <t>At some point in the communication interaction, the address used by
+the client changes, and thanks to the CID usage, the security context to
+interpret the record is successfully located by the server.  However, the
+server wants to test the reachability of the client at its new address.</t>
+      <t><xref target="fig-rrc-example"/> shows the server initiating a basic RRC exchange
+(see <xref target="regular"/>) that establishes reachability of the client at the new
+address.</t>
+      <figure anchor="fig-rrc-example">
+        <name>Basic Return Routability Example</name>
+        <artwork><![CDATA[
+      Client                                             Server
+      ------                                             ------
+
+      Application Data            ========>
+      <CID=100>
+      Src-IP=A
+      Dst-IP=Z
+                                  <========        Application Data
+                                                       Src-IP=Z
+                                                       Dst-IP=A
+
+                              <<------------->>
+                              <<   Some      >>
+                              <<   Time      >>
+                              <<   Later     >>
+                              <<------------->>
+
+
+      Application Data            ========>
+      <CID=100>
+      Src-IP=B
+      Dst-IP=Z
+
+                                             <<< Unverified IP
+                                                 Address B >>
+
+                                  <--------  Return Routability Check
+                                             path_challenge(cookie)
+                                                    Src-IP=Z
+                                                    Dst-IP=B
+
+      Return Routability Check    -------->
+      path_response(cookie)
+      Src-IP=B
+      Dst-IP=Z
+
+                                             <<< IP Address B
+                                                 Verified >>
+
+
+                                  <========        Application Data
+                                                       Src-IP=Z
+                                                       Dst-IP=B]]></artwork>
+      </figure>
+    </section>
+    <section anchor="operational-considerations">
+      <name>Operational Considerations</name>
+      <section anchor="logging-anomalous-events">
+        <name>Logging Anomalous Events</name>
+        <t>Logging of RRC operations at both ends of the protocol can be generally useful for the users of an implementation.
+In particular, for Security Information and Event Management (SIEM) and troubleshooting purposes, it is strongly advised that implementations collect statistics about any unsuccessful RRC operations, as they could represent security-relevant events when they coincide with attempts by an attacker to interfere with the end-to-end path.
+It is also advisable to log instances where multiple responses to a single <tt>path_challenge</tt> are received, as this could suggest an off-path attack attempt.</t>
+        <t>In some cases, the presence of frequent path probes could indicate a problem with the stability of the path.
+This information can be used to identify any issues with the underlying connectivity service.</t>
+      </section>
+      <section anchor="middlebox-interference">
+        <name>Middlebox Interference</name>
+        <t>Since the DTLS 1.3 encrypted packet's record type is opaque to on-path observers, RRC messages are immune to middlebox interference when using DTLS 1.3.
+In contrast, DTLS 1.2 RRC messages that are not wrapped in the <tt>tls12_cid</tt> record (e.g., in the server-to-client direction if the server negotiated a zero-length CID) have the <tt>return_routability_check</tt> content type in plain text, making them susceptible to interference (e.g., dropping of <tt>path_challenge</tt> messages), which would hinder the RRC functionality altogether.
+Therefore, when RRC is used in DTLS 1.2 and middlebox interference is a concern, it is recommended to enable CID in both directions.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>Note that the return routability checks do not protect against flooding of
+third parties if the attacker is on-path, as the attacker can redirect the
+return routability checks to the real peer (even if those datagrams are
+cryptographically authenticated).  On-path adversaries can, in general, pose a
+harm to connectivity.</t>
+      <t>If the RRC challenger reuses a cookie that was previously used in the same connection and does not implement anti-replay protection (see <xref section="4.5.1" sectionFormat="of" target="RFC9147"/> and <xref section="4.1.2.6" sectionFormat="of" target="RFC6347"/>), an attacker could replay a previously sent <tt>path_response</tt> message containing the reused cookie to mislead the challenger into switching to a path of the attacker's choosing.
+To prevent this, RRC cookies must be <em>freshly</em> generated using a reliable source of entropy <xref target="RFC4086"/>.
+See <xref section="C.1" sectionFormat="of" target="RFC8446"/> for guidance.</t>
+      <section anchor="attacker">
+        <name>Attacker Model</name>
+
+        <t>Two classes of attackers are considered, off-path and on-path, with increasing
+capabilities (see <xref target="fig-attacker-capabilities"/>).  The following descriptions of these attackers are based on those
+introduced in QUIC (<xref section="21.1" sectionFormat="of" target="RFC9000"/>):</t>
+        <ul spacing="normal">
+          <li>
+            <t>An off-path attacker is not on the original path between the DTLS peers, but
+it is able to observe packets on the original path and has a faster forwarding path
+compared to the DTLS peers, which allows it to make copies of the observed
+packets, race its copies to either peer, and consistently win the race.</t>
+          </li>
+          <li>
+            <t>An on-path attacker is on the original path between the DTLS peers and is
+therefore capable, compared to the off-path attacker, to also drop and delay
+records at will.</t>
+          </li>
+        </ul>
+        <t>Note that, in general, attackers cannot craft DTLS records in a way that would
+successfully pass verification, due to the cryptographic protections applied by
+the DTLS record layer.</t>
+        <figure anchor="fig-attacker-capabilities">
+          <name>Attacker Capabilities</name>
+          <artset>
+            <artwork type="svg" align="center"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="272" width="448" viewBox="0 0 448 272" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                <path d="M 40,32 L 40,80" fill="none" stroke="black"/>
+                <path d="M 40,112 L 40,160" fill="none" stroke="black"/>
+                <path d="M 80,32 L 80,256" fill="none" stroke="black"/>
+                <path d="M 376,32 L 376,256" fill="none" stroke="black"/>
+                <path d="M 416,32 L 416,128" fill="none" stroke="black"/>
+                <path d="M 416,160 L 416,256" fill="none" stroke="black"/>
+                <path d="M 40,32 L 64,32" fill="none" stroke="black"/>
+                <path d="M 80,32 L 376,32" fill="none" stroke="black"/>
+                <path d="M 392,32 L 416,32" fill="none" stroke="black"/>
+                <path d="M 80,64 L 376,64" fill="none" stroke="black"/>
+                <path d="M 80,96 L 376,96" fill="none" stroke="black"/>
+                <path d="M 80,128 L 376,128" fill="none" stroke="black"/>
+                <path d="M 40,160 L 64,160" fill="none" stroke="black"/>
+                <path d="M 80,160 L 376,160" fill="none" stroke="black"/>
+                <path d="M 80,192 L 376,192" fill="none" stroke="black"/>
+                <path d="M 80,224 L 376,224" fill="none" stroke="black"/>
+                <path d="M 80,256 L 376,256" fill="none" stroke="black"/>
+                <path d="M 392,256 L 416,256" fill="none" stroke="black"/>
+                <polygon class="arrowhead" points="400,256 388,250.4 388,261.6" fill="black" transform="rotate(180,392,256)"/>
+                <polygon class="arrowhead" points="400,32 388,26.4 388,37.6" fill="black" transform="rotate(180,392,32)"/>
+                <polygon class="arrowhead" points="72,160 60,154.4 60,165.6" fill="black" transform="rotate(0,64,160)"/>
+                <polygon class="arrowhead" points="72,32 60,26.4 60,37.6" fill="black" transform="rotate(0,64,32)"/>
+                <g class="text">
+                  <text x="120" y="52">Inspect</text>
+                  <text x="204" y="52">unencrypted</text>
+                  <text x="292" y="52">portions</text>
+                  <text x="116" y="84">Inject</text>
+                  <text x="36" y="100">off-path</text>
+                  <text x="120" y="116">Reorder</text>
+                  <text x="116" y="148">Modify</text>
+                  <text x="212" y="148">unauthenticated</text>
+                  <text x="316" y="148">portions</text>
+                  <text x="416" y="148">on-path</text>
+                  <text x="112" y="180">Delay</text>
+                  <text x="108" y="212">Drop</text>
+                  <text x="132" y="244">Manipulate</text>
+                  <text x="192" y="244">the</text>
+                  <text x="264" y="244">packetization</text>
+                  <text x="344" y="244">layer</text>
+                </g>
+              </svg>
+            </artwork>
+            <artwork type="ascii-art" align="center"><![CDATA[
+    .--> .------------------------------------. <--.
+    |    | Inspect unencrypted portions       |    |
+    |    +------------------------------------+    |
+    |    | Inject                             |    |
+off-path +------------------------------------+    |
+    |    | Reorder                            |    |
+    |    +------------------------------------+    |
+    |    | Modify unauthenticated portions    | on-path
+    '--> +------------------------------------+    |
+         | Delay                              |    |
+         +------------------------------------+    |
+         | Drop                               |    |
+         +------------------------------------+    |
+         | Manipulate the packetization layer |    |
+         '------------------------------------' <--'
+]]></artwork>
+          </artset>
+        </figure>
+        <t>RRC is designed to defend against the following attacks:</t>
+        <ul spacing="normal">
+          <li>
+            <t>On-path and off-path attackers that try to create an amplification attack by
+spoofing the source address of the victim (<xref target="sec-amplification"/>).</t>
+          </li>
+          <li>
+            <t>Off-path attackers that try to put themselves on-path (<xref target="off-path"/>),
+provided that the enhanced path validation algorithm is used (<xref target="enhanced"/>).</t>
+          </li>
+        </ul>
+        <section anchor="sec-amplification">
+          <name>Amplification</name>
+          <t>Both on-path and off-path attackers can send a packet (either by modifying it
+on the fly or by copying, injecting, and racing it, respectively) with the
+source address modified to that of a victim host.  If the traffic generated by
+the server in response is larger compared to the received packet (e.g., a CoAP
+server returning an MTU's worth of data from a 20-byte GET request <xref target="I-D.irtf-t2trg-amplification-attacks"/>), the
+attacker can use the server as a traffic amplifier toward the victim.</t>
+          <section anchor="mitigation-strategy">
+            <name>Mitigation Strategy</name>
+            <t>When receiving a packet with a known CID that has a source address different from the one currently associated with the DTLS connection, an
+RRC-capable endpoint will not send a (potentially large) response but instead a
+small <tt>path_challenge</tt> message to the victim host.  Since the host is not able
+to decrypt it and generate a valid <tt>path_response</tt>, the address validation
+fails, which in turn keeps the original address binding unaltered.</t>
+            <t>Note that in the case of an off-path attacker, the original packet still reaches
+the intended destination; therefore, an implementation could use a different
+strategy to mitigate the attack.</t>
+          </section>
+        </section>
+        <section anchor="off-path">
+          <name>Off-Path Packet Forwarding</name>
+          <t>An off-path attacker that can observe packets might forward copies of
+genuine packets to endpoints over a different path. If the copied packet arrives before
+the genuine packet, this will appear as a path change, like in a genuine NAT rebinding occurrence. Any genuine
+packet will be discarded as a duplicate. If the attacker is able to
+continue forwarding packets, it might be able to cause migration to a
+path via the attacker. This places the attacker on-path, giving it
+the ability to observe or drop all subsequent packets.</t>
+          <t>This style of attack relies on the attacker using a path that has
+the same or better characteristics (e.g., due to a more favourable service level agreements) as the direct path between
+endpoints. The attack is more effective if relatively few packets are
+sent or if packet loss coincides with the attempted attack.</t>
+          <t>A data packet received on the original path that increases the
+maximum received packet number will cause the endpoint to move back
+to that path. Therefore, eliciting packets on this path increases the
+likelihood that the attack is unsuccessful. However, note that, unlike QUIC,
+DTLS has no "non-probing" packets so this would require application-specific
+mechanisms.</t>
+          <section anchor="mitigation-strategy-1">
+            <name>Mitigation Strategy</name>
+
+
+            <t><xref target="fig-off-path"/> illustrates the case where a receiver receives a
+packet with a new source address. In order
+to determine that this path change was not triggered
+by an off-path attacker, the receiver will send an RRC message of type
+<tt>path_challenge</tt> (1) on the old path.</t>
+            <figure anchor="fig-off-path">
+              <name>Off-Path Packet Forwarding Scenario</name>
+              <artset>
+        <artwork type="svg" align="center"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="352" width="256" viewBox="0 0 256 352" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+            <path d="M 64,80 L 64,176" fill="none" stroke="black"/>
+            <path d="M 64,208 L 64,304" fill="none" stroke="black"/>
+            <path d="M 112,48 L 112,112" fill="none" stroke="black"/>
+            <path d="M 112,272 L 112,336" fill="none" stroke="black"/>
+            <path d="M 200,48 L 200,112" fill="none" stroke="black"/>
+            <path d="M 200,272 L 200,336" fill="none" stroke="black"/>
+            <path d="M 248,80 L 248,112" fill="none" stroke="black"/>
+            <path d="M 248,144 L 248,304" fill="none" stroke="black"/>
+            <path d="M 112,48 L 200,48" fill="none" stroke="black"/>
+            <path d="M 64,80 L 112,80" fill="none" stroke="black"/>
+            <path d="M 200,80 L 248,80" fill="none" stroke="black"/>
+            <path d="M 112,112 L 200,112" fill="none" stroke="black"/>
+            <path d="M 24,176 L 120,176" fill="none" stroke="black"/>
+            <path d="M 8,208 L 104,208" fill="none" stroke="black"/>
+            <path d="M 112,272 L 200,272" fill="none" stroke="black"/>
+            <path d="M 64,304 L 112,304" fill="none" stroke="black"/>
+            <path d="M 200,304 L 248,304" fill="none" stroke="black"/>
+            <path d="M 112,336 L 200,336" fill="none" stroke="black"/>
+            <path d="M 8,208 L 24,176" fill="none" stroke="black"/>
+            <path d="M 104,208 L 120,176" fill="none" stroke="black"/>
+            <polygon class="arrowhead" points="256,184 244,178.4 244,189.6" fill="black" transform="rotate(90,248,184)"/>
+            <g class="text">
+              <text x="72" y="36">new</text>
+              <text x="240" y="36">old</text>
+              <text x="76" y="52">path</text>
+              <text x="236" y="52">path</text>
+              <text x="156" y="84">Receiver</text>
+              <text x="248" y="132">1</text>
+              <text x="64" y="196">Attacker?</text>
+              <text x="156" y="308">Sender</text>
+            </g>
+          </svg>
+        </artwork>
+        <artwork type="ascii-art" align="center"><![CDATA[
+       new                  old
+       path  .----------.  path
+             |          |
+       .-----+ Receiver +-----.
+       |     |          |     |
+       |     '----------'     |
+       |                      1
+       |                      |
+       |                      |
+  .----+------.               v
+ / Attacker? /                |
+'------+----'                 |
+       |                      |
+       |                      |
+       |                      |
+       |     .----------.     |
+       |     |          |     |
+       '-----+  Sender  +-----'
+             |          |
+             '----------'
+]]></artwork>
+      </artset>
+            </figure>
+            <t>Three cases need to be considered:</t>
+            <t>Case 1: The old path is dead (e.g., due to a NAT rebinding), which leads to a
+timeout of (1).</t>
+            <t>As shown in <xref target="fig-old-path-dead"/>, a <tt>path_challenge</tt> (2) needs to be sent on
+the new path.  If the sender replies with a <tt>path_response</tt> on the new path
+(3), the switch to the new path is considered legitimate.</t>
+            <figure anchor="fig-old-path-dead">
+              <name>Old Path Is Dead</name>
+              <artset>
+                <artwork type="svg" align="center"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="368" width="384" viewBox="0 0 384 368" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                    <path d="M 80,64 L 80,112" fill="none" stroke="black"/>
+                    <path d="M 80,144 L 80,320" fill="none" stroke="black"/>
+                    <path d="M 96,80 L 96,176" fill="none" stroke="black"/>
+                    <path d="M 96,208 L 96,304" fill="none" stroke="black"/>
+                    <path d="M 112,96 L 112,224" fill="none" stroke="black"/>
+                    <path d="M 112,256 L 112,288" fill="none" stroke="black"/>
+                    <path d="M 144,48 L 144,112" fill="none" stroke="black"/>
+                    <path d="M 144,272 L 144,336" fill="none" stroke="black"/>
+                    <path d="M 232,48 L 232,112" fill="none" stroke="black"/>
+                    <path d="M 232,272 L 232,336" fill="none" stroke="black"/>
+                    <path d="M 296,64 L 296,112" fill="none" stroke="black"/>
+                    <path d="M 296,144 L 296,176" fill="none" stroke="black"/>
+                    <path d="M 144,48 L 232,48" fill="none" stroke="black"/>
+                    <path d="M 80,64 L 136,64" fill="none" stroke="black"/>
+                    <path d="M 232,64 L 296,64" fill="none" stroke="black"/>
+                    <path d="M 96,80 L 144,80" fill="none" stroke="black"/>
+                    <path d="M 112,96 L 144,96" fill="none" stroke="black"/>
+                    <path d="M 144,112 L 232,112" fill="none" stroke="black"/>
+                    <path d="M 56,176 L 72,176" fill="none" stroke="black"/>
+                    <path d="M 88,176 L 104,176" fill="none" stroke="black"/>
+                    <path d="M 120,176 L 288,176" fill="none" stroke="black"/>
+                    <path d="M 304,176 L 320,176" fill="none" stroke="black"/>
+                    <path d="M 40,208 L 72,208" fill="none" stroke="black"/>
+                    <path d="M 88,208 L 104,208" fill="none" stroke="black"/>
+                    <path d="M 120,208 L 304,208" fill="none" stroke="black"/>
+                    <path d="M 144,272 L 232,272" fill="none" stroke="black"/>
+                    <path d="M 112,288 L 136,288" fill="none" stroke="black"/>
+                    <path d="M 96,304 L 144,304" fill="none" stroke="black"/>
+                    <path d="M 80,320 L 144,320" fill="none" stroke="black"/>
+                    <path d="M 144,336 L 232,336" fill="none" stroke="black"/>
+                    <path d="M 40,208 L 56,176" fill="none" stroke="black"/>
+                    <path d="M 304,208 L 320,176" fill="none" stroke="black"/>
+                    <polygon class="arrowhead" points="304,176 292,170.4 292,181.6" fill="black" transform="rotate(90,296,176)"/>
+                    <polygon class="arrowhead" points="144,288 132,282.4 132,293.6" fill="black" transform="rotate(0,136,288)"/>
+                    <polygon class="arrowhead" points="144,64 132,58.4 132,69.6" fill="black" transform="rotate(0,136,64)"/>
+                    <g class="text">
+                      <text x="88" y="36">new</text>
+                      <text x="288" y="36">old</text>
+                      <text x="92" y="52">path</text>
+                      <text x="284" y="52">path</text>
+                      <text x="188" y="84">Receiver</text>
+                      <text x="260" y="84">......</text>
+                      <text x="280" y="100">.</text>
+                      <text x="280" y="116">.</text>
+                      <text x="24" y="132">path-</text>
+                      <text x="80" y="132">3</text>
+                      <text x="280" y="132">.</text>
+                      <text x="296" y="132">1</text>
+                      <text x="328" y="132">path-</text>
+                      <text x="36" y="148">response</text>
+                      <text x="280" y="148">.</text>
+                      <text x="344" y="148">challenge</text>
+                      <text x="280" y="164">.</text>
+                      <text x="184" y="196">NAT</text>
+                      <text x="296" y="196">X</text>
+                      <text x="352" y="196">timeout</text>
+                      <text x="280" y="228">.</text>
+                      <text x="112" y="244">2</text>
+                      <text x="144" y="244">path-</text>
+                      <text x="280" y="244">.</text>
+                      <text x="160" y="260">challenge</text>
+                      <text x="280" y="260">.</text>
+                      <text x="280" y="276">.</text>
+                      <text x="280" y="292">.</text>
+                      <text x="188" y="308">Sender</text>
+                      <text x="260" y="308">.....'</text>
+                    </g>
+                  </svg>
+                </artwork>
+                <artwork type="ascii-art" align="center"><![CDATA[
+          new                      old
+          path    .----------.    path
+          .------>|          +-------.
+          | .-----+ Receiver +...... |
+          | | .---+          |     . |
+          | | |   '----------'     . |
+ path-    3 | |                    . 1 path-
+ response | | |                    . | challenge
+          | | |                    . |
+       .--|-+-|----------------------v--.
+      /   |   |       NAT            X / timeout
+     '----|-+-|-----------------------'
+          | | |                    .
+          | | 2 path-              .
+          | | | challenge          .
+          | | |   .----------.     .
+          | | '-->|          |     .
+          | '-----+  Sender  +.....'
+          '-------+          |
+                  '----------'
+]]></artwork>
+              </artset>
+            </figure>
+            <t>Case 2: The old path is alive but not preferred.</t>
+
+            <t>This case is shown in <xref target="fig-old-path-not-preferred"/> whereby the sender
+replies with a <tt>path_drop</tt> message (2) on the old path.  This triggers
+the receiver to send a <tt>path_challenge</tt> (3) on the new path. The sender
+will reply with a <tt>path_response</tt> (4) on the new path, thus providing
+confirmation for the path migration.</t>
+            <figure anchor="fig-old-path-not-preferred">
+              <name>Old Path Is Not Preferred</name>
+              <artset>
+                <artwork type="svg" align="center"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="352" width="424" viewBox="0 0 424 352" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                    <path d="M 104,64 L 104,112" fill="none" stroke="black"/>
+                    <path d="M 104,144 L 104,320" fill="none" stroke="black"/>
+                    <path d="M 120,80 L 120,176" fill="none" stroke="black"/>
+                    <path d="M 120,216 L 120,304" fill="none" stroke="black"/>
+                    <path d="M 136,96 L 136,224" fill="none" stroke="black"/>
+                    <path d="M 136,256 L 136,288" fill="none" stroke="black"/>
+                    <path d="M 168,48 L 168,112" fill="none" stroke="black"/>
+                    <path d="M 168,272 L 168,336" fill="none" stroke="black"/>
+                    <path d="M 256,48 L 256,112" fill="none" stroke="black"/>
+                    <path d="M 256,272 L 256,336" fill="none" stroke="black"/>
+                    <path d="M 288,96 L 288,112" fill="none" stroke="black"/>
+                    <path d="M 288,144 L 288,288" fill="none" stroke="black"/>
+                    <path d="M 304,80 L 304,176" fill="none" stroke="black"/>
+                    <path d="M 304,208 L 304,304" fill="none" stroke="black"/>
+                    <path d="M 320,64 L 320,224" fill="none" stroke="black"/>
+                    <path d="M 320,256 L 320,320" fill="none" stroke="black"/>
+                    <path d="M 168,48 L 256,48" fill="none" stroke="black"/>
+                    <path d="M 104,64 L 160,64" fill="none" stroke="black"/>
+                    <path d="M 264,64 L 320,64" fill="none" stroke="black"/>
+                    <path d="M 120,80 L 168,80" fill="none" stroke="black"/>
+                    <path d="M 256,80 L 304,80" fill="none" stroke="black"/>
+                    <path d="M 136,96 L 168,96" fill="none" stroke="black"/>
+                    <path d="M 256,96 L 288,96" fill="none" stroke="black"/>
+                    <path d="M 168,112 L 256,112" fill="none" stroke="black"/>
+                    <path d="M 24,176 L 96,176" fill="none" stroke="black"/>
+                    <path d="M 112,176 L 128,176" fill="none" stroke="black"/>
+                    <path d="M 144,176 L 176,176" fill="none" stroke="black"/>
+                    <path d="M 264,176 L 280,176" fill="none" stroke="black"/>
+                    <path d="M 296,176 L 312,176" fill="none" stroke="black"/>
+                    <path d="M 328,176 L 416,176" fill="none" stroke="black"/>
+                    <path d="M 8,208 L 96,208" fill="none" stroke="black"/>
+                    <path d="M 112,208 L 128,208" fill="none" stroke="black"/>
+                    <path d="M 144,208 L 160,208" fill="none" stroke="black"/>
+                    <path d="M 248,208 L 280,208" fill="none" stroke="black"/>
+                    <path d="M 296,208 L 312,208" fill="none" stroke="black"/>
+                    <path d="M 328,208 L 400,208" fill="none" stroke="black"/>
+                    <path d="M 168,272 L 256,272" fill="none" stroke="black"/>
+                    <path d="M 136,288 L 160,288" fill="none" stroke="black"/>
+                    <path d="M 264,288 L 288,288" fill="none" stroke="black"/>
+                    <path d="M 120,304 L 168,304" fill="none" stroke="black"/>
+                    <path d="M 256,304 L 304,304" fill="none" stroke="black"/>
+                    <path d="M 104,320 L 168,320" fill="none" stroke="black"/>
+                    <path d="M 256,320 L 320,320" fill="none" stroke="black"/>
+                    <path d="M 168,336 L 256,336" fill="none" stroke="black"/>
+                    <path d="M 8,208 L 24,176" fill="none" stroke="black"/>
+                    <path d="M 160,208 L 176,176" fill="none" stroke="black"/>
+                    <path d="M 248,208 L 264,176" fill="none" stroke="black"/>
+                    <path d="M 400,208 L 416,176" fill="none" stroke="black"/>
+                    <polygon class="arrowhead" points="272,288 260,282.4 260,293.6" fill="black" transform="rotate(180,264,288)"/>
+                    <polygon class="arrowhead" points="272,64 260,58.4 260,69.6" fill="black" transform="rotate(180,264,64)"/>
+                    <polygon class="arrowhead" points="168,288 156,282.4 156,293.6" fill="black" transform="rotate(0,160,288)"/>
+                    <polygon class="arrowhead" points="168,64 156,58.4 156,69.6" fill="black" transform="rotate(0,160,64)"/>
+                    <g class="text">
+                      <text x="112" y="36">new</text>
+                      <text x="312" y="36">old</text>
+                      <text x="116" y="52">path</text>
+                      <text x="308" y="52">path</text>
+                      <text x="212" y="84">Receiver</text>
+                      <text x="48" y="132">path-</text>
+                      <text x="104" y="132">4</text>
+                      <text x="224" y="132">path-</text>
+                      <text x="288" y="132">1</text>
+                      <text x="60" y="148">response</text>
+                      <text x="240" y="148">challenge</text>
+                      <text x="64" y="196">NAT</text>
+                      <text x="88" y="196">A</text>
+                      <text x="344" y="196">NAT</text>
+                      <text x="368" y="196">B</text>
+                      <text x="136" y="244">3</text>
+                      <text x="168" y="244">path-</text>
+                      <text x="320" y="244">2</text>
+                      <text x="352" y="244">path-</text>
+                      <text x="184" y="260">challenge</text>
+                      <text x="348" y="260">drop</text>
+                      <text x="212" y="308">Sender</text>
+                    </g>
+                  </svg>
+                </artwork>
+                <artwork type="ascii-art" align="center"><![CDATA[
+            new                      old
+            path    .----------.    path
+            .------>|          |<------.
+            | .-----+ Receiver +-----. |
+            | | .---+          +---. | |
+            | | |   '----------'   | | |
+   path-    4 | |        path-     1 | |
+   response | | |        challenge | | |
+            | | |                  | | |
+  .---------|-+-|----.          .--|-+-|-----------.
+ /    NAT A |   |   /          /   |   | NAT B    /
+'-----------|---|--'          '----|-+-|---------'
+            | | |                  | | |
+            | | 3 path-            | | 2 path-
+            | | | challenge        | | | drop
+            | | |   .----------.   | | |
+            | | '-->|          |<--' | |
+            | '-----+  Sender  +-----' |
+            '-------+          +-------'
+                    '----------'
+]]></artwork>
+              </artset>
+            </figure>
+            <t>Case 3: The old path is alive and preferred.</t>
+            <t>This is most likely the result of an off-path attacker trying to place itself
+on-path.  As shown in         
+<xref target="fig-old-path-preferred"/>, the receiver sends a <tt>path_challenge</tt> (1) on the old path, and the sender
+replies with a <tt>path_response</tt> (2) on the old path. This results in the connection not being migrated
+to the new path, thus thwarting the attack.</t>
+            <figure anchor="fig-old-path-preferred">
+              <name>Old Path Is Preferred</name>
+              <artset>
+                <artwork type="svg" align="center"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="384" width="352" viewBox="0 0 352 384" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                    <path d="M 64,80 L 64,176" fill="none" stroke="black"/>
+                    <path d="M 64,224 L 64,320" fill="none" stroke="black"/>
+                    <path d="M 112,48 L 112,112" fill="none" stroke="black"/>
+                    <path d="M 112,288 L 112,352" fill="none" stroke="black"/>
+                    <path d="M 200,48 L 200,112" fill="none" stroke="black"/>
+                    <path d="M 200,288 L 200,352" fill="none" stroke="black"/>
+                    <path d="M 232,96 L 232,240" fill="none" stroke="black"/>
+                    <path d="M 232,272 L 232,304" fill="none" stroke="black"/>
+                    <path d="M 248,80 L 248,176" fill="none" stroke="black"/>
+                    <path d="M 248,208 L 248,320" fill="none" stroke="black"/>
+                    <path d="M 264,64 L 264,112" fill="none" stroke="black"/>
+                    <path d="M 264,144 L 264,336" fill="none" stroke="black"/>
+                    <path d="M 112,48 L 200,48" fill="none" stroke="black"/>
+                    <path d="M 200,64 L 264,64" fill="none" stroke="black"/>
+                    <path d="M 64,80 L 112,80" fill="none" stroke="black"/>
+                    <path d="M 200,80 L 248,80" fill="none" stroke="black"/>
+                    <path d="M 208,96 L 232,96" fill="none" stroke="black"/>
+                    <path d="M 112,112 L 200,112" fill="none" stroke="black"/>
+                    <path d="M 32,176 L 120,176" fill="none" stroke="black"/>
+                    <path d="M 208,176 L 224,176" fill="none" stroke="black"/>
+                    <path d="M 240,176 L 256,176" fill="none" stroke="black"/>
+                    <path d="M 272,176 L 312,176" fill="none" stroke="black"/>
+                    <path d="M 192,208 L 224,208" fill="none" stroke="black"/>
+                    <path d="M 240,208 L 256,208" fill="none" stroke="black"/>
+                    <path d="M 272,208 L 296,208" fill="none" stroke="black"/>
+                    <path d="M 8,224 L 96,224" fill="none" stroke="black"/>
+                    <path d="M 112,288 L 200,288" fill="none" stroke="black"/>
+                    <path d="M 200,304 L 232,304" fill="none" stroke="black"/>
+                    <path d="M 64,320 L 112,320" fill="none" stroke="black"/>
+                    <path d="M 200,320 L 248,320" fill="none" stroke="black"/>
+                    <path d="M 208,336 L 264,336" fill="none" stroke="black"/>
+                    <path d="M 112,352 L 200,352" fill="none" stroke="black"/>
+                    <path d="M 8,224 L 32,176" fill="none" stroke="black"/>
+                    <path d="M 96,224 L 120,176" fill="none" stroke="black"/>
+                    <path d="M 192,208 L 208,176" fill="none" stroke="black"/>
+                    <path d="M 296,208 L 312,176" fill="none" stroke="black"/>
+                    <polygon class="arrowhead" points="216,336 204,330.4 204,341.6" fill="black" transform="rotate(180,208,336)"/>
+                    <polygon class="arrowhead" points="216,96 204,90.4 204,101.6" fill="black" transform="rotate(180,208,96)"/>
+                    <g class="text">
+                      <text x="72" y="36">new</text>
+                      <text x="256" y="36">old</text>
+                      <text x="76" y="52">path</text>
+                      <text x="252" y="52">path</text>
+                      <text x="156" y="84">Receiver</text>
+                      <text x="264" y="132">1</text>
+                      <text x="296" y="132">path-</text>
+                      <text x="312" y="148">challenge</text>
+                      <text x="68" y="196">off-path</text>
+                      <text x="248" y="196">NAT</text>
+                      <text x="60" y="212">attacker</text>
+                      <text x="176" y="260">path-</text>
+                      <text x="232" y="260">2</text>
+                      <text x="188" y="276">response</text>
+                      <text x="156" y="324">Sender</text>
+                    </g>
+                  </svg>
+                </artwork>
+                <artwork type="ascii-art" align="center"><![CDATA[
+        new                    old
+        path  .----------.    path
+              |          +-------.
+        .-----+ Receiver +-----. |
+        |     |          |<--. | |
+        |     '----------'   | | |
+        |                    | | 1 path-
+        |                    | | | challenge
+        |                    | | |
+    .---+------.          .--|-+-|-----.
+   / off-path /          /   |NAT|    /
+  / attacker /          '----|-+-|---'
+ '------+---'                | | |
+        |                    | | |
+        |           path-    2 | |
+        |           response | | |
+        |     .----------.   | | |
+        |     |          +---' | |
+        '-----+  Sender  +-----' |
+              |          |<------'
+              '----------'
+]]></artwork>
+              </artset>
+            </figure>
+            <t>Note that this defense is imperfect, but this is not considered a serious
+problem. If the path via the attacker is reliably faster than the
+old path despite multiple attempts to use that old path, it
+is not possible to distinguish between an attack and an improvement
+in routing.</t>
+            <t>An endpoint could also use heuristics to improve detection of this
+style of attack. For instance, NAT rebinding is improbable if
+packets were recently received on the old path.
+Endpoints can also look for duplicated
+packets. Conversely, a change in CID is more likely to
+indicate an intentional migration rather than an attack. Note that
+changes in CIDs are supported in DTLS 1.3 but not in
+DTLS 1.2.</t>
+          </section>
+        </section>
+      </section>
+    </section>
+    <section anchor="privacy-considerations">
+      <name>Privacy Considerations</name>
+      <t>When using DTLS 1.3, peers <bcp14>SHOULD</bcp14> avoid using the same CID on multiple network
+paths, in particular when initiating connection migration or when probing a new
+network path, as described in <xref target="path-validation"/>, as an adversary can otherwise
+correlate the communication interaction across those different paths.  DTLS 1.3
+provides mechanisms to ensure that a new CID can always be used.  In
+general, an endpoint should proactively send a RequestConnectionId message to ask for new
+CIDs as soon as the pool of spare CIDs is depleted (or goes below a threshold).
+Also, in case a peer might have exhausted available CIDs, a migrating endpoint
+could include NewConnectionId in packets sent on the new path to make sure that
+the subsequent path validation can use fresh CIDs.</t>
+      <t>Note that DTLS 1.2 does not offer the ability to request new CIDs during the session lifetime since CIDs have the same lifespan
+of the connection.  Therefore, deployments that use DTLS in multihoming
+environments <bcp14>SHOULD</bcp14> refuse to use CIDs with DTLS 1.2
+and switch to DTLS 1.3 if the correlation privacy threat is a concern.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="new-tls-contenttype">
+        <name>New TLS ContentType</name>
+        <t>IANA has allocated an entry in the "TLS ContentType" registry within the "Transport Layer Security (TLS) Parameters" registry group <xref target="IANA.tls-parameters"/> for the <tt>return_routability_check</tt> (27) message defined in this document.
+IANA set the DTLS_OK column to "Y" and added the following note to the registry:</t>
+<blockquote><t>Note: The return_routability_check content type is only applicable
+to DTLS 1.2 and 1.3.</t></blockquote>
+
+      </section>
+      <section anchor="new-tls-extensiontype">
+        <name>New TLS ExtensionType</name>
+        <t>IANA has allocated the extension code point (61) for <tt>rrc</tt>
+in the "TLS ExtensionType Values" registry as described in
+<xref target="tbl-ext"/>.</t>
+        <table align="left" anchor="tbl-ext">
+          <name>New Entry in the TLS ExtensionType Values Registry</name>
+          <thead>
+            <tr>
+              <th align="left">Value</th>
+              <th align="left">Extension Name</th>
+              <th align="left">TLS 1.3</th>
+              <th align="left">DTLS-Only</th>
+              <th align="left">Recommended</th>
+              <th align="left">Reference</th>
+              <th align="left">Comment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">61</td>
+              <td align="left">rrc</td>
+              <td align="left">CH, SH</td>
+              <td align="left">Y</td>
+              <td align="left">N</td>
+              <td align="left">RFC 9853</td>
+              <td align="left"/>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="new-tls-rrc-message-type-registry">
+        <name>New "TLS RRC Message Type" Registry</name>
+        <t>IANA has created the "TLS RRC Message Types" registry within the "Transport Layer Security (TLS) Parameters" registry group <xref target="IANA.tls-parameters"/>.
+This registration procedure is "Expert Review" (<xref section="4.5" sectionFormat="of" target="RFC8126"/>).</t>
+        <t>To submit registration requests, follow the procedures in <xref section="16" sectionFormat="of" target="RFC9847"/>.</t>
+        <t>Each entry in the registry must include the following fields:</t>
+        <dl newline="true">
+          <dt>Value:</dt>
+          <dd>
+            <t>A (decimal) number in the range 0 to 253.</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>A brief description of the RRC message.</t>
+          </dd>
+          <dt>DTLS-Only:</dt>
+          <dd>
+            <t>Indication of whether the message only applies to DTLS.
+Since RRC is only available in DTLS, this column is set to "Y" for all the initial entries in this registry.
+Future work may define new RRC message types that also apply to TLS.</t>
+          </dd>
+          <dt>Recommended:</dt>
+          <dd>
+            <t>Indication of whether the message is recommended for implementations to support.
+The semantics for this field is defined in <xref section="5" sectionFormat="of" target="RFC8447"/> and updated in <xref section="3" sectionFormat="of" target="RFC9847"/>.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>A reference to a publicly available specification for the value.</t>
+          </dd>
+          <dt>Comment:</dt>
+          <dd>
+            <t>Any relevant notes or comments that relate to this entry.</t>
+          </dd>
+        </dl>
+        <t><xref target="tbl-rrc-mt"/> shows the initial contents of this registry:</t>
+        <table align="left" anchor="tbl-rrc-mt">
+          <name>Initial Entries in TLS RRC Message Type Registry</name>
+          <thead>
+            <tr>
+              <th align="left">Value</th>
+              <th align="left">Description</th>
+              <th align="left">DTLS-Only</th>
+              <th align="left">Recommended</th>
+              <th align="left">Reference</th>
+              <th align="left">Comment</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">0</td>
+              <td align="left">path_challenge</td>
+              <td align="left">Y</td>
+              <td align="left">Y</td>
+              <td align="left">RFC 9853</td>
+              <td align="left"/>
+            </tr>
+            <tr>
+              <td align="left">1</td>
+              <td align="left">path_response</td>
+              <td align="left">Y</td>
+              <td align="left">Y</td>
+              <td align="left">RFC 9853</td>
+              <td align="left"/>
+            </tr>
+            <tr>
+              <td align="left">2</td>
+              <td align="left">path_drop</td>
+              <td align="left">Y</td>
+              <td align="left">Y</td>
+              <td align="left">RFC 9853</td>
+              <td align="left"/>
+            </tr>
+            <tr>
+              <td align="left">3-253</td>
+              <td align="left">Unassigned</td>
+              <td align="left"/>
+              <td align="left"/>
+              <td align="left"/>
+              <td align="left"/>
+            </tr>
+            <tr>
+              <td align="left">254-255</td>
+              <td align="left">Reserved for Private Use</td>
+              <td align="left">Y</td>
+              <td align="left"/>
+              <td align="left">RFC 9853</td>
+              <td align="left"/>
+            </tr>
+          </tbody>
+        </table>
+        <t>IANA added the following note to provide additional information regarding the use of RRC message codepoints in experiments:</t>
+
+<blockquote><t>Note: As specified in <xref target="RFC8126"/>, assignments
+made in the Private Use space are not generally useful for broad
+interoperability.  Those making use of the Private Use range are responsible
+for ensuring that no conflicts occur within the intended scope of use.  For
+widespread experiments, provisional registrations (<xref section="4.13"
+sectionFormat="of" target="RFC8126"/>) are available.</t></blockquote>
+
+        <section anchor="designated-expert-instructions">
+          <name>Designated Expert Instructions</name>
+          <t>To enable a broadly informed review of registration decisions, it is recommended that multiple designated experts be appointed to represent the perspectives of both the transport and security areas.</t>
+          <t>In cases where a registration decision could be perceived as creating a conflict of interest for a particular expert, that expert <bcp14>SHOULD</bcp14> defer to the judgment of the other experts.</t>
+        </section>
+      </section>
+    </section>
+  </middle>
+  <back>
+<displayreference target="I-D.ietf-uta-tls13-iot-profile" to="IOT-PROFILE"/>
+<displayreference target="I-D.irtf-t2trg-amplification-attacks" to="AMP-ATTACKS"/>
+
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9146.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9147.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6347.xml"/>
+        <reference anchor="IANA.tls-parameters" target="https://www.iana.org/assignments/tls-parameters">
+          <front>
+            <title>Transport Layer Security (TLS) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9847.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8447.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9000.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9175.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-uta-tls13-iot-profile.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4086.xml"/>
+
+<reference anchor="I-D.irtf-t2trg-amplification-attacks" target="https://datatracker.ietf.org/doc/html/draft-irtf-t2trg-amplification-attacks-05">
+<front>
+<title>
+Amplification Attacks Using the Constrained Application Protocol (CoAP)
+</title>
+<author fullname="John Preuß Mattsson" initials="J." surname="Preuß Mattsson">
+<organization>Ericsson AB</organization>
+</author>
+<author fullname="Göran Selander" initials="G." surname="Selander">
+<organization>Ericsson AB</organization>
+</author>
+<author fullname="Christian Amsüss" initials="C." surname="Amsüss">
+<organization>Energy Harvesting Solutions</organization>
+</author>
+<date day="18" month="June" year="2025"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-irtf-t2trg-amplification-attacks-05"/>
+</reference>
+
+      </references>
+    </references>
+
+    <section anchor="acknowledgments" numbered="false">
+      <name>Acknowledgments</name>
+      <t>We would like to thank
+<contact fullname="Colin Perkins"/>,
+<contact fullname="Deb Cooley"/>,
+<contact fullname="Eric Rescorla"/>,
+<contact fullname="Éric Vyncke"/>,
+<contact fullname="Erik Kline"/>,
+<contact fullname="Hanno Becker"/>,
+<contact fullname="Hanno Böck"/>,
+<contact fullname="Joe Clarke"/>,
+<contact fullname="Manuel Pégourié-Gonnard"/>,
+<contact fullname="Marco Tiloca"/>,
+<contact fullname="Martin Thomson"/>,
+<contact fullname="Mike Bishop"/>,
+<contact fullname="Mike Ounsworth"/>,
+<contact fullname="Mohamed Boucadair"/>,
+<contact fullname="Mohit Sahni"/>,
+<contact fullname="Rich Salz"/>,
+<contact fullname="Russ Housley"/>,
+<contact fullname="Sean Turner"/>, and
+<contact fullname="Yaron Sheffer"/>
+for their input to this document.</t>
+    </section>
+    
+  </back>
+
+</rfc>

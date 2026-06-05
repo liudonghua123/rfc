@@ -1,0 +1,573 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-emu-bootstrapped-tls-11" number="9966" updates="" obsoletes="" submissionType="IETF" xml:lang="en" category="std" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+
+  <front>
+    <title abbrev="TLS-POK">Bootstrapped TLS Authentication with Proof of Knowledge</title>
+    <seriesInfo name="RFC" value="9966"/>
+    <author initials="O." surname="Friel" fullname="Owen Friel">
+      <organization>Cisco</organization>
+      <address>
+        <email>ofriel@cisco.com</email>
+      </address>
+    </author>
+    <author initials="D." surname="Harkins" fullname="Dan Harkins">
+      <organization>Hewlett-Packard Enterprise</organization>
+      <address>
+        <email>daniel.harkins@hpe.com</email>
+      </address>
+    </author>
+    <date year="2026" month="May"/>
+    <area>SEC</area>
+    <workgroup>emu</workgroup>
+
+    <abstract>
+<t>This document defines a mechanism that enables a bootstrapping device to establish trust and mutually authenticate against a TLS server. Bootstrapping devices have a public/private key pair; this mechanism enables a TLS server to prove to the device that it knows the public key and enables the device to prove to the TLS server that it knows the private key. The mechanism leverages existing Device Provisioning Profile (DPP) and TLS standards and can be used in an Extensible Authentication Protocol (EAP) exchange with an EAP server.</t>
+    </abstract>
+  </front>
+  <middle>
+    <?line 73?>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>Onboarding devices with no, or limited, user interface can be difficult.  Sometimes a credential is needed to access a network based on  <xref target="IEEE8802.1x"/> or EAP, and network connectivity is needed to obtain a credential.
+This poses a challenge for onboarding devices.</t>
+      <t>If a device has a public/private key pair, and trust in the integrity of a device's public key can be obtained in an out-of-band fashion, a device can be authenticated and provisioned with a usable credential for <xref target="IEEE8802.1x"/> / EAP-based network access.  While this authentication can be strong, the device's authentication of the network is somewhat weaker.  <xref target="DUCKLING"/> presents a functional security model to address this asymmetry.</t>
+      <t>Device onboarding protocols such as the Device Provisioning Profile <xref target="DPP"/>, also referred to as Wi-Fi Easy Connect, address this use case, but they have drawbacks. For instance, <xref target="DPP"/> does not support wired network access and does not specify how the device's DPP key pair can be used in a TLS handshake.  This document describes an authentication mechanism that a device can use to mutually authenticate against a TLS server and describes how that authentication protocol can be used in an EAP exchange for wired network access as described in <xref target="IEEE8802.1x"/>. This protocol is called "TLS Proof of Knowledge" or "TLS-POK".</t>
+      <t>This document does not address the problem of wireless network discovery, where a bootstrapping device detects multiple different wireless networks and needs a more robust and scalable mechanism than simple round-robin to determine the correct network to attach to. DPP addresses this issue for Wi-Fi, but DPP's discovery will not work on a wired <xref target="IEEE8802.1x"/> ethernet port, but TLS-POK will. Therefore, TLS-POK <bcp14>SHOULD NOT</bcp14> be used for bootstrapping against wireless networks and <bcp14>SHOULD</bcp14> be used for bootstrapping against wired networks.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+	
+	<t>The following terminology is used throughout this document.</t>
+        <dl spacing="compact">
+          <dt>802.1X:</dt><dd>IEEE Port-Based Network Access Control <xref target="IEEE8802.1x"/></dd>
+        
+            <dt>BSK:</dt><dd>Bootstrap Key, which is an elliptic curve public/private key pair from a cryptosystem suitable for doing ECDSA</dd>
+            <dt>DPP:</dt><dd>Device Provisioning Profile <xref target="DPP"/></dd>
+            <dt>EAP:</dt><dd>Extensible Authentication Protocol <xref target="RFC3748"/></dd>
+            <dt>EC:</dt><dd>Elliptic Curve</dd>
+            <dt>ECDSA:</dt><dd>Elliptic Curve Digital Signature Algorithm</dd>
+            <dt>EPSK:</dt><dd>External Pre-Shared Key</dd>
+            <dt>EST:</dt><dd>Enrollment over Secure Transport <xref target="RFC7030"/></dd>
+            <dt>NAI:</dt><dd>Network Access Identifier</dd>
+            <dt>PSK:</dt><dd>Pre-Shared Key</dd>
+            <dt>TEAP:</dt><dd>Tunnel Extensible Authentication Protocol <xref target="RFC9930"/></dd>
+        </dl>
+      </section>
+      <section anchor="bootstrapping-overview">
+        <name>Bootstrapping Overview</name>
+        <t>A bootstrapping device holds a public/private Elliptic Curve (EC) key pair, which this document refers to as a "Bootstrap Key" (or "BSK"). The private key of the BSK is known only by the device. The public key of the BSK is:</t>
+	<ul spacing="compact">
+	  <li>known by the device,</li>
+	  <li>known by the owner or holder of the device, and</li>
+	<li>provisioned on the TLS server by the TLS server operator.</li></ul>
+	<t>In order to establish trust and mutually authenticate, the TLS server proves to the device that it knows the public part of the BSK, and the device proves to the TLS server that it knows the private part of the BSK. More details on the BSK are given in <xref target="bootstrap-key"/>.</t>
+        <t>The TLS server could be an EAP server for 802.1X network access or could, for example, be an Enrollment over Secure Transport (EST) <xref target="RFC7030"/> server. In the case of authentication against an EAP server, the EAP server <bcp14>SHOULD</bcp14> provision the device with a credential that it uses for subsequent EAP authentication.</t>
+      </section>
+      <section anchor="eap-network-access">
+        <name>EAP Network Access</name>
+        <t>Enterprise deployments typically require an 802.1X / EAP-based authentication to obtain network access. Protocols like Enrollment over Secure Transport (EST) <xref target="RFC7030"/> can be used to enroll devices with a Certification Authority to allow them to authenticate using 802.1X / EAP. This creates a problem for bootstrapping devices where a certificate is needed for EAP authentication and 802.1X network access is needed to obtain a certificate.</t>
+	
+        <t>Devices whose BSK public key can be obtained in an out-of-band fashion and provisioned on the EAP server can authenticate with the EAP server using the mechanism defined in Sections <xref target="bootstrapping-in-tls-13" format="counter"/> and <xref target="using-tls-bootstrapping-in-eap" format="counter"/>. This network connectivity can then be used to perform an enrollment protocol (such as provided by <xref target="RFC9930"/>) to obtain a credential for subsequent EAP authentication. Certificate lifecycle management may also be performed in subsequent TEAP transactions.</t>
+      </section>
+      <section anchor="supported-eap-methods">
+        <name>Supported EAP Methods</name>
+        <t>This document defines a bootstrapping mechanism that results in a certificate being provisioned on a device that can be used for subsequent EAP authentication. Therefore, an EAP method supporting the provisioning of a certificate on a device is required. The only EAP method that currently supports provisioning of a certificate on a device is TEAP; therefore, this document assumes that TEAP is the only supported EAP method. <xref target="using-tls-bootstrapping-in-eap"/> describes how TLS-POK is used with TEAP, including defining a suitable NAI.</t>
+        <t>If future EAP methods are defined supporting certificate provisioning, then TLS-POK could potentially be used with those methods. Defining how this would work is out of scope of this document.</t>
+      </section>
+    </section>
+    <section anchor="bootstrap-key">
+      <name>Bootstrap Key</name>
+      <t>The mechanism for device onboarding defined in this document relies on an EC BSK. This BSK <bcp14>MUST</bcp14> be from a cryptosystem suitable for doing ECDSA. A bootstrapping client device has an associated EC BSK. The BSK may be static and baked into device firmware at manufacturing time or may be dynamic and generated at onboarding time by the device. The BSK public key <bcp14>MUST</bcp14> be encoded as the DER representation of an ASN.1 SEQUENCE SubjectPublicKeyInfo from <xref target="RFC5480"/>. The subjectPublicKey <bcp14>MUST</bcp14> be the compressed format of the public key. Note that the BSK public key encoding <bcp14>MUST</bcp14> include the ASN.1 AlgorithmIdentifier in addition to the subjectPublicKey. If the BSK public key can be shared in a trustworthy manner with a TLS server, a form of entity authentication (the step from which all subsequent authentication proceeds) can be obtained.</t>
+      <t>The exact mechanism by which the TLS server gains knowledge of the BSK public key is out of scope of this specification, but possible mechanisms include scanning a QR code to obtain a base64 encoding of the DER representation of the ASN.1 SubjectPublicKeyInfo or uploading of a Bill of Materials (BOM) that includes this information. More information on QR encoding is given in <xref target="alignment-with-wi-fi-alliance-device-provisioning-profile"/>. If the QR code is physically attached to the client device, or the BOM is associated with the device, the assumption is that the BSK public key obtained in this bootstrapping method belongs to the client. In this model, physical possession of the device implies legitimate ownership of the device.</t>
+      <t>The TLS server may have knowledge of multiple BSK public keys corresponding to multiple devices, and existing TLS mechanisms are leveraged that enable the server to identify a specific BSK public key corresponding to a specific device.</t>
+      <t>Using the process defined herein, the client proves to the TLS server that it has possession of the private key of its BSK. Provided that the mechanism in which the server obtained the BSK public key is trustworthy, a commensurate amount of authenticity of the resulting connection can be obtained. The server also proves that it knows the client's BSK public key, which, if the client does not gratuitously expose its public key, can be used to obtain a modicum of correctness, that the client is connecting to the correct server (see <xref target="DUCKLING"/>).</t>
+      <section anchor="alignment-with-wi-fi-alliance-device-provisioning-profile">
+        <name>Alignment with Wi-Fi Alliance Device Provisioning Profile</name>
+	
+        <t>The definition of the BSK public key aligns with <xref target="DPP"/>. This, for example, enables the QR code format as defined in <xref target="DPP"/> to be reused for TLS-POK. Therefore, a device that supports both wired LAN and Wi-Fi LAN connections can have a single QR code printed on its label, or dynamically display a single QR code on a display, and the BSK can be used for DPP if the device bootstraps against a Wi-Fi network or TLS-POK if the device bootstraps against a wired network. Similarly, a common BSK public key format could be imported into a BOM into a server that handles devices connecting over both wired and Wi-Fi networks.</t>
+        <t><xref target="DPP"/>, and therefore TLS-POK, does not support the use of RSA or postquantum crypto systems due to the size of public key and its unsuitableness to be represented in a QR code. If <xref target="DPP"/> is modified in the future to support postquantum crypto systems, this document will be updated to track support.</t>
+        <t>Any bootstrapping method defined for, or used by, <xref target="DPP"/> is compatible with TLS-POK.</t>
+      </section>
+    </section>
+    <section anchor="bootstrapping-in-tls-13">
+      <name>Bootstrapping in TLS 1.3</name>
+      <t>Bootstrapping in TLS 1.3 leverages Certificate-Based Authentication (as per <xref target="RFC8773"/>) with an EPSK. The EPSK is derived from the BSK public key as described in <xref target="external-psk-derivation"/>, and the EPSK is imported using "Importing External Pre-Shared Keys (PSKs) for TLS 1.3" <xref target="RFC9258"/>. As the BSK public key is an ASN.1 SEQUENCE SubjectPublicKeyInfo from <xref target="RFC5480"/>, and not a full PKI Certificate. The client must present the BSK as a raw public key as described in <xref target="RFC7250"/> and use ECDSA as defined in <xref target="NIST.FIPS.186-5"/> for authentication.</t>
+      <t>The TLS PSK handshake gives the client proof that the TLS server knows the BSK public key. Certificate-based authentication of the client to the server using the BSK gives the server proof that the client knows the BSK private key. This satisfies the proof of ownership requirements outlined in <xref target="introduction"/>.</t>
+      <section anchor="external-psk-derivation">
+        <name>EPSK Derivation</name>
+        <t>An EPSK <xref target="RFC9258"/> is made up of the tuple of (Base Key, External Identity, Hash). The Base Key is the DER-encoded ASN.1 subjectPublicKeyInfo representation of the BSK public key. Zero-byte padding <bcp14>MUST NOT</bcp14> be added to the DER-encoded representation of the BSK public key.</t>
+        <t>The External Identity is derived from the DER-encoded representation of the BSK public key using <xref target="RFC5869"/> with the SHA-256 hash algorithm <xref target="SHA2"/> as follows:</t>
+        <artset>
+          <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="160" width="480" viewBox="0 0 480 160" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+              <g class="text">
+                <text x="28" y="36">epskid</text>
+                <text x="64" y="36">=</text>
+                <text x="188" y="36">HKDF-Expand(HKDF-Extract(&lt;&gt;,</text>
+                <text x="324" y="36">Base</text>
+                <text x="368" y="36">Key),</text>
+                <text x="280" y="52">"tls13-bspsk-identity",</text>
+                <text x="388" y="52">L)</text>
+                <text x="28" y="68">where:</text>
+                <text x="24" y="84">-</text>
+                <text x="60" y="84">epskid</text>
+                <text x="100" y="84">is</text>
+                <text x="128" y="84">the</text>
+                <text x="164" y="84">EPSK</text>
+                <text x="220" y="84">External</text>
+                <text x="292" y="84">Identity</text>
+                <text x="24" y="100">-</text>
+                <text x="52" y="100">Base</text>
+                <text x="88" y="100">Key</text>
+                <text x="116" y="100">is</text>
+                <text x="144" y="100">the</text>
+                <text x="208" y="100">DER-encoded</text>
+                <text x="280" y="100">ASN.1</text>
+                <text x="388" y="100">subjectPublicKeyInfo</text>
+                <text x="92" y="116">representation</text>
+                <text x="164" y="116">of</text>
+                <text x="192" y="116">the</text>
+                <text x="224" y="116">BSK</text>
+                <text x="268" y="116">public</text>
+                <text x="312" y="116">key</text>
+                <text x="24" y="132">-</text>
+                <text x="40" y="132">L</text>
+                <text x="76" y="132">equals</text>
+                <text x="120" y="132">32,</text>
+                <text x="152" y="132">the</text>
+                <text x="196" y="132">length</text>
+                <text x="236" y="132">in</text>
+                <text x="276" y="132">octets</text>
+                <text x="316" y="132">of</text>
+                <text x="344" y="132">the</text>
+                <text x="392" y="132">SHA-256</text>
+                <text x="452" y="132">output</text>
+                <text x="24" y="148">-</text>
+                <text x="44" y="148">&lt;&gt;</text>
+                <text x="68" y="148">is</text>
+                <text x="88" y="148">a</text>
+                <text x="116" y="148">NULL</text>
+                <text x="156" y="148">salt</text>
+                <text x="200" y="148">which</text>
+                <text x="236" y="148">is</text>
+                <text x="256" y="148">a</text>
+                <text x="292" y="148">string</text>
+                <text x="332" y="148">of</text>
+                <text x="352" y="148">L</text>
+                <text x="384" y="148">zeros</text>
+              </g>
+            </svg>
+          </artwork>
+          <artwork type="ascii-art"><![CDATA[
+epskid = HKDF-Expand(HKDF-Extract(<>, Base Key),
+                       "tls13-bspsk-identity", L)
+where:
+  - epskid is the EPSK External Identity
+  - Base Key is the DER-encoded ASN.1 subjectPublicKeyInfo
+    representation of the BSK public key
+  - L equals 32, the length in octets of the SHA-256 output
+  - <> is a NULL salt, which is a string of L zeros
+]]></artwork>
+        </artset>
+        <t>SHA-256 <bcp14>MUST</bcp14> be used when deriving epskid using <xref target="RFC5869"/>.</t>
+        <t>The ImportedIdentity structure <xref target="RFC9258"/> is defined as:</t>
+        <artset>
+          <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="128" width="328" viewBox="0 0 328 128" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+              <g class="text">
+                <text x="28" y="36">struct</text>
+                <text x="64" y="36">{</text>
+                <text x="52" y="52">opaque</text>
+                <text x="204" y="52">external_identity&lt;1...2^16-1&gt;;</text>
+                <text x="52" y="68">opaque</text>
+                <text x="160" y="68">context&lt;0..2^16-1&gt;;</text>
+                <text x="52" y="84">uint16</text>
+                <text x="148" y="84">target_protocol;</text>
+                <text x="52" y="100">uint16</text>
+                <text x="128" y="100">target_kdf;</text>
+                <text x="8" y="116">}</text>
+                <text x="88" y="116">ImportedIdentity;</text>
+              </g>
+            </svg>
+          </artwork>
+          <artwork type="ascii-art"><![CDATA[
+struct {
+   opaque external_identity<1...2^16-1>;
+   opaque context<0..2^16-1>;
+   uint16 target_protocol;
+   uint16 target_kdf;
+} ImportedIdentity;
+]]></artwork>
+        </artset>
+
+        <t>and is created using the following values:</t>
+        <artset>
+          <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="96" width="264" viewBox="0 0 264 96" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+              <g class="text">
+                <text x="72" y="36">external_identity</text>
+                <text x="152" y="36">=</text>
+                <text x="188" y="36">epskid</text>
+                <text x="32" y="52">context</text>
+                <text x="72" y="52">=</text>
+                <text x="128" y="52">"tls13-bsk"</text>
+                <text x="64" y="68">target_protocol</text>
+                <text x="136" y="68">=</text>
+                <text x="204" y="68">TLS1.3(0x0304)</text>
+                <text x="44" y="84">target_kdf</text>
+                <text x="96" y="84">=</text>
+                <text x="120" y="84">&lt;as</text>
+                <text x="152" y="84">per</text>
+                <text x="204" y="84">RFC 9258&gt;</text>
+              </g>
+            </svg>
+          </artwork>
+          <artwork type="ascii-art"><![CDATA[
+external_identity = epskid
+context = "tls13-bsk"
+target_protocol = TLS1.3(0x0304)
+target_kdf = <as per RFC 9258>
+]]></artwork>
+        </artset>
+        <t>The ImportedIdentity context value <bcp14>MUST</bcp14> be "tls13-bsk". This informs the server that the mechanisms specified in this document for deriving the EPSK and executing the TLS handshake <bcp14>MUST</bcp14> be used. The EPSK and ImportedIdentity are used in the TLS handshake as specified in <xref target="RFC9258"/>. Multiple ImportedIdentity values may be imported as per <xref target="RFC9258" section="5.1"/>. The target_kdf follows <xref target="RFC9258"/> and aligns with the cipher suite hash algorithms advertised in the TLS 1.3 handshake between the device and the server.</t>
+        <t>A server can choose a trade-off between performance and storage by precomputing the identity of every bootstrapped key with every hash algorithm that it uses in TLS and use that to quickly lookup the bootstrap key and generate the PSK. Servers that choose not to employ this optimization will have to do a runtime check with every bootstrap key it holds against the identity the client provides.</t>
+        <t>Test vectors for derivation of an EPSK External Identity from a BSK are given in the appendix.</t>
+      </section>
+      <section anchor="tls-13-handshake-details">
+        <name>TLS 1.3 Handshake Details</name>
+        <t>The client includes the "tls_cert_with_extern_psk" extension in the ClientHello, per <xref target="RFC8773"/>. The client identifies the BSK public key by inserting the serialized content of ImportedIdentity into the PskIdentity.identity in the PSK extension, per <xref target="RFC9258"/>. The client <bcp14>MUST</bcp14> also include the "client_certificate_type" extension per <xref target="RFC7250"/> in the ClientHello and <bcp14>MUST</bcp14> specify type of RawPublicKey.</t>
+        <t>Upon receipt of the ClientHello, the server looks up the client's EPSK in its database using the mechanisms documented in <xref target="RFC9258"/>. If no match is found, the server <bcp14>MUST</bcp14> terminate the TLS handshake with an alert. If the server finds the matching BSK public key, it includes the "tls_cert_with_extern_psk" extension in the ServerHello message and the corresponding EPSK identity in the "pre_shared_key" extension. When these extensions have been successfully negotiated, the TLS 1.3 key schedule <bcp14>MUST</bcp14> include both the EPSK in the Early Secret derivation and a Diffie-Hellman Ephemeral (DHE) or ECDHE shared secret value in the Handshake Secret derivation.</t>
+        <t>After successful negotiation of these extensions, the full TLS 1.3 handshake is performed with the additional caveat that the server <bcp14>MUST</bcp14> send a CertificateRequest message and the client <bcp14>MUST</bcp14> authenticate with a raw public key (its BSK) per <xref target="RFC7250"/>. The BSK is always an EC key pair; therefore, the type of the client's Certificate <bcp14>MUST</bcp14> be ECDSA and <bcp14>MUST</bcp14> contain the client's BSK public key as a DER-encoded ASN.1 subjectPublicKeyInfo SEQUENCE.</t>
+        <t>Note that the client <bcp14>MUST NOT</bcp14> share its BSK public key with the server until after the client has completed processing of the ServerHello and verified the TLS key schedule. The PSK proof is completed at this stage, and the server has proven to the client that it knows the BSK public key, and it is therefore safe for the client to send the BSK public key to the server in the Certificate message. If the PSK verification step fails when processing the ServerHello, the client terminates the TLS handshake and the BSK public key <bcp14>MUST NOT</bcp14> be shared with the server.</t>
+        <t>When the server processes the client's Certificate, it <bcp14>MUST</bcp14> ensure that it is identical to the BSK public key that it used to generate the EPSK and ImportedIdentity for this handshake.</t>
+        <t>When clients are configured to trust the first network that proves possession of their public key (as in <xref target="DUCKLING"/>), they <bcp14>MAY</bcp14> forgo the checking of the server's certificate in the CertificateVerify and rely on the integrity of the bootstrapping method employed to distribute its key in order to validate trust in the authenticated TLS connection.</t>
+        <t>The handshake is shown in <xref target="arch-one"/>.</t>
+	
+        <figure anchor="arch-one">
+          <name>TLS 1.3 TLS-POK Handshake</name>
+          <artset>
+            <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="368" width="472" viewBox="0 0 472 368" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                <path d="M 8,48 L 64,48" fill="none" stroke="black"/>
+                <path d="M 408,48 L 464,48" fill="none" stroke="black"/>
+                <path d="M 224,128 L 288,128" fill="none" stroke="black"/>
+                <path d="M 224,288 L 288,288" fill="none" stroke="black"/>
+                <path d="M 224,336 L 288,336" fill="none" stroke="black"/>
+                <polygon class="arrowhead" points="296,336 284,330.4 284,341.6" fill="black" transform="rotate(0,288,336)"/>
+                <polygon class="arrowhead" points="296,128 284,122.4 284,133.6" fill="black" transform="rotate(0,288,128)"/>
+                <polygon class="arrowhead" points="232,288 220,282.4 220,293.6" fill="black" transform="rotate(180,224,288)"/>
+                <g class="text">
+                  <text x="28" y="36">Client</text>
+                  <text x="428" y="36">Server</text>
+                  <text x="48" y="68">ClientHello</text>
+                  <text x="16" y="84">+</text>
+                  <text x="100" y="84">cert_with_extern_psk</text>
+                  <text x="16" y="100">+</text>
+                  <text x="136" y="100">client_cert_type=RawPublicKey</text>
+                  <text x="16" y="116">+</text>
+                  <text x="56" y="116">key_share</text>
+                  <text x="16" y="132">+</text>
+                  <text x="76" y="132">pre_shared_key</text>
+                  <text x="424" y="148">ServerHello</text>
+                  <text x="296" y="164">+</text>
+                  <text x="388" y="164">cert_with_extern_psk</text>
+                  <text x="224" y="180">+</text>
+                  <text x="352" y="180">client_cert_type=RawPublicKey</text>
+                  <text x="384" y="196">+</text>
+                  <text x="432" y="196">key_share</text>
+                  <text x="344" y="212">+</text>
+                  <text x="412" y="212">pre_shared_key</text>
+                  <text x="384" y="228">{EncryptedExtensions}</text>
+                  <text x="388" y="244">{CertificateRequest}</text>
+                  <text x="416" y="260">{Certificate}</text>
+                  <text x="392" y="276">{CertificateVerify}</text>
+                  <text x="428" y="292">{Finished}</text>
+                  <text x="56" y="308">{Certificate}</text>
+                  <text x="80" y="324">{CertificateVerify}</text>
+                  <text x="44" y="340">{Finished}</text>
+                </g>
+              </svg>
+            </artwork>
+            <artwork type="ascii-art"><![CDATA[
+         Client                                            Server
+         --------                                          --------
+         ClientHello
+         + cert_with_extern_psk
+         + client_cert_type=RawPublicKey
+         + key_share
+         + pre_shared_key           -------->
+                                                        ServerHello
+                                             + cert_with_extern_psk
+                                    + client_cert_type=RawPublicKey
+                                                        + key_share
+                                                   + pre_shared_key
+                                              {EncryptedExtensions}
+                                               {CertificateRequest}
+                                                      {Certificate}
+                                                {CertificateVerify}
+                                    <--------            {Finished}
+         {Certificate}
+         {CertificateVerify}
+         {Finished}                 -------->
+]]></artwork>
+          </artset>
+        </figure>
+      </section>
+    </section>
+    <section anchor="using-tls-bootstrapping-in-eap">
+      <name>Using TLS Bootstrapping in EAP</name>
+      <t>Upon "link up", an Authenticator on an 802.1X-protected port will issue an EAP Identity request to the newly connected peer. For unprovisioned devices that desire to take advantage of TLS-POK, there is no initial realm in which to construct an NAI (see <xref target="RFC7542"/>). This document uses the NAI mechanisms defined in <xref target="RFC9965"/> and defines the EAP username "tls-pok-dpp" for use with the TEAP realm "teap.eap.arpa". The username "tls-pok-dpp" <bcp14>MUST</bcp14> be included, yielding an initial identity of "tls-pok-dpp@teap.eap.arpa". This identifier <bcp14>MUST</bcp14> be included in the EAP Identity response in order to indicate to the Authenticator that TEAP is the desired EAP method. <xref target="RFC9965"/> recommends how the device should behave if the Authenticator does not support TEAP or TLS-POK.</t>
+
+              <figure anchor="fig2">
+          <name>EAP Exchange Using TLS-POK</name>
+      <artset>
+        <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="400" width="320" viewBox="0 0 320 400" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+            <path d="M 8,48 L 64,48" fill="none" stroke="black"/>
+            <path d="M 200,48 L 272,48" fill="none" stroke="black"/>
+            <g class="text">
+              <text x="16" y="36">EAP</text>
+              <text x="52" y="36">Peer</text>
+              <text x="208" y="36">EAP</text>
+              <text x="252" y="36">Server</text>
+              <text x="204" y="68">&lt;-</text>
+              <text x="268" y="68">EAP-Request/</text>
+              <text x="228" y="84">Identity</text>
+              <text x="56" y="116">EAP-Response/</text>
+              <text x="36" y="132">Identity</text>
+              <text x="112" y="148">(tls-pok-dpp@teap.eap.arpa)</text>
+              <text x="236" y="148">-&gt;</text>
+              <text x="204" y="180">&lt;-</text>
+              <text x="268" y="180">EAP-Request/</text>
+              <text x="248" y="196">EAP-Type=TEAP</text>
+              <text x="204" y="212">(TLS</text>
+              <text x="252" y="212">Start)</text>
+              <text x="56" y="244">EAP-Response/</text>
+              <text x="56" y="260">EAP-Type=TEAP</text>
+              <text x="20" y="276">(TLS</text>
+              <text x="92" y="276">client_hello</text>
+              <text x="164" y="276">with</text>
+              <text x="108" y="292">tls_cert_with_extern_psk</text>
+              <text x="24" y="308">and</text>
+              <text x="104" y="308">pre_shared_key)</text>
+              <text x="180" y="308">-&gt;</text>
+              <text x="160" y="340">.</text>
+              <text x="160" y="356">.</text>
+              <text x="160" y="372">.</text>
+            </g>
+          </svg>
+        </artwork>
+        <artwork type="ascii-art"><![CDATA[
+    EAP Peer                EAP Server
+    --------                ----------
+                            <- EAP-Request/
+                            Identity
+
+    EAP-Response/
+    Identity
+    (tls-pok-dpp@teap.eap.arpa) ->
+
+                            <- EAP-Request/
+                            EAP-Type=TEAP
+                           (TLS Start)
+
+    EAP-Response/
+    EAP-Type=TEAP
+    (TLS client_hello with
+     tls_cert_with_extern_psk
+     and pre_shared_key) ->
+     
+                       .
+                       .
+                       .
+]]></artwork>
+      </artset>
+	      </figure>
+      <t>Both client and server have derived the EPSK and associated  ImportedIdentity <xref target="RFC9258"/> from the BSK public key as described in <xref target="external-psk-derivation"/>. When the client starts the TLS exchange in the EAP transaction, it includes the ImportedIdentity structure in the pre_shared_key extension in the ClientHello. When the server receives the ClientHello, it extracts the ImportedIdentity and looks up the EPSK and BSK public key. As previously mentioned in <xref target="bootstrap-key"/>, the exact mechanism by which the server has gained knowledge of or been provisioned with the BSK public key is outside the scope of this document.</t>
+      <t>The server continues with the TLS handshake and uses the EPSK to prove that it knows the BSK public key. When the client replies with its Certificate, CertificateVerify, and Finished messages, the server <bcp14>MUST</bcp14> ensure that the public key in the Certificate message matches the BSK public key.</t>
+      <t>Once the TLS handshake completes, the client and server have established mutual trust. The server can then proceed to provision a credential onto the client using, for example, the mechanisms outlined in <xref target="RFC9930"/>.</t>
+      <t>The client can then use this provisioned credential for subsequent EAP authentication. The BSK is only used during bootstrap and is not used for any subsequent EAP authentication.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+
+
+      <t>This document adds the following entry to the "EAP Provisioning Identifiers" registry in the "Extensible Authentication Protocol (EAP) Registry" registry group.</t>
+
+      <dl spacing="normal" newline="false">
+	<dt>NAI:</dt><dd>tls-pok-dpp@teap.eap.arpa</dd>
+	<dt>Method Type:</dt><dd>TEAP</dd>
+	<dt>Reference:</dt><dd>RFC 9966</dd>
+      </dl>
+    </section>
+    <section anchor="implementation-considerations">
+      <name>Implementation Considerations</name>
+      <t>Three key points are documented above and are repeated here.</t>
+      <ul spacing="normal">
+        <li>
+          <t>The subjectPublicKey contained in the ASN.1 SEQUENCE SubjectPublicKeyInfo <bcp14>MUST</bcp14> be the compressed format of the public key.</t>
+        </li>
+        <li>
+          <t>When deriving the EPSK from the BSK, zero-byte padding <bcp14>MUST NOT</bcp14> be added to the DER-encoded representation of the BSK public key.</t>
+        </li>
+        <li>
+          <t>SHA-256 <bcp14>MUST</bcp14> be used when following <xref target="RFC5869"/> to derive the EPSK from the BSK.</t>
+        </li>
+        <li>
+          <t>The BSK public key <bcp14>MUST NOT</bcp14> be freely available on the network.</t>
+        </li>
+      </ul>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>Bootstrap and trust establishment by the TLS server are based on proof of knowledge of the client's BSK public key, a non-public datum. The TLS server obtains proof that the client knows its BSK public key and also possesses its corresponding private key.</t>
+      <t>Trust on the part of the client is based on successful completion of the TLS 1.3 handshake using the EPSK derived from the BSK. This proves to the client that the server knows its BSK public key. In addition, the client assumes that knowledge of its BSK public key is not widely disseminated; therefore, any server that proves knowledge of its BSK public key is the appropriate server from which to receive provisioning, for instance via <xref target="RFC9930"/>. <xref target="DUCKLING"/> describes a security model for this type of "imprinting".</t>
+      <t>An attack on the bootstrapping method, which substitutes the public key of a rogue device for the public key of an honest device, can result in the TLS server onboarding and trusting the rogue device.</t>
+      <t>If an adversary has knowledge of the BSK public key, the adversary may be able to make the client bootstrap against the adversary's network. For example, if an adversary intercepts and scans QR labels on clients, and the adversary can force the client to connect to its server, then the adversary can complete the TLS-POK handshake with the client and the client will connect to the adversary's server. Since physical possession implies ownership, there is nothing to prevent a stolen device from being onboarded.</t>
+      <t>The BSK key pair used for ECDSA <bcp14>MUST</bcp14> be generated and validated according to Section 6.2 of <xref target="NIST.FIPS.186-5"/>.</t>
+      <t>Manufacturers <bcp14>SHOULD</bcp14> use a unique BSK for every single device they manufacture. If multiple devices share the same BSK, then network operators cannot differentiate between these devices and cannot ensure that only specific authorized devices are allowed connect to their networks.</t>
+    </section>
+  </middle>
+  <back>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <reference anchor="NIST.FIPS.186-5" target="https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.186-5.pdf">
+          <front>
+            <title>Digital Signature Standard (DSS)</title>
+            <author>
+              <organization abbrev="NIST">National Institute of Standards and Technology</organization>
+            </author>
+            <date month="February" year="2023"/>
+          </front>
+          <seriesInfo name="NIST FIPS" value="186-5"/>
+          <seriesInfo name="DOI" value="10.6028/NIST.FIPS.186-5"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5480.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8773.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9258.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7250.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5869.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9965.xml"/>
+
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+
+        <reference anchor="IEEE8802.1x" target="https://ieeexplore.ieee.org/document/9650828">
+          <front>
+          <title>IEEE/ISO/IEC International
+Standard-Telecommunications and exchange between information
+technology systems--Requirements for local and metropolitan area
+networks-/-Part 1X:Port-based network access control</title>
+            <author>
+              <organization>IEEE/ISO/IEC</organization>
+            </author>
+            <date year="2021"/>
+          </front>
+          <seriesInfo name='ISO/IEC/IEEE' value='8802-1X:2021' />
+          <seriesInfo name='DOI' value='10.1109/IEEESTD.2021.9650828' />
+        </reference>
+
+
+        <reference anchor="DPP" target="https://www.wi-fi.org/system/files/Wi-Fi_Easy_Connect_Specification_v3.0.pdf">
+          <front>
+            <title>Wi-Fi Easy Connect(TM) Specification</title>
+            <author>
+              <organization>Wi-Fi Alliance</organization>
+            </author>
+            <date year="2022"/>
+          </front>
+          <refcontent>Version 3.0</refcontent>
+        </reference>
+
+        <reference anchor="DUCKLING" target="https://www.cl.cam.ac.uk/~fms27/papers/1999-StajanoAnd-duckling.pdf">
+          <front>
+            <title>The Resurrecting Duckling: Security Issues for Ad-Hoc Wireless Networks</title>
+            <author initials="F." surname="Stajano" fullname="Frank Stajano">
+              <organization/>
+            </author>
+            <author initials="R." surname="Anderson" fullname="Ross Anderson">
+              <organization/>
+            </author>
+            <date year="1999"/>
+          </front>
+          <refcontent>Security Protocols, 7th International Workshop Proceedings, Lecture Notes in Computer Science, vol. 1796,
+pp. 172-182</refcontent>
+          <seriesInfo name="DOI" value="10.1007/10720107_24"/>
+        </reference>
+        <reference anchor="SHA2" target="https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf">
+          <front>
+            <title>Secure Hash Standard</title>
+            <author>
+              <organization abbrev="NIST">National Institute of Standards and Technology</organization>
+            </author>
+            <date month="August" year="2015"/>
+          </front>
+          <seriesInfo name="NIST FIPS" value="180-4"/>
+          <seriesInfo name="DOI" value="10.6028/NIST.FIPS.180-4"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3748.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7030.xml"/>
+	
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9930.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7542.xml"/>
+      </references>
+    </references>
+
+    
+    <section anchor="test-vectors">
+      <name>Test Vectors</name>
+      <section anchor="test-vector-1-prime256v1">
+        <name>Test Vector 1: prime256v1</name>
+        <t>Base64 encoding of BSK:</t>
+        <sourcecode type="test-vectors">MDkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDIgACMvLyoOykj8sFJxSoZfzafuVEvM+kNYCxp
+EC6KITLb9g=</sourcecode>
+        <t>Base64 encoding of epskid:</t>
+        <t><tt>Bd+lLlg/ERdtYacfzDfh1LjdL0+QWJQHdYXoS7JDSkA=</tt></t>
+      </section>
+      <section anchor="test-vector-2-secp384r1">
+        <name>Test Vector 2: secp384r1</name>
+        <t>Base64 encoding of BSK:</t>
+        <sourcecode type="test-vectors">MEYwEAYHKoZIzj0CAQYFK4EEACIDMgACwDXKQ1pytcR1WbfqPaNGaXQ0RJnijJG1em8ZK
+ilryZRDfNioq7+EPquT6l9laRvw</sourcecode>
+        <t>Base64 encoding of epskid:</t>
+        <sourcecode type="test-vectors">yMWK26ec3klVFewg2znKntQgVoRcRRjW81n677GL+8w=</sourcecode>
+      </section>
+      <section anchor="test-vector-3-secp521r1">
+        <name>Test Vector 3: secp521r1</name>
+        <t>Base64 encoding of BSK:</t>
+        <sourcecode type="test-vectors">MFgwEAYHKoZIzj0CAQYFK4EEACMDRAADAIiHIAOXdPVuI8khCnJQHT1j53rQRnFCcY3CZ
+UvxdXKJR9KW5RVB3HDQfmkoQWHEz4XngXUeFyDXliEo3eF6vhqDMFgwEAYHKoZIzj0CAQ
+YFK4EEACMDRAADAIiHIAOXdPVuI8khCnJQHT1j53rQRnFCcY3CZUvxdXKJR9KW5RVB3HD
+QfmkoQWHEz4XngXUeFyDXliEo3eF6vhqD</sourcecode>
+        <t>Base64 encoding of epskid:</t>
+        <t><tt>D+s3Ex81A8N36ECI3AdXwBzrOXuonZUMdhhHXVINhg8=</tt></t>
+      </section>
+      <section anchor="test-vector-4-brainpoolp256r1">
+        <name>Test Vector 4: brainpoolP256r1</name>
+        <t>Base64 encoding of BSK:</t>
+        <sourcecode type="test-vectors">MDowFAYHKoZIzj0CAQYJKyQDAwIIAQEHAyIAA3fyUWqiV8NC9DAC88JzmVqnoT/
+reuCvq8lHowtwWNOZ</sourcecode>
+        <t>Base64 encoding of epskid:</t>
+        <sourcecode type="test-vectors">j2TLWcXtrTej+f3q7EZrhp5SmP31uk1ZB23dfcR93EY=</sourcecode>
+      </section>
+    </section>
+  </back>
+
+</rfc>

@@ -1,0 +1,926 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-httpbis-compression-dictionary-19" number="9842" category="std" updates="" obsoletes="" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="Compression Dictionary Transport">Compression Dictionary Transport</title>
+    <seriesInfo name="RFC" value="9842"/>
+    <author initials="P." surname="Meenan" fullname="Patrick Meenan" role="editor">
+      <organization>Google LLC</organization>
+      <address>
+        <email>pmeenan@google.com</email>
+      </address>
+    </author>
+    <author initials="Y." surname="Weiss" fullname="Yoav Weiss" role="editor">
+      <organization>Shopify Inc.</organization>
+      <address>
+        <email>yoav.weiss@shopify.com</email>
+      </address>
+    </author>
+    <date year="2025" month="September"/>
+
+    <area>ART</area>
+    <workgroup>HTTP</workgroup>
+
+    <keyword>compression dictionary</keyword>
+    <keyword>shared brotli</keyword>
+    <keyword>zstandard dictionary</keyword>
+    <keyword>delta compression</keyword>
+    <abstract>
+<t>This document specifies a mechanism for dictionary-based compression in the
+Hypertext Transfer Protocol (HTTP). By utilizing this technique, clients and
+servers can reduce the size of transmitted data, leading to improved performance
+and reduced bandwidth consumption. This document extends existing HTTP compression
+methods and provides guidelines for the delivery and use of compression
+dictionaries within the HTTP protocol.</t>
+    </abstract>
+
+  </front>
+  <middle>
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>This specification defines a mechanism for using designated HTTP <xref target="RFC9110"/> responses
+as an external dictionary for future HTTP responses for compression schemes
+that support using external dictionaries (e.g., Brotli <xref target="RFC7932"/> and
+Zstandard <xref target="RFC8878"/>).</t>
+      <t>This document describes the HTTP headers used for negotiating dictionary usage
+and registers content-encoding values for compressing with Brotli and Zstandard
+using a negotiated dictionary.</t>
+      <t>The negotiation of dictionary usage leverages HTTP's content negotiation
+(see <xref section="12" sectionFormat="of" target="RFC9110"/>) and is usable with all versions of HTTP.</t>
+      <section anchor="use-cases">
+        <name>Use Cases</name>
+        <t>Any HTTP response can be specified for use as a compression dictionary for
+future HTTP requests, which provides a lot of flexibility. Two common
+use cases that are seen frequently are described below.</t>
+        <section anchor="version-upgrade">
+          <name>Version Upgrade</name>
+          <t>Using a previous version of a resource as a dictionary for a newer version
+enables delivery of a delta-compressed version of the changes, usually
+resulting in significantly smaller responses than what can be achieved by
+compression alone.</t>
+          <t>For example:</t>
+          <figure>
+            <name>Version Upgrade Example</name>
+            <artset>
+              <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="432" width="424" viewBox="0 0 424 432" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                  <path d="M 8,48 L 8,176" fill="none" stroke="black"/>
+                  <path d="M 8,256 L 8,416" fill="none" stroke="black"/>
+                  <path d="M 416,48 L 416,176" fill="none" stroke="black"/>
+                  <path d="M 416,256 L 416,416" fill="none" stroke="black"/>
+                  <path d="M 16,80 L 408,80" fill="none" stroke="black"/>
+                  <path d="M 16,160 L 408,160" fill="none" stroke="black"/>
+                  <path d="M 16,320 L 408,320" fill="none" stroke="black"/>
+                  <path d="M 16,400 L 408,400" fill="none" stroke="black"/>
+                  <polygon class="arrowhead" points="416,320 404,314.4 404,325.6" fill="black" transform="rotate(0,408,320)"/>
+                  <polygon class="arrowhead" points="416,80 404,74.4 404,85.6" fill="black" transform="rotate(0,408,80)"/>
+                  <polygon class="arrowhead" points="24,400 12,394.4 12,405.6" fill="black" transform="rotate(180,16,400)"/>
+                  <polygon class="arrowhead" points="24,160 12,154.4 12,165.6" fill="black" transform="rotate(180,16,160)"/>
+                  <g class="text">
+                    <text x="28" y="36">Client</text>
+                    <text x="396" y="36">Server</text>
+                    <text x="32" y="68">GET</text>
+                    <text x="92" y="68">/app.v1.js</text>
+                    <text x="64" y="116">200</text>
+                    <text x="92" y="116">OK</text>
+                    <text x="124" y="132">Use-As-Dictionary:</text>
+                    <text x="264" y="132">match="/app*js"</text>
+                    <text x="72" y="148">&lt;full</text>
+                    <text x="136" y="148">app.v1.js</text>
+                    <text x="212" y="148">resource</text>
+                    <text x="256" y="148">-</text>
+                    <text x="288" y="148">100KB</text>
+                    <text x="360" y="148">compressed&gt;</text>
+                    <text x="20" y="212">Some</text>
+                    <text x="60" y="212">time</text>
+                    <text x="104" y="212">later</text>
+                    <text x="144" y="212">...</text>
+                    <text x="28" y="244">Client</text>
+                    <text x="396" y="244">Server</text>
+                    <text x="32" y="276">GET</text>
+                    <text x="92" y="276">/app.v2.js</text>
+                    <text x="104" y="292">Available-Dictionary:</text>
+                    <text x="272" y="292">:pZGm1A...2a2fFG4=:</text>
+                    <text x="84" y="308">Accept-Encoding:</text>
+                    <text x="176" y="308">gzip,</text>
+                    <text x="216" y="308">br,</text>
+                    <text x="256" y="308">zstd,</text>
+                    <text x="300" y="308">dcb,</text>
+                    <text x="336" y="308">dcz</text>
+                    <text x="72" y="356">200</text>
+                    <text x="100" y="356">OK</text>
+                    <text x="128" y="372">Content-Encoding:</text>
+                    <text x="216" y="372">dcb</text>
+                    <text x="128" y="388">&lt;delta-compressed</text>
+                    <text x="240" y="388">app.v2.js</text>
+                    <text x="316" y="388">resource</text>
+                    <text x="360" y="388">-</text>
+                    <text x="388" y="388">1KB&gt;</text>
+                  </g>
+                </svg>
+              </artwork>
+              <artwork type="ascii-art"><![CDATA[
+Client                                        Server
+|                                                  |
+| GET /app.v1.js                                   |
+|------------------------------------------------->|
+|                                                  |
+|     200 OK                                       |
+|     Use-As-Dictionary: match="/app*js"           |
+|     <full app.v1.js resource - 100KB compressed> |
+|<-------------------------------------------------|
+|                                                  |
+
+Some time later ...
+
+Client                                        Server
+|                                                  |
+| GET /app.v2.js                                   |
+| Available-Dictionary: :pZGm1A...2a2fFG4=:        |
+| Accept-Encoding: gzip, br, zstd, dcb, dcz        |
+|------------------------------------------------->|
+|                                                  |
+|      200 OK                                      |
+|      Content-Encoding: dcb                       |
+|      <delta-compressed app.v2.js resource - 1KB> |
+|<-------------------------------------------------|
+|                                                  |
+]]></artwork>
+            </artset>
+          </figure>
+        </section>
+        <section anchor="common-content">
+          <name>Common Content</name>
+          <t>If several resources share common patterns in their responses, then it can be
+useful to reference an external dictionary that contains those common patterns,
+effectively compressing them out of the responses. Some examples of this are
+common template HTML for similar pages across a site and common keys and values
+in API calls.</t>
+          <t>For example:</t>
+          <figure>
+            <name>Common Content Example</name>
+            <artset>
+              <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="544" width="440" viewBox="0 0 440 544" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+                  <path d="M 8,48 L 8,288" fill="none" stroke="black"/>
+                  <path d="M 8,368 L 8,528" fill="none" stroke="black"/>
+                  <path d="M 432,48 L 432,288" fill="none" stroke="black"/>
+                  <path d="M 432,368 L 432,528" fill="none" stroke="black"/>
+                  <path d="M 16,80 L 424,80" fill="none" stroke="black"/>
+                  <path d="M 16,160 L 424,160" fill="none" stroke="black"/>
+                  <path d="M 16,208 L 424,208" fill="none" stroke="black"/>
+                  <path d="M 16,272 L 424,272" fill="none" stroke="black"/>
+                  <path d="M 16,432 L 424,432" fill="none" stroke="black"/>
+                  <path d="M 16,512 L 424,512" fill="none" stroke="black"/>
+                  <polygon class="arrowhead" points="432,432 420,426.4 420,437.6" fill="black" transform="rotate(0,424,432)"/>
+                  <polygon class="arrowhead" points="432,208 420,202.4 420,213.6" fill="black" transform="rotate(0,424,208)"/>
+                  <polygon class="arrowhead" points="432,80 420,74.4 420,85.6" fill="black" transform="rotate(0,424,80)"/>
+                  <polygon class="arrowhead" points="24,512 12,506.4 12,517.6" fill="black" transform="rotate(180,16,512)"/>
+                  <polygon class="arrowhead" points="24,272 12,266.4 12,277.6" fill="black" transform="rotate(180,16,272)"/>
+                  <polygon class="arrowhead" points="24,160 12,154.4 12,165.6" fill="black" transform="rotate(180,16,160)"/>
+                  <g class="text">
+                    <text x="28" y="36">Client</text>
+                    <text x="412" y="36">Server</text>
+                    <text x="32" y="68">GET</text>
+                    <text x="96" y="68">/index.html</text>
+                    <text x="64" y="116">200</text>
+                    <text x="92" y="116">OK</text>
+                    <text x="72" y="132">Link:</text>
+                    <text x="144" y="132">&lt;.../dict&gt;;</text>
+                    <text x="308" y="132">rel="compression-dictionary"</text>
+                    <text x="72" y="148">&lt;full</text>
+                    <text x="140" y="148">index.html</text>
+                    <text x="220" y="148">resource</text>
+                    <text x="264" y="148">-</text>
+                    <text x="296" y="148">100KB</text>
+                    <text x="368" y="148">compressed&gt;</text>
+                    <text x="32" y="196">GET</text>
+                    <text x="72" y="196">/dict</text>
+                    <text x="168" y="244">200</text>
+                    <text x="196" y="244">OK</text>
+                    <text x="228" y="260">Use-As-Dictionary:</text>
+                    <text x="364" y="260">match="/*html"</text>
+                    <text x="20" y="324">Some</text>
+                    <text x="60" y="324">time</text>
+                    <text x="104" y="324">later</text>
+                    <text x="144" y="324">...</text>
+                    <text x="28" y="356">Client</text>
+                    <text x="412" y="356">Server</text>
+                    <text x="32" y="388">GET</text>
+                    <text x="96" y="388">/page2.html</text>
+                    <text x="104" y="404">Available-Dictionary:</text>
+                    <text x="272" y="404">:pZGm1A...2a2fFG4=:</text>
+                    <text x="84" y="420">Accept-Encoding:</text>
+                    <text x="176" y="420">gzip,</text>
+                    <text x="216" y="420">br,</text>
+                    <text x="256" y="420">zstd,</text>
+                    <text x="300" y="420">dcb,</text>
+                    <text x="336" y="420">dcz</text>
+                    <text x="72" y="468">200</text>
+                    <text x="100" y="468">OK</text>
+                    <text x="128" y="484">Content-Encoding:</text>
+                    <text x="216" y="484">dcb</text>
+                    <text x="128" y="500">&lt;delta-compressed</text>
+                    <text x="244" y="500">page2.html</text>
+                    <text x="324" y="500">resource</text>
+                    <text x="368" y="500">-</text>
+                    <text x="400" y="500">10KB&gt;</text>
+                  </g>
+                </svg>
+              </artwork>
+              <artwork type="ascii-art"><![CDATA[
+Client                                          Server
+|                                                    |
+| GET /index.html                                    |
+|--------------------------------------------------->|
+|                                                    |
+|     200 OK                                         |
+|     Link: <.../dict>; rel="compression-dictionary" |
+|     <full index.html resource - 100KB compressed>  |
+|<---------------------------------------------------|
+|                                                    |
+| GET /dict                                          |
+|--------------------------------------------------->|
+|                                                    |
+|                  200 OK                            |
+|                  Use-As-Dictionary: match="/*html" |
+|<---------------------------------------------------|
+|                                                    |
+
+Some time later ...
+
+Client                                          Server
+|                                                    |
+| GET /page2.html                                    |
+| Available-Dictionary: :pZGm1A...2a2fFG4=:          |
+| Accept-Encoding: gzip, br, zstd, dcb, dcz          |
+|--------------------------------------------------->|
+|                                                    |
+|      200 OK                                        |
+|      Content-Encoding: dcb                         |
+|      <delta-compressed page2.html resource - 10KB> |
+|<---------------------------------------------------|
+|                                                    |
+]]></artwork>
+            </artset>
+          </figure>
+        </section>
+      </section>     
+      <section anchor="notational-conventions">
+        <name>Notational Conventions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+<t>This document uses the following terminology from <xref
+target="RFC9651" sectionFormat="of" section="3"/> to specify
+syntax and parsing: Dictionary, String, Inner List, Token, and Byte
+Sequence.</t>
+        <t>This document uses the line folding strategies described in <xref target="RFC8792"/>.</t>
+        <t>This document also uses terminology from <xref target="RFC9110"/> and <xref target="RFC9111"/>.</t>
+      </section>
+    </section>
+    <section anchor="dictionary-negotiation">
+      <name>Dictionary Negotiation</name>
+      <section anchor="use-as-dictionary">
+        <name>Use-As-Dictionary</name>
+        <t>When responding to an HTTP Request, a server can advertise that the response can
+be used as a dictionary for future requests for URLs that match the rules
+specified in the "Use-As-Dictionary" response header.</t>
+        <t>The "Use-As-Dictionary" response header is a Structured Field
+<xref target="RFC9651"/> Dictionary with values for "match", "match-dest", "id",
+and "type".</t>
+        <section anchor="match">
+          <name>"match"</name>
+          <t>The "match" value of the "Use-As-Dictionary" response header is a String value that
+provides the URL Pattern to use for request matching (see <xref target="URLPATTERN"/>).</t>
+          <t>The URL Pattern used for matching does not support using regular expressions.</t>
+          <t>The following algorithm is used to validate that a given String value is a
+valid URL Pattern that does not use regular expressions and is for the same
+Origin (<xref section="4.3.1" sectionFormat="of" target="RFC9110"/>) as the dictionary. It will return TRUE
+for a valid match pattern and FALSE for an invalid pattern that <bcp14>MUST NOT</bcp14> be
+used.</t>
+          <ol spacing="normal" type="1">
+	    <li>
+              <t>Let MATCH be the value of "match" for the given dictionary.</t>
+            </li>
+            <li>
+              <t>Let URL be the URL of the dictionary request.</t>
+            </li>
+            <li>
+              <t>Let PATTERN be a "URL pattern struct" created by running the steps to "create a
+URL pattern" by setting input=MATCH and baseURL=URL (see <xref target="URLPATTERN" section="1.4" relative="#high-level-operations"/>).</t>
+            </li>
+            <li>
+              <t>If the result of running the "has regexp groups" steps for PATTERN returns
+TRUE, then return FALSE (see the last list in <xref target="URLPATTERN" section="1.4" relative="#high-level-operations"/>).</t>
+            </li>
+            <li>
+              <t>Return TRUE.</t>
+            </li>
+          </ol>
+          <t>The "match" value is required and <bcp14>MUST</bcp14> be included in the
+"Use-As-Dictionary" response header for the dictionary to be considered valid.</t>
+          <t>Operating at the HTTP level, the specified match patterns will operate on the
+percent-encoded version of the URL path (see <xref section="2" sectionFormat="of" target="RFC3986"/>).</t>
+          <t>For example, the URL "http://www.example.com/düsseldorf" would be encoded as
+"http://www.example.com/d%C3%BCsseldorf" and a relevant match pattern would be:</t>
+          <sourcecode type="http-message"><![CDATA[
+Use-As-Dictionary: match="/d%C3%BCsseldorf"
+]]></sourcecode>
+        </section>
+
+        <section anchor="match-dest">
+          <name>"match-dest"</name>
+          <t>The "match-dest" value of the "Use-As-Dictionary" response header is an Inner List of
+String values that provides a list of Fetch request destinations for the
+dictionary to match (see "RequestDestination" in <xref target="FETCH" section="5.4" relative="#request-class"/>).</t>
+          <t>An empty list for "match-dest" <bcp14>MUST</bcp14> match all destinations.</t>
+          <t>For clients that do not support request destinations, the client <bcp14>MUST</bcp14> treat it
+as an empty list and match all destinations.</t>
+          <t>The "match-dest" value is optional and defaults to an empty list.</t>
+        </section>
+        <section anchor="id">
+          <name>"id"</name>
+          <t>The "id" value of the "Use-As-Dictionary" response header is a String value that specifies
+a server identifier for the dictionary. If an "id" value is present and has a
+string length longer than zero, then it <bcp14>MUST</bcp14> be sent to the server in a
+"Dictionary-ID" request header when the client sends an "Available-Dictionary"
+request header for the same dictionary (see <xref target="available-dictionary"/>).</t>
+          <t>The server identifier <bcp14>MUST</bcp14> be treated as an opaque string by the client.</t>
+          <t>The server identifier <bcp14>MUST NOT</bcp14> be relied upon by the server to guarantee the
+contents of the dictionary. The dictionary hash <bcp14>MUST</bcp14> be validated before use.</t>
+          <t>The "id" value string length (after any decoding) supports up to 1024
+characters.</t>
+          <t>The "id" value is optional and defaults to the empty string.</t>
+        </section>
+        <section anchor="type">
+          <name>"type"</name>
+          <t>The "type" value of the "Use-As-Dictionary" response header is a Token value that
+describes the file format of the supplied dictionary.</t>
+          <t>"raw" is defined as a dictionary format that represents an unformatted blob of
+bytes suitable for any compression scheme to use.</t>
+          <t>If a client receives a dictionary with a type that it does not understand, it
+<bcp14>MUST NOT</bcp14> use the dictionary.</t>
+          <t>The "type" value is optional and defaults to "raw".</t>
+        </section>
+        <section anchor="examples">
+          <name>Examples</name>
+          <section anchor="path-prefix">
+            <name>Path Prefix</name>
+            <t>A response that contained a response header (as shown below) would specify matching any document request for a URL with a path prefix of                
+/product/ on the same Origin (<xref section="4.3.1" sectionFormat="of" target="RFC9110"/>) as the original request:</t>
+            <sourcecode type="http-message"><![CDATA[
+NOTE: '\' line wrapping per RFC 8792
+
+Use-As-Dictionary: \
+  match="/product/*", match-dest=("document")
+]]></sourcecode>
+          </section>
+          <section anchor="versioned-directories">
+            <name>Versioned Directories</name>
+            <t>A response that contained a response header (as shown below) would match any path that starts with "/app/" and ends with "/main.js":</t>
+            <sourcecode type="http-message"><![CDATA[
+Use-As-Dictionary: match="/app/*/main.js"
+]]></sourcecode>
+          </section>
+        </section>
+      </section>
+      <section anchor="available-dictionary">
+        <name>Available-Dictionary</name>
+        <t>When an HTTP client makes a request for a resource for which it has an
+appropriate dictionary, it can add an "Available-Dictionary" request header
+to the request to indicate to the server that it has a dictionary available to
+use for compression.</t>
+        <t>The "Available-Dictionary" request header is a Structured Field
+<xref target="RFC9651"/> Byte Sequence containing the SHA-256 <xref target="RFC6234"/> hash of the
+contents of a single available dictionary.</t>
+        <t>The client <bcp14>MUST</bcp14> only send a single "Available-Dictionary" request header
+with a single hash value for the best available match that it has available.</t>
+        <t>For example:</t>
+        <sourcecode type="http-message"><![CDATA[
+Available-Dictionary: :pZGm1Av0IEBKARczz7exkNYsZb8LzaMrV7J32a2fFG4=:
+]]></sourcecode>
+        <section anchor="dictionary-freshness-requirement">
+          <name>Dictionary Freshness Requirement</name>
+          <t>To be considered as a match, the dictionary resource <bcp14>MUST</bcp14> be either fresh
+<xref target="RFC9111"/> or allowed to be served stale (see <xref target="RFC5861"/>).</t>
+        </section>
+        <section anchor="dictionary-url-matching">
+          <name>Dictionary URL Matching</name>
+          <t>When a dictionary is stored as a result of a "Use-As-Dictionary" directive, it
+includes a "match" string and an optional "match-dest" string that are used to
+match an outgoing request from a client to the available dictionaries.</t>
+          <t>To see if an outbound request matches a given dictionary, the following
+algorithm will return TRUE for a successful match and FALSE for no-match:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>If the current client supports request destinations and a "match-dest"
+string was provided with the dictionary:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>Let DEST be the value of "match-dest" for the given dictionary.</t>
+                </li>
+                <li>
+                  <t>Let REQUEST_DEST be the value of the destination for the current
+ request.</t>
+                </li>
+                <li>
+                  <t>If DEST is not an empty list and if REQUEST_DEST is not in the DEST list
+ of destinations, return FALSE.</t>
+                </li>
+              </ul>
+            </li>
+            <li>
+              <t>Let BASEURL be the URL of the dictionary request.</t>
+            </li>
+            <li>
+              <t>Let URL represent the URL of the outbound request being checked.</t>
+            </li>
+            <li>
+              <t>If the Origin of BASEURL and the Origin of URL are not the same, return
+FALSE (see <xref section="4.3.1" sectionFormat="of" target="RFC9110"/>).</t>
+            </li>
+            <li>
+              <t>Let MATCH be the value of "match" for the given dictionary.</t>
+            </li>
+            <li>
+<t>Let PATTERN be a "URL pattern struct" created by running the steps to "create a URL pattern" by setting input=MATCH and baseURL=URL (see <xref target="URLPATTERN" section="1.4" relative="#high-level-operations"/>).</t>
+            </li>
+            <li>
+              <t>Return the result of running the "match" steps on PATTERN with input=URL,
+which will check for a match between the request URL and the supplied "match"
+string (see "Match" in <xref target="URLPATTERN" section="1.4" relative="#high-level-operations"/>).</t>
+            </li>
+          </ol>
+        </section>
+        <section anchor="multiple-matching-dictionaries">
+          <name>Multiple Matching Dictionaries</name>
+          <t>When there are multiple dictionaries that match a given request URL, the client
+<bcp14>MUST</bcp14> pick a single dictionary using the following rules:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>For clients that support request destinations, a dictionary that specifies
+and matches a "match-dest" takes precedence over a match that does not use a
+destination.</t>
+            </li>
+            <li>
+              <t>Given equivalent destination precedence, the dictionary with the longest
+"match" takes precedence.</t>
+            </li>
+            <li>
+              <t>Given equivalent destination and match length precedence, the most recently
+fetched dictionary takes precedence.</t>
+            </li>
+          </ol>
+        </section>
+      </section>
+      <section anchor="dictionary-id">
+        <name>Dictionary-ID</name>
+	
+        <t>When an HTTP client makes a request for a resource for which it has an
+appropriate dictionary and the dictionary was stored with a server-provided
+"id" in the "Use-As-Dictionary" response header, the client <bcp14>MUST</bcp14> echo the stored
+"id" in a "Dictionary-ID" request header.</t>
+        <t>The "Dictionary-ID" request header is a Structured Field <xref target="RFC9651"/>
+String of up to 1024 characters (after any decoding) and <bcp14>MUST</bcp14> be identical to
+the server-provided "id".</t>
+        <t>For example, given an HTTP response that set a dictionary ID:</t>
+        <sourcecode type="http-message"><![CDATA[
+Use-As-Dictionary: match="/app/*/main.js", id="dictionary-12345"
+]]></sourcecode>
+        <t>A future request that matches the given dictionary will include both the hash
+and the ID:</t>
+        <sourcecode type="http-message"><![CDATA[
+Available-Dictionary: :pZGm1Av0IEBKARczz7exkNYsZb8LzaMrV7J32a2fFG4=:
+Dictionary-ID: "dictionary-12345"
+]]></sourcecode>
+      </section>
+    </section>
+    <section anchor="the-compression-dictionary-link-relation-type">
+      <name>The "compression-dictionary" Link Relation Type</name>
+      <t>This specification defines the "compression-dictionary" link relation type
+<xref target="RFC8288"/> that provides a mechanism for an HTTP response to provide a URL
+for a compression dictionary that is related to but not directly used by the
+current HTTP response.</t>
+      <t>The "compression-dictionary" link relation type indicates that fetching and
+caching the specified resource is likely to be beneficial for future requests.
+The response to some of those future requests likely have the ability to use
+the indicated resource as a compression dictionary.</t>
+      <t>Clients can fetch the provided resource at a time that they determine would
+      be appropriate.</t>
+      
+      <t>The response to the fetch for the compression dictionary needs to include a "Use-As-Dictionary" response header and a caching response header for it to be usable as a compression dictionary. The link relation only provides the mechanism for
+triggering the fetch of the dictionary.</t>
+      <t>The following example shows a link to a resource at
+https://example.org/dict.dat that is expected to produce a compression
+dictionary:</t>
+      <sourcecode type="http-message"><![CDATA[
+Link: <https://example.org/dict.dat>; rel="compression-dictionary"
+]]></sourcecode>
+    </section>
+    <section anchor="dictionary-compressed-brotli">
+      <name>Dictionary-Compressed Brotli</name>
+      <t>The "dcb" content encoding identifies a resource that is a
+"Dictionary-Compressed Brotli" stream.</t>
+      <t>A "Dictionary-Compressed Brotli" stream has a fixed header that is followed by
+a Shared Brotli <xref target="RFC9841"/> stream. The header consists of a fixed 4-byte
+sequence and a 32-byte hash of the external dictionary that was used.  The
+Shared Brotli stream is created using the referenced external dictionary and a
+compression window that is at most 16 MB in size.</t>
+      <t>The dictionary used for the "dcb" content encoding is a "raw" dictionary type
+as defined in <xref target="type"/> and is treated as a prefix dictionary as defined in
+<xref target="RFC9841" sectionFormat="of" section="8.2"/>.</t>
+      <t>The 36-byte fixed header is as follows:</t>
+      <dl>
+        <dt>Magic_Number:</dt>
+        <dd>
+          <t>4 fixed bytes -- 0xff, 0x44, 0x43, 0x42.</t>
+        </dd>
+        <dt>SHA_256_Hash:</dt>
+        <dd>
+          <t>32 bytes. SHA-256 hash digest of the dictionary <xref target="RFC6234"/>.</t>
+        </dd>
+      </dl>
+      <t>Clients that announce support for dcb content encoding <bcp14>MUST</bcp14> be able to
+decompress resources that were compressed with a window size of up to 16 MB.</t>
+      <t>With Brotli compression, the full dictionary is available during compression
+and decompression independent of the compression window, allowing for
+delta-compression of resources larger than the compression window.</t>
+    </section>
+    <section anchor="dictionary-compressed-zstandard">
+      <name>Dictionary-Compressed Zstandard</name>
+      <t>The "dcz" content encoding identifies a resource that is a
+"Dictionary-Compressed Zstandard" stream.</t>
+      <t>A "Dictionary-Compressed Zstandard" stream is a binary stream that starts with
+a 40-byte fixed header and is followed by a Zstandard <xref target="RFC8878"/> stream of the
+response that has been compressed with an external dictionary.</t>
+      <t>The dictionary used for the "dcz" content encoding is a "raw" dictionary type
+as defined in <xref target="type"/> and is treated as a raw dictionary as per <xref target="RFC8878" sectionFormat="of" section="5"/>.</t>
+      <t>The 40-byte header consists of a fixed 8-byte sequence followed by the
+32-byte SHA-256 hash of the external dictionary that was used to compress the
+resource:</t>
+      <dl>
+        <dt>Magic_Number:</dt>
+        <dd>
+          <t>8 fixed bytes -- 0x5e, 0x2a, 0x4d, 0x18, 0x20, 0x00, 0x00, 0x00.</t>
+        </dd>
+        <dt>SHA_256_Hash:</dt>
+        <dd>
+          <t>32 bytes. SHA-256 hash digest of the dictionary <xref target="RFC6234"/>.</t>
+        </dd>
+      </dl>
+      <t>The 40-byte header is a Zstandard skippable frame (little-endian 0x184D2A5E)
+with a 32-byte length (little-endian 0x00000020) that is compatible with
+existing Zstandard decoders.</t>
+      <t>Clients that announce support for dcz content encoding <bcp14>MUST</bcp14> be able to
+decompress resources that were compressed with a window size of at least 8 MB
+or 1.25 times the size of the dictionary, whichever is greater, up to a
+maximum of 128 MB.</t>
+      <t>The window size used will be encoded in the content (currently, this can be
+expressed in powers of two only) and it <bcp14>MUST</bcp14> be lower than this limit. An
+implementation <bcp14>MAY</bcp14> treat a window size that exceeds the limit as a decoding
+error.</t>
+      <t>With Zstandard compression, the full dictionary is available during compression
+and decompression until the size of the input exceeds the compression window.
+Beyond that point, the dictionary becomes unavailable. Using a compression
+window that is 1.25 times the size of the dictionary allows for full delta
+compression of resources that have grown by 25% between releases while still
+giving the client control over the memory it will need to allocate for a given
+response.</t>
+    </section>
+    <section anchor="negotiating-the-content-encoding">
+      <name>Negotiating the Content Encoding</name>
+      <t>When a compression dictionary is available to compress the response to a given request, the encoding to be used is negotiated through the regular mechanism for negotiating content encoding in HTTP through the "Accept-Encoding" request header and "Content-Encoding" response header.</t>
+      <t>The dictionary to use is negotiated separately and advertised in the
+"Available-Dictionary" request header.</t>
+      <section anchor="accept-encoding">
+        <name>Accept-Encoding</name>
+        <t>When a dictionary is available for use on a given request and the client
+chooses to make dictionary-based content encoding available, the client adds
+the dictionary-aware content encodings that it supports to the
+"Accept-Encoding" request header. For example:</t>
+        <sourcecode type="http-message"><![CDATA[
+Accept-Encoding: gzip, deflate, br, zstd, dcb, dcz
+]]></sourcecode>
+        <t>When a client does not have a stored dictionary that matches the request or
+chooses not to use one for the request, the client <bcp14>MUST NOT</bcp14> send its
+dictionary-aware content encodings in the "Accept-Encoding" request header.</t>
+      </section>
+      <section anchor="content-encoding">
+        <name>Content-Encoding</name>
+        <t>If a server supports one of the dictionary encodings advertised by the client
+and chooses to compress the content of the response using the dictionary that
+the client has advertised, then it sets the "Content-Encoding" response header
+to the appropriate value for the algorithm selected. For example:</t>
+        <sourcecode type="http-message"><![CDATA[
+Content-Encoding: dcb
+]]></sourcecode>
+        <t>If the response is cacheable, it <bcp14>MUST</bcp14> include a "Vary" header to prevent caches from
+serving dictionary-compressed resources to clients that don't support them or
+serving the response compressed with the wrong dictionary. For example:</t>
+        <sourcecode type="http-message"><![CDATA[
+Vary: accept-encoding, available-dictionary
+]]></sourcecode>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="content-encoding-1">
+        <name>Content Encoding Registration</name>
+        <t>IANA has added the following entries to the "HTTP Content Coding
+        Registry" maintained at <eref
+        target="https://www.iana.org/assignments/http-parameters/"
+        brackets="angle"/>:</t>
+
+        <dl spacing="compact" newline="false">
+          <dt>Name:</dt><dd>dcb</dd>
+          <dt>Description:</dt><dd>"Dictionary-Compressed Brotli" data format.</dd>
+          <dt>Reference:</dt><dd>RFC 9842, <xref target="dictionary-compressed-brotli"/></dd>
+        </dl>
+
+        <dl spacing="compact" newline="false">
+          <dt>Name:</dt><dd>dcz</dd>
+          <dt>Description:</dt><dd>"Dictionary-Compressed Zstandard" data format.</dd>
+          <dt>Reference:</dt><dd>RFC 9842, <xref target="dictionary-compressed-zstandard"/></dd>
+        </dl>
+
+      </section>
+      <section anchor="header-field-registration">
+        <name>Header Field Registration</name>
+        <t>IANA has added the following entries to the
+"Hypertext Transfer Protocol (HTTP) Field Name Registry" maintained at
+<eref brackets="angle" target="https://www.iana.org/assignments/http-fields/"/>:</t>
+        <table>
+          <thead>
+            <tr>
+              <th align="left">Field Name</th>
+              <th align="left">Status</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">Use-As-Dictionary</td>
+              <td align="left">permanent</td>
+              <td align="left">RFC 9842, <xref target="use-as-dictionary"/></td>
+            </tr>
+            <tr>
+              <td align="left">Available-Dictionary</td>
+              <td align="left">permanent</td>
+              <td align="left">RFC 9842, <xref target="available-dictionary"/></td>
+            </tr>
+            <tr>
+              <td align="left">Dictionary-ID</td>
+              <td align="left">permanent</td>
+              <td align="left">RFC 9842, <xref target="dictionary-id"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="link-relation-registration">
+        <name>Link Relation Registration</name>
+        <t>IANA has added the following entry to the "Link Relation Types" registry
+        maintained at <eref
+        target="https://www.iana.org/assignments/link-relations/"
+        brackets="angle"/>:</t>
+
+        <dl spacing="compact" newline="false">
+          <dt>Relation Name:</dt><dd>compression-dictionary</dd>
+          <dt>Description:</dt><dd>Refers to a compression dictionary used for content encoding.</dd>
+          <dt>Reference:</dt><dd>RFC 9842, <xref target="the-compression-dictionary-link-relation-type"/></dd>
+        </dl>
+
+      </section>
+    </section>
+    <section anchor="compatibility-considerations">
+      <name>Compatibility Considerations</name>
+      <t>It is not unusual for devices to be on the network path that intercept,
+inspect, and process HTTP requests (web proxies, firewalls, intrusion detection
+systems, etc.). To minimize the risk of these devices incorrectly processing
+dictionary-compressed responses, compression dictionary transport <bcp14>MUST</bcp14> only be
+used in secure contexts (HTTPS).</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The security considerations for Brotli <xref target="RFC7932"/>, Shared Brotli
+<xref target="RFC9841"/>, and Zstandard <xref target="RFC8878"/> apply to the
+dictionary-based versions of the respective algorithms.</t>
+      <section anchor="changing-content">
+        <name>Changing Content</name>
+        <t>The dictionary must be treated with the same security precautions as
+the content because a change to the dictionary can result in a
+change to the decompressed content.</t>
+        <t>The dictionary is validated using an SHA-256 hash of the content to make sure
+that the client and server are both using the same dictionary. The strength
+of the SHA-256 hash algorithm isn't explicitly needed to counter attacks
+since the dictionary is being served from the same origin as the content. That
+said, if a weakness is discovered in SHA-256 and it is determined that the
+dictionary negotiation should use a different hash algorithm, the
+"Use-As-Dictionary" response header can be extended to specify a different
+algorithm and the server would just ignore any "Available-Dictionary" requests
+that do not use the updated hash.</t>
+      </section>
+      <section anchor="reading-content">
+        <name>Reading Content</name>
+        <t>The compression attacks in <xref section="2.6" sectionFormat="of" target="RFC7457"/> show that it's a bad idea
+to compress data from mixed (e.g., public and private) sources. The data
+sources include not only the compressed data but also the dictionaries. For
+example, if secret cookies are compressed using a public-data-only dictionary,
+information about the cookies is still leaked.</t>
+        <t>The dictionary can reveal information about the compressed
+data and vice versa. That is, data compressed with the dictionary can reveal
+contents of the dictionary when an adversary can control parts of
+the data to compress and see the compressed size. On the other hand, if
+the adversary can control the dictionary, the adversary can learn
+information about the compressed data.</t>
+      </section>
+      <section anchor="security-mitigations">
+        <name>Security Mitigations</name>
+        <t>If any of the mitigations do not pass, the client <bcp14>MUST</bcp14> drop the response and
+return an error.</t>
+        <section anchor="cross-origin-protection">
+          <name>Cross-Origin Protection</name>
+          <t>To make sure that a dictionary can only impact content from the same origin
+where the dictionary was served, the URL Pattern used for matching a dictionary
+to requests (<xref target="match"/>) is guaranteed to be for the same origin that the
+dictionary is served from.</t>
+        </section>
+        <section anchor="response-readability">
+          <name>Response Readability</name>
+          <t>For clients, like web browsers, that provide additional protection against the
+readability of the payload of a response and against user tracking, additional
+protections <bcp14>MUST</bcp14> be taken to make sure that the use of dictionary-based
+compression does not reveal information that would not otherwise be available.</t>
+          <t>In these cases, dictionary compression <bcp14>MUST</bcp14> only be used when both the
+	  dictionary and the compressed response are fully readable by the client.</t>
+
+<t>In browser terms, that means either the dictionary and compressed response are same-origin to the context they are being fetched from or the response is cross-origin and passes the Cross-Origin Resource Sharing (CORS) check (see <xref target="FETCH" section="4.9"             
+relative="#cors-check"/>).</t>
+        </section>
+        <section anchor="server-responsibility">
+          <name>Server Responsibility</name>
+          <t>As with any usage of compressed content in a secure context, a potential
+timing attack exists if the attacker can control any part of the dictionary
+or if it can read the dictionary and control any part of the content being
+compressed while performing multiple requests that vary the dictionary or
+injected content. Under such an attack, the changing size or processing time
+of the response reveals information about the content, which might be
+sufficient to read the supposedly secure response.</t>
+          <t>In general, a server can mitigate such attacks by preventing variations per
+request, as in preventing active use of multiple dictionaries for the same
+content, disabling compression when any portion of the content comes from
+uncontrolled sources, and securing access and control over the dictionary
+content in the same way as the response content. In addition, the following
+requirements on a server are intended to disable dictionary-aware compression
+when the client provides CORS request header fields that indicate a
+cross-origin request context.</t>
+          <t>The following algorithm will return FALSE for cross-origin requests where
+precautions such as not using dictionary-based compression should be
+considered:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>If there is no "Sec-Fetch-Site" request header, return TRUE.</t>
+            </li>
+            <li>
+              <t>If the value of the "Sec-Fetch-Site" request header is "same-origin",
+return TRUE.</t>
+            </li>
+            <li>
+              <t>If there is no "Sec-Fetch-Mode" request header, return TRUE.</t>
+            </li>
+            <li>
+              <t>If the value of the "Sec-Fetch-Mode" request header is "navigate" or
+"same-origin", return TRUE.</t>
+            </li>
+            <li>
+              <t>If the value of the "Sec-Fetch-Mode" request header is "cors":
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>If the response does not include an "Access-Control-Allow-Origin" response header, return FALSE.</t>
+                </li>
+                <li>
+                  <t>If the request does not include an "Origin" request header, return FALSE.</t>
+                </li>
+                <li>
+                  <t>If the value of the "Access-Control-Allow-Origin" response header is "*", return TRUE.</t>
+                </li>
+                <li>
+                  <t>If the value of the "Access-Control-Allow-Origin" response header matches the value of the "Origin" request header, return TRUE.</t>
+                </li>
+              </ul>
+            </li>
+            <li>
+              <t>Return FALSE.</t>
+            </li>
+          </ol>
+        </section>
+      </section>
+    </section>
+    <section anchor="privacy-considerations">
+      <name>Privacy Considerations</name>
+      <t>Since dictionaries are advertised in future requests using the hash of the
+content of the dictionary, it is possible to abuse the dictionary to turn it
+into a tracking cookie.</t>
+      <t>To mitigate any additional tracking concerns, clients <bcp14>MUST</bcp14> treat dictionaries
+in the same way that they treat cookies <xref target="RFC6265"/>. 
+This includes partitioning the storage using partitioning similar to or stricter than the partitioning used for cookies, as well as clearing the dictionaries whenever cookies are cleared.</t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="RFC8792" to="FOLDING"/>
+    <displayreference target="RFC9110" to="HTTP"/>
+    <displayreference target="RFC9111" to="HTTP-CACHING"/>
+    <displayreference target="RFC6234" to="SHA-256"/>
+    <displayreference target="RFC9841" to="SHARED-BROTLI"/> 
+    <displayreference target="RFC9651" to="STRUCTURED-FIELDS"/>
+    <displayreference target="RFC3986" to="URL"/>
+    <displayreference target="RFC8288" to="WEB-LINKING"/>
+    <displayreference target="RFC8878" to="ZSTD"/>
+
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <reference anchor="FETCH" target="https://fetch.spec.whatwg.org/">
+          <front>
+            <title>Fetch Standard</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+            <date/>
+          </front>
+          <refcontent>WHATWG Living Standard</refcontent>
+          <annotation>Commit snapshot: <eref brackets="angle" target="https://fetch.spec.whatwg.org/commit-snapshots/5a9680638ebfc2b3b7f4efb2bef0b579a2663951/"/></annotation>
+        </reference>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8792.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9111.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8878.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6234.xml"/>
+	
+<reference anchor="RFC9841" target="https://www.rfc-editor.org/info/rfc9841">
+  <front>
+      <title>Shared Brotli Compressed Data Format</title>
+      <author initials="J." surname="Alakuijala" fullname="Jyrki Alakuijala">
+         <organization>Google, Inc.</organization>
+      </author>
+      <author initials="T." surname="Duong" fullname="Thai Duong">
+         <organization>Google, Inc.</organization>
+      </author>
+      <author initials="E." surname="Kliuchnikov" fullname="Evgenii Kliuchnikov">
+         <organization>Google, Inc.</organization>
+      </author>
+      <author initials="Z." surname="Szabadka" fullname="Zoltan Szabadka">
+         <organization>Google, Inc.</organization>
+      </author>
+      <author initials="L." surname="Vandevenne" fullname="Lode Vandevenne" role="editor">
+         <organization>Google, Inc.</organization>
+      </author>
+    <date month='September' year='2025'/>
+  </front>
+  <seriesInfo name="RFC" value="9841"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9841"/>
+</reference>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9651.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+
+        <reference anchor="URLPATTERN" target="https://urlpattern.spec.whatwg.org/">
+          <front>
+            <title>URL Pattern Standard</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+            <date/>
+          </front>
+          <refcontent>WHATWG Living Standard</refcontent>
+          <annotation>Commit snapshot: <eref brackets="angle" target="https://urlpattern.spec.whatwg.org/commit-snapshots/696b4029d52e5854044bac6b72cdb198cb962ed0/"/></annotation>
+        </reference>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8288.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5861.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6265.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7457.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7932.xml"/>
+      </references>
+    </references>
+
+  </back>
+
+</rfc>

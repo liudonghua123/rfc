@@ -1,0 +1,479 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#82033;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-dnsop-nsec3-guidance-10" number="9276" submissionType="IETF" category="bcp" consensus="true" updates="5155" obsoletes="" tocInclude="true" sortRefs="true" symRefs="true" xml:lang="en" version="3">
+
+
+ <front>
+   <title abbrev="NSEC3 Parameter Settings">Guidance for NSEC3 Parameter Settings</title>
+   <seriesInfo name="RFC" value="9276"/>
+
+   <seriesInfo name="BCP" value="236"/>
+   <author initials="W." surname="Hardaker" fullname="Wes Hardaker">
+     <organization>USC/ISI</organization>
+     <address>
+       <email>ietf@hardakers.net</email>
+     </address>
+   </author>
+   <author initials="V." surname="Dukhovni" fullname="Viktor Dukhovni">
+     <organization>Bloomberg, L.P.</organization>
+     <address>
+       <email>ietf-dane@dukhovni.org</email>
+     </address>
+   </author>
+   <date year="2022" month="August"/>
+
+   <area>ops</area>
+   <workgroup>dnsop</workgroup>
+	 
+
+<keyword>DNSSEC</keyword>
+<keyword>DNS</keyword>
+<keyword>NSEC3</keyword>
+<keyword>NSEC</keyword>
+<keyword>Denial of Existence</keyword>
+
+   <abstract>
+     <t>NSEC3 is a DNSSEC mechanism providing proof of nonexistence by
+asserting that there are no names that exist between two domain names
+within a zone.  Unlike its counterpart NSEC, NSEC3 avoids directly
+disclosing the bounding domain name pairs.  This document provides
+guidance on setting NSEC3 parameters based on recent operational
+deployment experience.  This document updates RFC 5155 with
+guidance about selecting NSEC3 iteration and salt parameters.</t>
+   </abstract>
+ </front>
+ <middle>
+   <section anchor="introduction">
+     <name>Introduction</name>
+     <t>As with NSEC <xref target="RFC4035"/>, NSEC3
+<xref target="RFC5155"/> provides proof of
+nonexistence that consists of signed DNS records establishing the
+nonexistence of a given name or associated Resource Record Type
+(RRTYPE) in a DNSSEC-signed zone <xref target="RFC4035"/>.  However, in the case of NSEC3, the names of valid nodes in the zone are obfuscated through
+(possibly multiple iterations of) hashing (currently only
+SHA-1 is in use on the Internet).</t>
+<t>
+  NSEC3 also provides "opt-out support", allowing for blocks of
+  unsigned delegations to be covered by a single NSEC3 record.  Use of
+  the opt-out feature allows large registries to only sign as many
+  NSEC3 records as there are signed DS or other Resource Record sets
+  (RRsets) in the zone; with opt-out, unsigned delegations don't
+  require additional NSEC3 records.  This sacrifices the tamper-
+  resistance of the proof of nonexistence offered by NSEC3 in order to
+  reduce memory and CPU overheads.
+</t>
+
+
+     <t>NSEC3 records have a number of tunable parameters that are specified
+via an NSEC3PARAM record at the zone apex.  These parameters are the
+hash algorithm, the processing flags, the number of hash iterations, and
+the salt.  Each of these has security and operational considerations
+that impact both zone owners and validating resolvers.  This document
+provides some best-practice recommendations for setting the NSEC3
+parameters.</t>
+     <section anchor="requirements-notation">
+       <name>Requirements Notation</name>
+       <t>
+   The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+   NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+   "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+   described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+   when, and only when, they appear in all capitals, as shown here.
+       </t>
+     </section>
+   </section>
+   <section anchor="nsec3-parameter-value-discussions">
+     <name>NSEC3 Parameter Value Discussions</name>
+
+     <t>The following sections describe the background of the parameters for
+the NSEC3 and NSEC3PARAM RRTYPEs.</t>
+     <section anchor="algorithms">
+       <name>Algorithms</name>
+       <t>The algorithm field is not discussed by this document.  Readers are
+encouraged to read <xref target="RFC8624"/> for guidance about DNSSEC algorithm
+usage.</t>
+     </section>
+     <section anchor="flags">
+       <name>Flags</name>
+       <t>The NSEC3PARAM flags field currently contains only reserved and
+unassigned flags.  However, individual NSEC3 records contain the
+"Opt-Out" flag <xref target="RFC5155"/> that specifies whether that NSEC3 record
+provides proof of nonexistence.  In general, NSEC3 with the Opt-Out
+flag enabled should only be used in large, highly dynamic zones with a
+small percentage of signed delegations.  Operationally, this allows
+for fewer signature creations when new delegations are inserted into a
+zone.  This is typically only necessary for extremely large
+registration points providing zone updates faster than real-time
+signing allows or when using memory-constrained hardware.
+
+  Operators considering the use of NSEC3 are advised to carefully
+  weigh the costs and benefits of choosing NSEC3 over NSEC.  Smaller
+  zones, or large but relatively static zones, are encouraged to not
+  use the opt-opt flag and to take advantage of DNSSEC's
+  authenticated denial of existence.
+</t>
+     </section>
+     <section anchor="iterations">
+       <name>Iterations</name>
+
+       <t>NSEC3 records are created by first hashing the input domain and then
+repeating that hashing using the same algorithm a number of times based on the
+iteration parameter in the NSEC3PARAM and NSEC3 records.
+
+
+The first hash with NSEC3 is typically sufficient to discourage zone
+enumeration performed by "zone walking" an unhashed NSEC chain.</t>
+       <t>Note that <xref target="RFC5155"/> describes the Iterations field as follows</t>
+<blockquote>The
+Iterations field defines the number of additional times the hash
+function has been performed.</blockquote> 
+<t>This means that an NSEC3 record with an
+Iterations field of 0 actually requires one hash iteration.</t>
+       <t>Only determined parties
+with significant resources are likely to try and uncover hashed
+values, regardless of the number of additional iterations performed.
+If an adversary really wants to expend significant CPU resources to
+mount an offline dictionary attack on a zone's NSEC3 chain, they'll
+likely be able to find most of the "guessable" names despite any
+level of additional hashing iterations.</t>
+       <t>Most names published in the DNS are rarely secret or unpredictable.
+They are published to be memorable, used and consumed by humans.  They
+are often recorded in many other network logs such as email logs,
+certificate transparency logs, web page links, intrusion-detection
+systems, malware scanners, email archives, etc.  Many times a simple
+dictionary of commonly used domain names prefixes (www, mail,
+imap, login, database, etc.) can be used to quickly reveal a large
+number of labels within a zone.  Because of this, there are increasing
+performance costs yet diminishing returns associated with applying
+additional hash iterations beyond the first.</t>
+       <t>Although <xref target="RFC5155" sectionFormat="of" section="10.3"/> specifies the upper bounds for the
+number of hash iterations to use, there is no published guidance for
+zone owners about good values to select.  Recent academic studies
+have shown that NSEC3 hashing provides only moderate
+protection <xref target="GPUNSEC3"/> <xref target="ZONEENUM"/>.</t>
+     </section>
+     <section anchor="salt">
+       <name>Salt</name>
+       <t>NSEC3 records provide an additional salt value, which can be
+combined with a Fully Qualified Domain Name (FQDN) to influence the resulting hash, but properties
+of this extra salt are complicated.</t>
+       <t>In cryptography, salts generally add a layer of protection against
+offline, stored dictionary attacks by combining the value to be hashed
+with a unique "salt" value. This prevents adversaries from building up
+and remembering a single dictionary of values that can translate a
+hash output back to the value that it was derived from.</t>
+       <t>In the case of DNS, the situation is different because the hashed
+names placed in NSEC3 records are always implicitly "salted" by
+hashing the FQDN from each zone. Thus, no
+single pre-computed table works to speed up dictionary attacks
+against multiple target zones. An attacker is always required to
+compute a complete dictionary per zone, which is expensive in both
+storage and CPU time.</t>
+       <t>To understand the role of the additional NSEC3 salt field, we have to
+consider how a typical zone walking attack works. Typically, the attack
+has two phases: online and offline. In the online phase, an attacker
+"walks the zone" by enumerating (almost) all hashes listed in NSEC3
+records and storing them for the offline phase. Then, in the offline
+cracking phase, the attacker attempts to crack the underlying hash. In
+this phase, the additional salt value raises the cost of the attack
+only if the salt value changes during the online phase of the
+attack. In other words, an additional, constant salt value does not
+change the cost of the attack.</t>
+       <t>Changing a zone's salt value requires the construction of a complete
+new NSEC3 chain.  This is true both when re-signing the entire zone at
+once and when incrementally signing it in the background where the new
+salt is only activated once every name in the chain has been
+completed. As a result, re-salting is a very complex operation, with
+significant CPU time, memory, and bandwidth consumption. This makes
+very frequent re-salting impractical and renders the additional salt
+field functionally useless.</t>
+     </section>
+   </section>
+   <section anchor="recommendations-for-deploying-and-validating-nsec3-records">
+     <name>Recommendations for Deploying and Validating NSEC3 Records</name>
+     <t>The following subsections describe recommendations for the different
+operating realms within the DNS.</t>
+     <section anchor="best-practice-for-zone-publishers">
+       <name>Best Practice for Zone Publishers</name>
+       <t>First, if the operational or security features of NSEC3 are not
+needed, then NSEC <bcp14>SHOULD</bcp14> be used in preference to NSEC3. NSEC3
+requires greater computational power (see <xref target="computationalburdens"/>)
+for both authoritative servers and validating clients.  Specifically,
+there is a nontrivial complexity in finding matching NSEC3 records to
+randomly generated prefixes within a DNS zone.  NSEC mitigates this
+concern.  If NSEC3 must be used, then an iterations count of 0 <bcp14>MUST</bcp14> be
+used to alleviate computational burdens.  Note that extra iteration
+counts other than 0 increase the impact of CPU-exhausting DoS attacks,
+and also increase the risk of interoperability problems.</t>
+       <t>Note that deploying NSEC with minimally covering NSEC records
+<xref target="RFC4470"/> also incurs a cost, and zone owners should measure the
+computational difference in deploying either <xref target="RFC4470"/> or NSEC3.</t>
+       <t>In short, for all zones, the recommended NSEC3 parameters are as shown
+below:</t>
+
+
+       <artwork><![CDATA[
+; SHA-1, no extra iterations, empty salt:
+;
+bcp.example. IN NSEC3PARAM 1 0 0 -
+]]></artwork>
+       <t>For small zones, the use of opt-out-based NSEC3 records is <bcp14>NOT
+RECOMMENDED</bcp14>.</t>
+       <t>For very large and sparsely signed zones, where the majority of the
+records are insecure delegations, opt-out <bcp14>MAY</bcp14> be used.</t>
+       <t>Operators <bcp14>SHOULD NOT</bcp14> use a salt by indicating a zero-length salt value
+instead (represented as a "-" in the presentation format).</t>
+       <t>If salts are used, note that since the NSEC3PARAM RR is not used by
+validating resolvers (see <xref target="RFC5155" sectionFormat="of" section="4"/>), the iterations and
+salt parameters can be changed without the need to wait for RRsets to
+expire from caches.  A complete new NSEC3 chain needs to be
+constructed and the full zone needs to be re-signed.</t>
+     </section>
+     <section anchor="recommendation-for-validating-resolvers">
+       <name>Recommendation for Validating Resolvers</name>
+       <t>Because there has been a large growth of open (public) DNSSEC
+validating resolvers that are subject to compute resource constraints
+when handling requests from anonymous clients, this document
+recommends that validating resolvers reduce their iteration count
+limits over time.  
+
+Specifically, validating
+resolver operators and validating resolver software implementers are
+encouraged to continue evaluating NSEC3 iteration count deployment
+trends and lower their acceptable iteration limits over time.
+Because
+treating a high iterations count as insecure leaves zones subject to
+attack, validating resolver operators and validating resolver software
+implementers are further encouraged to lower their default 
+limit for returning SERVFAIL when processing NSEC3 parameters
+containing large iteration count values.  
+See
+<xref target="deploymentmeasurements"/> for measurements taken near the time of
+publication of this document and potential starting points.</t>
+       <t>Validating resolvers <bcp14>MAY</bcp14> return an insecure response to their clients
+when processing NSEC3 records with iterations larger
+than 0.
+Note also that a validating resolver returning an insecure response
+<bcp14>MUST</bcp14> still validate the signature over the NSEC3 record to ensure
+the iteration count was not altered since record publication (see
+<xref target="RFC5155" sectionFormat="of" section="10.3"/>).</t>
+       <t>Validating resolvers <bcp14>MAY</bcp14> also return a SERVFAIL response when
+processing NSEC3 records with iterations larger than 0.  Validating
+resolvers <bcp14>MAY</bcp14> choose to ignore authoritative server responses with
+iteration counts greater than 0, which will likely result in
+returning a SERVFAIL to the client when no acceptable responses are
+received from authoritative servers.</t>
+       <t>Validating resolvers returning an insecure or SERVFAIL answer to their
+client after receiving and validating an unsupported NSEC3 parameter
+from the authoritative server(s) <bcp14>SHOULD</bcp14> return an Extended DNS
+Error (EDE) <xref target="RFC8914"/> EDNS0 option of value 27.
+Validating resolvers that choose to ignore a response with an
+unsupported iteration count (and that do not validate the signature) <bcp14>MUST
+NOT</bcp14> return this EDE option.</t>
+
+       <t>Note that this specification updates <xref target="RFC5155"/> by significantly
+decreasing the requirements originally specified in <xref
+target="RFC5155" sectionFormat="of" section="10.3"/>. See the Security
+Considerations (<xref target="security-considerations"/>) for arguments on how to
+handle responses with non-zero iteration count.</t>
+     </section>
+     <section anchor="recommendation-for-primary-secondary-relationships">
+       <name>Recommendation for Primary and Secondary Relationships</name>
+
+       <t>Primary and secondary authoritative servers for a zone that are not
+being run by the same operational staff and/or using the same software
+and configuration must take into account the potential differences in
+NSEC3 iteration support.</t>
+       <t>Operators of secondary services should advertise the parameter limits
+that their servers support. Correspondingly, operators of primary
+servers need to ensure that their secondaries support the NSEC3
+parameters they expect to use in their zones.  To ensure reliability,
+after primaries change their iteration counts, they should query their
+secondaries with known nonexistent labels to verify the secondary
+servers are responding as expected.</t>
+     </section>
+   </section>
+   <section anchor="security-considerations">
+     <name>Security Considerations</name>
+
+     <t>This entire document discusses security considerations with various
+parameter selections of NSEC3 and NSEC3PARAM fields.</t>
+     <t>The point where a validating resolver returns insecure versus the point
+where it returns SERVFAIL must be considered carefully.  Specifically,
+when a validating resolver treats a zone as insecure above a
+particular value (say 100) and returns SERVFAIL above a higher point
+(say 500), it leaves the zone subject to attacker-in-the-middle
+attacks as if it were unsigned between these values.
+
+
+
+  Thus, validating resolver operators and software implementers
+  <bcp14>SHOULD</bcp14> set the point above which a zone is treated as
+  insecure for certain values of NSEC3 iterations to the same as the
+  point where a validating resolver begins returning SERVFAIL.
+
+     </t>
+   </section>
+   <section anchor="operational-considerations">
+     <name>Operational Considerations</name>
+     <t>This entire document discusses operational considerations with various
+parameter selections of NSEC3 and NSEC3PARAM fields.</t>
+   </section>
+   <section anchor="iana-considerations">
+     <name>IANA Considerations</name>
+
+     <t>IANA has allocated the following code in the First Come First Served
+     range <xref target="RFC8126"/> of the "Extended DNS Error Codes" registry within the "Domain Name System
+(DNS) Parameters" registry:</t>
+    <dl spacing="compact">
+       <dt>INFO-CODE:</dt> <dd>27</dd>
+       <dt>Purpose:</dt> <dd>Unsupported NSEC3 iterations value</dd>
+       <dt>Reference:</dt> <dd>RFC 9276</dd>
+     </dl>
+   </section>
+ </middle>
+ <back>
+   <references>
+     <name>References</name>
+     <references>
+       <name>Normative References</name>
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5155.xml"/>
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4035.xml"/>
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4470.xml"/>
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8914.xml"/>
+     </references>
+     <references>
+       <name>Informative References</name>
+
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+
+       <reference anchor="GPUNSEC3">
+         <front>
+           <title>GPU-Based NSEC3 Hash Breaking</title>
+           <author initials="M." surname="Wander" fullname="Mätthaus Wander">
+             <organization/>
+           </author>
+           <author initials="L." surname="Schwittmann" fullname="Lorenz Schwittmann">
+             <organization/>
+           </author>
+           <author initials="C." surname="Boelmann" fullname="Christopher Boelmann">
+             <organization/>
+           </author>
+           <author initials="T." surname="Weis" fullname="Torben Weis">
+             <organization/>
+           </author>
+           <date month="August" year="2014"/>
+         </front>
+         <seriesInfo name="DOI" value="10.1109/NCA.2014.27"/>
+       </reference>
+
+       <reference anchor="ZONEENUM">
+         <front>
+           <title>An efficient DNSSEC zone enumeration algorithm</title>
+           <author initials="Z." surname="Wang" fullname="Zheng Wang">
+             <organization/>
+           </author>
+           <author initials="L." surname="Xiao" fullname="Liyuan Xiao">
+             <organization/>
+           </author>
+           <author initials="R." surname="Wang" fullname="Rui Wang">
+             <organization/>
+           </author>
+	    <date month="April" year="2014"/>
+         </front>
+         <seriesInfo name="DOI" value="10.2495/MIIT130591"/>
+       </reference>
+
+       <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8624.xml"/>
+     </references>
+   </references>
+   <section anchor="deploymentmeasurements" numbered="true" toc="default">
+     <name>Deployment Measurements at Time of Publication</name>
+     <t>At the time of publication, setting an upper limit of 100 iterations
+for treating a zone as insecure is interoperable without significant
+problems, but at the same time still enables CPU-exhausting DoS
+attacks.</t>
+     <t>At the time of publication, returning SERVFAIL beyond 500 iterations
+appears to be interoperable without significant problems.</t>
+   </section>
+   <section anchor="computationalburdens" numbered="true" toc="default">
+     <name>Computational Burdens of Processing NSEC3 Iterations</name>
+     <t>The queries per second (QPS) of authoritative servers will decrease due
+to computational overhead when processing DNS requests for zones
+containing higher NSEC3 iteration counts.  The table below
+shows the drop in QPS for various iteration counts.</t>
+
+<table anchor="iteration-counts-table" align="center">
+<name>Drop in QPS for Various Iteration Counts</name>
+<thead>
+<tr>
+<th rowspan="1" colspan="1">Iterations</th>
+<th rowspan="1" colspan="1">QPS [% of 0 Iterations QPS]</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>100%</td>
+</tr>
+
+<tr>
+<td>10</td>
+<td>89%</td>
+</tr>
+
+<tr>
+<td>20</td>
+<td>82%</td>
+</tr>
+
+<tr>
+<td>50</td>
+<td>64%</td>
+</tr>
+
+<tr>
+<td>100</td>
+<td>47%</td>
+</tr>
+
+<tr>
+<td>150</td>
+<td>38%</td>
+</tr>
+
+</tbody>
+</table>
+
+   </section>
+   <section anchor="qps" numbered="false" toc="default">
+     <name>Acknowledgments</name>
+     <t>The authors would like to thank the participants in the dns-operations discussion, which took place on mattermost hosted by DNS-OARC.</t>
+     <t>Additionally, the following people contributed text or review comments
+to this document:</t>
+     <ul spacing="normal">
+       <li><t><contact fullname="Vladimir Cunat"/></t></li>
+       <li><t><contact fullname="Tony Finch"/></t></li>
+       <li><t><contact fullname="Paul Hoffman"/></t></li>
+       <li><t><contact fullname="Warren Kumari"/></t></li>
+       <li><t><contact fullname="Alexander Mayrhofer"/></t></li>
+       <li><t><contact fullname="Matthijs Mekking"/></t></li>
+       <li><t><contact fullname="Florian Obser"/></t></li>
+       <li><t><contact fullname="Petr Spacek"/></t></li>
+       <li><t><contact fullname="Paul Vixie"/></t></li>
+       <li><t><contact fullname="Tim Wicinski"/></t></li>
+     </ul>
+   </section>
+
+ </back>
+
+</rfc>

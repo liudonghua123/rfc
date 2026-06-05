@@ -1,0 +1,1006 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc version="3" ipr="trust200902" docName="draft-halen-fedae-03" number="9932" submissionType="independent" category="info" xml:lang="en" xmlns:xi="http://www.w3.org/2001/XInclude" updates="" obsoletes="" symRefs="true" sortRefs="true" tocInclude="true">
+
+<front>
+  <title abbrev="MATF">Mutually Authenticating TLS in the Context of Federations</title>
+  <seriesInfo name="RFC" value="9932"/>
+
+  <author initials="S." surname="Halén" fullname="Stefan Halén">
+    <organization>The Swedish Internet Foundation</organization>
+    <address>
+      <email>stefan.halen@internetstiftelsen.se</email>
+  </address>
+  </author>
+
+  <author initials="J." surname="Schlyter" fullname="Jakob Schlyter">
+    <organization>Kirei AB</organization>
+    <address>
+      <email>jakob@kirei.se</email>
+    </address>
+  </author>
+
+  <date year="2026" month="April"/>
+
+<keyword>machine-to-machine</keyword>
+<keyword>trust framework</keyword>
+<keyword>mutual TLS</keyword>
+<keyword>mTLS</keyword>
+<keyword>public key pinning</keyword>
+<keyword>SPKI</keyword>
+<keyword>federation metadata</keyword>
+<keyword>federation</keyword>
+
+<abstract>
+<t>This Informational Independent Submission to the RFC Series describes a means to use TLS 1.3 to perform machine-to-machine mutual authentication within federations. This memo is not a standard. It does not modify the TLS protocol in any way, nor does it require changes to common TLS libraries. TLS is specified and standardized by the IETF's TLS Working Group.</t>
+<t>The framework enables interoperable trust management for federated machine-to-machine communication. It introduces a centrally managed trust anchor and a controlled metadata publication process, ensuring that only authorized members are identifiable within the federation. These mechanisms support unambiguous entity identification and reduce the risk of impersonation, promoting secure and policy-aligned interaction across organizational boundaries.</t>
+</abstract>
+
+</front>
+
+<middle>
+
+<section anchor="introduction"><name>Introduction</name>
+<t>This document describes the Mutually Authenticating TLS in Federations (MATF) framework, developed to complement multilateral Security Assertion Markup Language (SAML) federations within the education sector. These federations often rely on just-in-time provisioning, where user accounts are created at first login based on information from the SAML assertion. However, educators need to be able to manage resources and classes before students access the service. MATF bridges this gap by using secure machine-to-machine communication, enabling pre-provisioning of user information with a trust model and metadata structure inspired by SAML federations.</t>
+
+<t>MATF is designed specifically for secure authentication in machine-
+to-machine contexts, such as RESTful APIs (where "RESTful" refers to the
+Representational State Transfer (REST) architecture) and service-to-service
+interactions, and is not intended for browser-based authentication. Because its applicability in a
+browser environment has not been studied, using MATF within browsers is not
+recommended. Doing so may introduce risks that differ from those typically
+addressed by standard browser security models.</t>
+<t>This work is not a product of the IETF, does not represent a standard, and has not achieved community consensus. It aims to address specific federation challenges and provide a framework for secure communication.</t>
+<t>TLS is specified by the IETF TLS Working Group. TLS 1.3 is defined in <xref target="RFC8446"/>. Additional information about the TLS Working Group is available at <eref target="https://datatracker.ietf.org/wg/tls/about/" brackets="angle"/>.</t>
+
+
+<section anchor="reserved-words"><name>Reserved Words</name>
+<t>This document is an Informational RFC, which means it offers information and guidance but does not specify mandatory standards. Therefore, the keywords used throughout this document are for informational purposes only and do not imply any specific requirements.</t>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+</section>
+
+<section anchor="terminology"><name>Terminology</name>
+
+<dl>
+  <dt>Federation:</dt><dd>A trusted network of entities that adhere to common security policies and standards, using MATF for secure communication.</dd>
+  <dt>Federation Member:</dt><dd>An entity that has been approved to join the federation and can leverage MATF for secure communication with other members.</dd>
+  <dt>Federation Operator:</dt><dd>The entity responsible for the overall operation and management of the federation, including managing the federation metadata, enforcing security policies, and onboarding new members.</dd>
+  <dt>Federation Metadata:</dt><dd>A cryptographically signed document containing information about all entities within the federation.</dd>
+  <dt>Metadata Repository:</dt><dd>A centralized repository storing information about all entities within the federation.</dd>
+  <dt>Member Metadata:</dt><dd>Information about entities associated with a specific member within the federation.</dd>
+  <dt>Member Vetting:</dt><dd>The process of verifying and approving applicants to join the federation, ensuring they meet security and trustworthiness requirements.</dd>
+  <dt>Trust Anchor:</dt><dd>The federation's root of trust is established by the public key used to verify federation metadata signatures, which allows participants to confidently rely on the information it contains.</dd>
+</dl>
+</section>
+</section>
+
+<section anchor="diverse-design-patterns"><name>Diverse Design Patterns</name>
+<t>MATF is designed to be flexible and adaptable to the varying needs of different federations. Federations can differ significantly in terms of size, scope, and security requirements, which makes it challenging to prescribe a one-size-fits-all trust framework and security measures.</t>
+<t>For instance, in the European Union, Regulation (EU) No 910/2014 (the electronic identification, authentication, and trust services (eIDAS) Regulation) <xref target="eIDAS"/> establishes a regulatory framework for electronic identification and trust services for electronic transactions in the internal market. The eIDAS Regulation provides a basis for cross-border recognition of notified electronic identification schemes and for regulated trust services.</t>
+<t>Similarly, national federations, such as those found in education or healthcare sectors, often have their own specific trust frameworks and security measures tailored to their unique needs. These federations may leverage existing national identification systems or other trusted credentials to establish member identities and ensure secure interactions.</t>
+<t>Organizations may also set up their own federations, tailored to the specific security requirements and trust models relevant to their context. For example, a private business federation might establish its own vetting processes and trust framework based on the nature of its business and the sensitivity of the data being exchanged.</t>
+<t>By allowing federations the flexibility to tailor their trust frameworks and security measures, MATF can support a wide range of use cases. This flexibility is crucial for accommodating the diverse requirements and challenges faced by different federations, ensuring a secure and adaptable system for establishing trust and facilitating secure communication.</t>
+</section>
+
+<section anchor="trust-model"><name>Trust Model</name>
+<t>The MATF framework operates on a trust model that is central to its design and functionality. This section outlines the key components of this trust model and its implications for federation members and the federation operator.</t>
+
+<section anchor="role-of-the-federation-operator"><name>Role of the Federation Operator</name>
+<t>The federation operator plays a critical role in the MATF framework. This entity is responsible for:</t>
+
+<ul>
+<li>Managing the central trust anchor, which is used to establish trust across different domains within the federation.</li>
+<li>Vetting federation members to ensure they meet the required standards and policies.</li>
+<li>Maintaining and securing the federation metadata, which includes public key pins <xref target="RFC7469"/>, issuer certificates, and other essential information.</li>
+</ul>
+<t>Additionally, the federation operator <bcp14>SHOULD</bcp14> develop their own threat models to proactively identify potential risks and threats. This process involves examining the operating environment, evaluating both internal and external threats, and understanding how vulnerabilities can be exploited. The goal of the threat model is to enable the federation operator to establish mitigation strategies that address the identified risks.</t>
+<t>The security and stability of the federation rely on the integrity and competence of the federation operator. Members must be able to fully trust this central authority, as its role is essential to maintaining the federation's reliability and security.</t>
+</section>
+
+<section anchor="federation-members-responsibilities"><name>Federation Members' Responsibilities</name>
+<t>Federation members share the responsibility of maintaining trust and security within the federation.</t><t>Their responsibilities include:</t>
+
+<ul>
+<li>Adhering to the federation's security policies and procedures.</li>
+<li>Ensuring the accuracy and timeliness of their metadata submissions.</li>
+<li>Cooperating with the federation operator's vetting and security measures.</li>
+</ul>
+<t>By fulfilling these responsibilities, federation members help sustain the trust framework that enables secure and reliable communication within the federation.</t>
+<t>Federation members submit member metadata to the federation. As part of federation operations, the federation <bcp14>MUST</bcp14> ensure the authenticity and integrity of submitted member metadata and the authenticity of the submitting member.</t>
+</section>
+
+<section anchor="chain-of-trust"><name>Chain of Trust</name>
+<t>Each federation operates within a trust framework that encompasses its own security policies and procedures. This framework is designed to ensure the integrity, authenticity, and confidentiality of communications within the federation. Key components of this framework include:</t>
+
+<ul>
+<li>Public key pinning <xref target="RFC7469"/> and preloading to thwart on-path attacks by rejecting peers whose public key in the presented certificate does not match a pin published in the federation metadata.</li>
+<li>Regular updates and verification of federation metadata to prevent the use of outdated or compromised information.</li>
+</ul>
+<t>The federation operator aggregates, signs, and publishes the federation metadata, which combines all members' member metadata along with additional federation-specific information. By placing trust in the federation and its associated federation metadata signature verification key, federation members trust the information contained within the federation metadata.</t>
+<t>The trust anchor for the federation is established through the federation metadata signature verification key, a critical component requiring secure distribution and verification. To achieve this, the signature verification key material is distributed using a JSON Web Key (JWK) Set <xref target="RFC7517"/>, providing a flexible framework for exposing multiple public keys, including the current signature verification key and keys for rollover. This structured approach ensures members can readily access the necessary keys for verification purposes.</t>
+<t>An additional layer of security is introduced through thumbprint verification <xref target="RFC7638"/>, where federation members can independently verify the key's authenticity. This involves comparing the calculated cryptographic thumbprint of the key with a trusted value, ensuring its integrity. Importantly, this verification process can be conducted through channels separate from the JWK Set itself, enhancing security by eliminating reliance on a single distribution mechanism.</t>
+<t>This trust framework is essential for enabling seamless and secure interoperability across different trust domains within the federation.</t>
+</section>
+
+<section anchor="member-vetting"><name>Member Vetting</name>
+<t>To ensure the security and integrity of the MATF framework, a member vetting process is essential. Detailed vetting processes are beyond the scope of this document but can be guided by established frameworks such as eIDAS and eduGAIN.</t>
+<t>The following are non-normative references to established frameworks:</t>
+
+<ul>
+<li><t>eIDAS: The eIDAS regulation can provide guidance for member vetting and identity assurance practices.</t>
+</li>
+<li><t>eduGAIN: eduGAIN is an interfederation service connecting identity federations worldwide, primarily within the research and education sector. eduGAIN documentation on participation requirements and federation practices can inform member vetting processes <xref target="eduGAIN"/>.</t>
+</li>
+</ul>
+</section>
+
+<section anchor="metadata-authenticity"><name>Metadata Authenticity</name>
+<t>Ensuring the authenticity of metadata is necessary for maintaining the security and trustworthiness of the MATF framework. This document specifies mechanisms for protecting and verifying the authenticity of federation metadata, including JWS signing. Operational procedures for authenticating member metadata submissions are outside the scope of this document and are defined by the federation operator or applicable regulatory bodies.</t>
+</section>
+</section>
+
+<section anchor="metadata-repository"><name>Metadata Repository</name>
+<t>The MATF metadata repository acts as a central vault, securely storing all information about all participating federation members and their respective entities. This information, known as federation metadata, is presented as a JSON Web Signature (JWS) <xref target="RFC7515"/> to ensure its authenticity and integrity.</t>
+<t>The metadata repository is subject to stringent security measures to safeguard the integrity of the stored information. This <bcp14>MAY</bcp14> involve:</t>
+
+<ul>
+<li>Member management: The federation operator can centrally enforce security policies and vet new members before they are added to the repository.</li>
+<li>Access controls: Access to repository management functions and member metadata submission endpoints <bcp14>SHOULD</bcp14> be restricted to authorized federation members.</li>
+<li>Regular backups: Robust backup procedures ensure data recovery in case of unforeseen circumstances.</li>
+</ul>
+<t>Before member metadata is added to the federation's repository, the submitted metadata <bcp14>MUST</bcp14> undergo a validation process. This process verifies the accuracy, completeness, and validity of the information provided by a member. Metadata that does not pass validation <bcp14>MUST</bcp14> be rejected. The validation process <bcp14>MUST</bcp14> include, at a minimum, the following checks:</t>
+
+<ul>
+<li>Format validation: The submitted metadata is checked to ensure that it conforms to the schema and format specifications defined in <xref target="metadata-schema"/> and <xref target="json-schema-for-matf-metadata"/>.</li>
+<li>Unique entity identifier: The submitted metadata is checked to ensure that the <tt>entity_id</tt> value, as defined in <xref target="entities"/>, is not already registered by another member.</li>
+<li>Unique public key pin digests: The submitted metadata is checked to ensure that <tt>pins</tt> entries, as defined in <xref target="servers-clients"/>, do not introduce a <tt>digest</tt> value that is already registered to a different <tt>entity_id</tt>. While reuse of the same <tt>digest</tt> value within the same <tt>entity_id</tt> is permitted, uniqueness across different entities is <bcp14>REQUIRED</bcp14> to prevent identity collisions and to support the resolution of a unique <tt>entity_id</tt> from a derived pin, as specified in <xref target="pin-discovery-and-preloading"/>.</li>
+
+<li>Issuer certificate checks: The issuer certificates in <tt>issuers</tt>, as defined in <xref target="entities"/>, are checked to ensure that they are syntactically valid, not expired, and use algorithms that meet the federation's security requirements.</li>
+<li>Tag validation: Tags, as defined in <xref target="servers-clients"/>, are checked to ensure that they conform to the defined tag syntax. If the federation defines an approved set of tag values, submitted tags are checked to ensure that they are members of that set.</li>
+</ul>
+<t>The metadata repository provides a controlled location for storing member metadata and for producing federation metadata for distribution to federation members.</t>
+
+<section anchor="metadata-submission"><name>Metadata Submission</name>
+<t>It is up to the federation, through its governance and operational processes, to determine which channels are provided to members for submitting their metadata to the metadata repository. Members typically have the option to upload the metadata directly to the repository, provided such functionality exists, or to send it to the federation operator through a designated secure channel. If an insecure channel is used, additional measures <bcp14>MUST</bcp14> be taken to verify the authenticity and integrity of the metadata. Such measures may include verifying the checksum of the metadata through another channel. The choice of submission channel may depend on factors such as the federation's guidelines and the preferences of the member.</t>
+</section>
+
+<section anchor="maintaining-up-to-date-metadata"><name>Maintaining Up-to-Date Metadata</name>
+<t>In a MATF federation, accurate and current metadata is essential for ensuring secure and reliable communication between members. This necessitates maintaining up-to-date metadata accessible by all members.</t>
+
+<ul>
+<li>Federation metadata: The federation operator publishes a JWS containing an aggregate of all entity metadata. This JWS serves as the source of truth for information about all members within the federation. Outdated information in the JWS can lead to issues such as failed connections, discovery challenges, and potential security risks.</li>
+<li>Local metadata: Each member maintains a local metadata store containing information about other members within the federation. This information is retrieved from the federation's publicly accessible JWS. Outdated data in the local store can hinder a member's ability to discover and connect with other relevant entities.</li>
+</ul>
+<t>The following outlines the procedures for keeping metadata up to date:</t>
+
+<ul>
+<li><t>Federation Operator Role: The federation operator plays a crucial role in maintaining data integrity within the federation. Their responsibilities include:</t>
+
+<ul>
+<li>Defining rules for metadata management that <bcp14>MUST</bcp14> include, at a minimum, expiration and cache time management.</li>
+<li>Implementing mechanisms to update the published federation metadata, ensuring it adheres to the expiration time (<tt>exp</tt> as defined in <xref target="federation-metadata-claims"/>) and cache TTL (<tt>cache_ttl</tt> as defined in <xref target="federation-metadata-claims"/>) specifications.</li>
+</ul></li>
+<li><t>Member Responsibility: Members must follow the federation's metadata management rules and refresh their local metadata store according to the defined expiration and cache regulations.</t>
+</li>
+</ul>
+<t>By adhering to these responsibilities, the federation ensures that information remains valid for the defined timeframe and that caching mechanisms utilize up-to-date data effectively.</t>
+</section>
+</section>
+
+<section anchor="authentication"><name>Authentication</name>
+<t>All communication established within the federation uses TLS 1.3 <xref target="RFC8446"/> with mutual authentication. This mechanism ensures the authenticity of both communicating parties, establishing a robust foundation for secure data exchange.</t>
+
+<section anchor="public-key-pinning"><name>Public Key Pinning</name>
+<t>MATF implements public key pinning based on <xref target="RFC7469"/>. Public key pinning associates one or more public key pins with each federation endpoint. These pins are published in the federation metadata. During a connection, clients and servers extract the public key from the presented certificate and verify that it matches the preconfigured public key pins retrieved from the federation metadata.</t>
+
+<section anchor="benefits-of-public-key-pinning"><name>Benefits of Public Key Pinning</name>
+<t>The decision to utilize public key pinning in the MATF framework was driven by several critical factors aimed at enhancing security and ensuring trust.</t>
+
+<section anchor="interfederation-trust"><name>Interfederation Trust</name>
+<t>In interfederation environments, where multiple federations need to trust each other, public key pinning remains effective. Members can validate entities in other federations using pins published through shared metadata, ensuring trust across boundaries. Unlike private certificate chains, which can become complex and difficult to manage across multiple federations, public key pinning provides a straightforward mechanism for establishing trust. MATF interfederation addresses this challenge by aggregating metadata from all participating federations into a unified metadata repository. This shared metadata enables secure communication between entities in different federations, ensuring consistent key validation and robust cross-federation trust and security.</t>
+</section>
+
+<section anchor="fortifying-security-against-threats"><name>Fortifying Security Against Threats</name>
+<t>Public key pinning provides a robust defense mechanism by directly binding a peer to a specific public key. This ensures that only the designated key is trusted, preventing attackers from exploiting fraudulent certificates. By eliminating reliance on external trust intermediaries, this approach significantly enhances resilience against potential threats.</t>
+</section>
+
+<section anchor="use-of-self-signed-certificates"><name>Use of Self-Signed Certificates</name>
+<t>The use of self-signed certificates within the federation leverages public key pinning to establish trust. By bypassing external Certificate Authorities (CAs), servers and clients rely on the federation's mechanisms to validate trust. Public key pinning ensures that only the specific self-signed public keys, identified by key pins in the metadata, are trusted.</t>
+</section>
+
+<section anchor="revocation"><name>Revocation</name>
+<t>In deployments that rely on certificate chains and certificate revocation mechanisms, revocation can be complex and slow. This complexity arises because a certificate that can no longer be trusted, and potentially
+other certificates within the chain, may need to be revoked and reissued. Public key pinning mitigates this complexity by allowing clients to base trust decisions on pinned public keys rather than on certificate chains.</t>
+<t>If a public key can no longer be trusted within a MATF federation, the associated pin is removed. Updated metadata is published. The updated metadata includes a new pin corresponding to the public key in the replacement certificate. This approach reduces reliance on certificate revocation mechanisms and shifts the trust relationship to the specific, updated public key identified by its pin.</t>
+</section>
+</section>
+</section>
+
+<section anchor="pin-discovery-and-preloading"><name>Pin Discovery and Preloading</name>
+<t>Peers in the federation obtain public key pins from the federation metadata. These pins serve as preconfigured trust parameters used for validation, as specified in <xref target="verification-of-received-certificates"/>.</t>
+<t>The federation <bcp14>MUST</bcp14> define discovery rules.  These rules describe how peers use federation metadata claims such as organization and tags to identify relevant endpoints and their pins.</t>
+<t>Before initiating or accepting a connection, a peer <bcp14>MUST</bcp14> preload the pins for the selected or authorized endpoints from its local metadata store. Maintenance of the local metadata store, including refresh behavior and expiry handling, is specified in <xref target="maintaining-up-to-date-metadata"/>.</t>
+<t>To support peer identification, the preloaded state <bcp14>MUST</bcp14> enable mapping from a derived pin to the corresponding entity_id. This may be achieved by maintaining a local index that maps each preloaded pin value to its associated <tt>entity_id</tt>.</t>
+<t>A server <bcp14>MAY</bcp14> preload only the pins for clients that satisfy the server's connection policy (for example, based on <tt>organization</tt> or <tt>tags</tt>). Pin validation enforces the resulting policy as specified in <xref target="verification-of-received-certificates"/>.</t>
+</section>
+
+<section anchor="verification-of-received-certificates"><name>Verification of Received Certificates</name>
+<t>Upon connection establishment, both endpoints <bcp14>MUST</bcp14> verify that the public key in the presented peer certificate matches a pin published in the federation metadata. This validation <bcp14>MAY</bcp14> be performed by the TLS stack or by application logic.</t>
+<t>In architectures where an intermediary terminates the TLS session, pin validation <bcp14>MUST</bcp14> be performed by either the intermediary or the application. If the application performs pin validation, the intermediary <bcp14>MUST</bcp14> forward the peer certificate or a derived pin to the application. The application <bcp14>MUST</bcp14> be able to determine the peer <tt>entity_id</tt> from the forwarded information and the federation metadata. This resolution relies on the client pin digest uniqueness property specified in <xref target="servers-clients"/>.</t>
+<t>If the intermediary performs pin validation, it <bcp14>MUST</bcp14> propagate the peer certificate, the derived pin, or the <tt>entity_id</tt> to the application to enable authorization.</t>
+<t>The channel between the intermediary and the application <bcp14>MUST</bcp14> be integrity protected and <bcp14>MUST</bcp14> provide endpoint authentication.</t>
+<t>Any conveyed certificate, pin, or identity used for this purpose <bcp14>MUST</bcp14> be derived directly from the TLS session. Implementations <bcp14>MUST NOT</bcp14> accept these values from peer-supplied application data.</t>
+<t>If the implementation permits disabling default CA-based certificate chain validation, it <bcp14>SHOULD</bcp14> do so while still enforcing pin validation. If chain validation is required, the trust anchors used for certificate chain validation <bcp14>MUST</bcp14> be selected from the issuers listed in the federation metadata.</t>
+<t>If no matching pin is found for a peer, the connection <bcp14>MUST</bcp14> be handled according to <xref target="failure-to-validate"/>.</t>
+</section>
+
+<section anchor="failure-to-validate"><name>Failure to Validate</name>
+<t>A received certificate that fails validation <bcp14>MUST</bcp14> result in the immediate termination of the connection. This includes scenarios where the derived pin does not match any preloaded pin or where the peer identity cannot be resolved. This strict enforcement ensures that only authorized and secure communication channels are established within the federation.</t>
+</section>
+
+<section anchor="certificate-rotation"><name>Certificate Rotation</name>
+<t>To replace a certificate, whether due to expiration or other reasons, the following procedure <bcp14>MUST</bcp14> be followed:</t>
+
+<ol>
+<li>Submitting updated metadata: When a certificate is scheduled for rotation, the federation member submits updated metadata that adds the <tt>pin</tt> for the new public key alongside the already published <tt>pins</tt>. The federation operator republishes the signed federation metadata aggregate, making the new pin available to all federation members.</li>
+<li>Propagation period: Federation members <bcp14>MUST</bcp14> refresh their local metadata stores as specified in <xref target="maintaining-up-to-date-metadata"/>. The rotating member <bcp14>MUST</bcp14> allow sufficient time for peers to refresh and preload the new pin before switching to the new certificate.</li>
+<li>Switching to the new certificate: After the propagation period has elapsed, the rotating member updates its TLS stack to present the new certificate. This allows peers that have preloaded the new pin to validate the rotated certificate.</li>
+<li>Removing the old pin: Following a successful transition, the rotating member <bcp14>MUST</bcp14> submit updated metadata excluding the old pin. The federation operator republishes the aggregate, ensuring that only current public keys remain trusted within the federation.</li>
+</ol>
+</section>
+
+<section anchor="implementation-guidelines"><name>Implementation Guidelines</name>
+<t>The placement of pin validation depends on the deployment architecture. For clients, validation is typically performed by the component initiating the TLS connection. For servers using an intermediary, the communication channel between the intermediary and the application <bcp14>MUST</bcp14> be integrity protected to prevent tampering with forwarded peer identity material.</t>
+<t>When an intermediary propagates peer identity material (for example, the peer certificate, a derived pin, or the <tt>entity_id</tt>) using HTTP header fields, those header fields are the mechanism used to fulfill the requirements specified in <xref target="verification-of-received-certificates"/>. For each header field name used for this purpose, the intermediary <bcp14>MUST</bcp14> remove any instance of that header field received from the peer and then set the header field value itself. This ensures that the application only processes identity material derived directly from the TLS session, enabling the application to match the peer to the federation metadata and apply authorization policy based on federation metadata claims. Header fields that are not used to convey identity material are unaffected by this requirement. The communication channel between the intermediary and the application <bcp14>MUST</bcp14> provide integrity protection and endpoint authentication to prevent tampering with forwarded peer identity material.</t>
+<t>Implementations <bcp14>SHOULD</bcp14>, when possible, rely on libraries with built-in support for pinning. libcurl, for example, supports pinning via the CURLOPT_PINNEDPUBLICKEY option. In Python, the cryptography library can extract public keys, and application code can compare the derived pin to a configured value. Go provides crypto/tls and crypto/x509 for certificate inspection and public key extraction. In Java, java.security.cert.X509Certificate enables public key extraction, while java.net.http.HttpClient allows pinning enforcement using a custom SSLContext and TrustManager. The choice of library is left to the discretion of each implementation.</t>
+</section>
+</section>
+
+<section anchor="federation-metadata"><name>Federation Metadata</name>
+<t>Federation metadata is published as a JSON Web Signature (JWS) <xref target="RFC7515"/>. The payload contains statements about entities of federation members.</t>
+<t>Metadata is used for authentication and service discovery. A client selects a server based on metadata claims such as <tt>organization</tt> and <tt>tags</tt>. To establish a connection, the client uses the <tt>base_uri</tt>, <tt>pins</tt>, and, if needed, <tt>issuers</tt> of the selected server.</t>
+
+<section anchor="federation-metadata-claims"><name>Federation Metadata Claims</name>
+<t>This section defines the set of claims that can be included in metadata.</t>
+
+<ul>
+  <li><t>iat (<bcp14>REQUIRED</bcp14>)</t>
+  <t>Identifies the time at which the federation metadata was issued.</t>
+  <ul>
+    <li>Data Type: Integer</li>
+    <li>Syntax: NumericDate as defined in <xref target="RFC7519" sectionFormat="comma" section="4.1.6"/>.</li>
+    <li>Example: <tt>1755514949</tt></li>
+  </ul></li>
+<li><t>exp (<bcp14>REQUIRED</bcp14>)</t>
+<t>Identifies the expiration time on or after which the federation metadata is
+no longer valid.  Once the <tt>exp</tt> time has passed, the metadata
+<bcp14>MUST</bcp14> be rejected regardless of cache state.</t>
+<ul>
+  <li>Data Type: Integer</li>
+  <li>Syntax: NumericDate as defined in <xref target="RFC7519" sectionFormat="comma" section="4.1.4"/>.</li>
+  <li>Example: <tt>1756119888</tt></li>
+</ul></li>
+<li><t>iss (<bcp14>REQUIRED</bcp14>)</t> 
+<t>A URI uniquely identifying the
+issuing federation.  This value differentiates federations, prevents
+ambiguity, and ensures that entities are recognized within their intended
+context.  Verification of the <tt>iss</tt> claim enables recipients to determine the
+origin of the information and to establish trust with entities within the
+identified federation.</t>
+<ul>
+  <li>Data Type: String</li>
+  <li>Syntax: StringOrURI as defined in <xref target="RFC7519" sectionFormat="comma" section="4.1.1"/>. In MATF, this value <bcp14>MUST</bcp14> be a URI.</li>
+  <li>Example: <tt>"https://federation.example.org"</tt></li>
+</ul></li>
+<li><t>version (<bcp14>REQUIRED</bcp14>)</t>
+<t>Indicates the schema version of the federation metadata. This ensures compatibility between members of the federation by defining a clear versioning mechanism for interpreting metadata.</t>
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: The value <bcp14>MUST</bcp14> follow Semantic Versioning (see <eref target="https://semver.org" brackets="angle"/>).</li>
+<li>Example: <tt>"1.0.0"</tt></li>
+</ul></li>
+<li><t>cache_ttl (<bcp14>OPTIONAL</bcp14>)</t>
+<t>
+Specifies the duration in seconds for caching downloaded federation metadata, allowing for independent caching outside of specific HTTP configurations. This is particularly useful when the communication mechanism is not based on HTTP. In the event of a metadata publication outage, members can rely on cached metadata until it expires, as indicated by the <tt>exp</tt> claim in the JWS payload, defined in <xref target="federation-metadata-claims"/>. Once expired, metadata <bcp14>MUST</bcp14> no longer be trusted. If omitted, a mechanism to refresh metadata <bcp14>MUST</bcp14> still exist to ensure the metadata remains valid.</t>
+<ul>
+<li>Data Type: Integer</li>
+<li>Syntax: Integer representing the duration in seconds.</li>
+<li>Example: <tt>3600</tt></li>
+</ul></li>
+<li><t>entities (<bcp14>REQUIRED</bcp14>)</t>
+<t>Contains the list of entities within the federation.</t>
+<ul>
+<li>Data Type: Array of Objects</li>
+<li>Syntax: Each object <bcp14>MUST</bcp14> conform to the entity definition, as specified in <xref target="entities"/>.</li>
+</ul></li>
+</ul>
+
+
+<section anchor="entities"><name>Entities</name>
+<t>Metadata contains a list of entities that may be used for communication within the federation. Each entity describes one or more endpoints owned by a member. An entity has the following properties:</t>
+
+<ul>
+<li><t>entity_id (<bcp14>REQUIRED</bcp14>)</t>
+<t>A URI that uniquely identifies the entity. This identifier <bcp14>MUST NOT</bcp14> collide with any other <tt>entity_id</tt> within the federation or within any other federation that the entity interacts with.</t>
+
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: URI as defined in <xref target="RFC3986"/>.</li>
+<li>Example: <tt>"https://example.com"</tt></li>
+</ul></li>
+<li><t>organization (<bcp14>OPTIONAL</bcp14>)</t>
+<t>A name identifying the organization that the entity's metadata represents. The federation operator <bcp14>MUST</bcp14> ensure that a mechanism is in place to verify that the <tt>organization</tt> claim corresponds to the rightful owner of the information exchanged between nodes. This is crucial for the trust model, ensuring certainty about the identities of the involved parties. The federation operator <bcp14>SHOULD</bcp14> choose an approach that best suits the specific needs and trust model of the federation.</t>
+
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: A name identifying the organization represented by the entity.</li>
+<li>Example: <tt>"Example Org"</tt></li>
+</ul></li>
+<li><t>issuers (<bcp14>REQUIRED</bcp14>)</t>
+<t>A list of certificate issuers allowed to issue certificates for the entity's endpoints. For each issuer, the issuer's root CA certificate <bcp14>MUST</bcp14> be included in the <tt>x509certificate</tt> property and be encoded using the Privacy-Enhanced Mail (PEM) format. Certificate verification relies on public key pinning, with the list of allowed issuers used only when a certificate chain validation mechanism is unavoidable. For self-signed certificates, the certificate itself acts as its own issuer and <bcp14>MUST</bcp14> be listed as such in the metadata.</t>
+
+<ul>
+<li>Data Type: Array of Objects</li>
+<li>Syntax: Each object contains an issuer certificate encoded as PEM, as specified in <xref target="RFC7468"/>. The Base64 content <bcp14>MUST</bcp14> be wrapped so that each line consists of exactly 64 characters, except for the final line. In JSON text, line breaks in the PEM value are represented using the "\n" escape sequence.</li>
+<li><t>Example: Issuer truncated for readability.</t>
+<artwork><![CDATA[
+"issuers": [{
+  "x509certificate": "-----BEGIN CERTIFICATE-----\nMIIDDD"
+}]]]></artwork>
+
+</li>
+</ul></li>
+<li><t>servers (<bcp14>OPTIONAL</bcp14>)</t>
+<t>Contains the list of servers within the entity.</t>
+
+<ul>
+<li>Data Type: Array of Objects</li>
+<li>Syntax: Each object <bcp14>MUST</bcp14> conform to the server definition, as specified in <xref target="servers-clients"/>.</li>
+</ul></li>
+<li><t>clients (<bcp14>OPTIONAL</bcp14>)</t>
+<t>Contains the list of clients within the entity.</t>
+
+<ul>
+<li>Data Type: Array of Objects</li>
+<li>Syntax: Each object <bcp14>MUST</bcp14> conform to the client definition, as specified in <xref target="servers-clients"/>.</li>
+</ul></li>
+</ul>
+
+<section anchor="servers-clients"><name>Servers / Clients</name>
+<t>The entity's servers and clients are listed below.</t>
+
+<ul>
+<li><t>description (<bcp14>OPTIONAL</bcp14>)</t>
+<t>A human-readable text describing the server or client.</t>
+
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: Free-form text describing the server or client.</li>
+<li>Example: <tt>"SCIM Server 1"</tt></li>
+</ul></li>
+<li><t>base_uri (<bcp14>REQUIRED</bcp14> for servers, <bcp14>OPTIONAL</bcp14> for clients)</t>
+<t>The base URL of the server. This claim is <bcp14>REQUIRED</bcp14> for server endpoints. The value <bcp14>MUST</bcp14> be an absolute URI as defined in <xref target="RFC3986" section="4.3"/>. The value serves as the base URI for resolving relative references to server resources, as described in <xref target="RFC3986" section="5"/>.</t>
+
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: An absolute URI as defined in <xref target="RFC3986" section="4.3"/> that is used as a URL.</li>
+<li>Example: <tt>"https://scim.example.com/"</tt></li>
+</ul></li>
+<li><t>pins (<bcp14>REQUIRED</bcp14>)</t>
+<t>A list of objects representing public key pins <xref target="RFC7469"/>.</t>
+
+<ul>
+<li>Data Type: Array of Objects</li>
+<li><t>Syntax: A list of objects, where each object represents a single public key pin with the following properties:</t>
+
+<ul>
+<li><t>alg (<bcp14>REQUIRED</bcp14>)</t>
+<t>The name of the cryptographic hash algorithm. Currently, the <bcp14>RECOMMENDED</bcp14> value is 'sha256'. As more secure algorithms are developed over time, federations should be ready to adopt these newer options for enhanced security.</t>
+
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: The name of the algorithm.</li>
+<li>Example: <tt>"sha256"</tt></li>
+</ul></li>
+<li><t>digest (<bcp14>REQUIRED</bcp14>)</t>
+<t>The public key of the end-entity certificate, converted to a Subject Public Key Information (SPKI) fingerprint, as specified in <xref target="RFC7469" section="2.4"/>. For clients, the <tt>digest</tt> value <bcp14>MUST</bcp14> be unique across entities in the federation metadata to enable unambiguous identification of the peer. Within the same entity, the same <tt>digest</tt> value <bcp14>MAY</bcp14> be assigned to multiple clients.</t>
+
+<ul>
+<li>Data Type: String</li>
+<li>Syntax: SPKI fingerprint.</li>
+<li>Example: <tt>"+hcmCjJEtLq4BRPhrILyhgn98Lhy6DaWdpmsBAgOLCQ="</tt></li>
+</ul></li>
+</ul></li>
+<li><t>Example:</t>
+
+<artwork><![CDATA[
+"pins": [{
+  "alg": "sha256",
+  "digest": "+hcmCjJEtLq4BRPhrILyhgn98Lhy6DaWdpmsBAgOLCQ="
+}]]]></artwork>
+
+</li>
+</ul></li>
+<li><t>tags (<bcp14>OPTIONAL</bcp14>)</t>
+<t>A list of strings that describe the endpoint's capabilities.</t>
+
+<ul>
+<li>Data Type: Array of Strings</li>
+<li>Syntax: Strings describing endpoint capabilities.</li>
+<li>Pattern: <tt>^[a-z0-9]{1,64}$</tt></li>
+<li>Example: <tt>["scim", "xyzzy"]</tt></li>
+</ul>
+<t>Tags are fundamental for discovery within a federation, aiding both servers and clients in identifying appropriate connections.</t>
+
+<ul>
+<li><t>Server Tags: Tags associated with servers are used by clients to discover servers offering the services they require. Clients can search for servers based on tags that indicate supported protocols or the type of data they handle, enabling discovery of compatible servers.</t>
+</li>
+<li><t>Client Tags: Tags associated with clients are used by servers to identify clients with specific characteristics or capabilities. For instance, a server might only accept connections from clients that support particular protocols. By filtering incoming requests based on these tags, servers can identify suitable clients.</t>
+</li>
+</ul>
+<t>Federation-Specific Considerations: While tags are tied to individual federations and serve distinct purposes within each, several key considerations are crucial to ensure clarity and promote consistent tag usage:</t>
+
+<ul>
+<li><t>Well-Defined Scope: Each federation <bcp14>MUST</bcp14> establish a clear scope for its tags, detailing their intended use, allowed tag values, associated meanings, and any relevant restrictions. Maintaining a well-defined and readily accessible registry of approved tags is essential for the federation.</t>
+</li>
+<li><t>Validation Mechanisms: Implementing validation mechanisms for tags is highly recommended. This can involve a dedicated operation or service verifying tag validity and compliance with the federation's regulations. Such validation ensures consistency within the federation by preventing the use of unauthorized or irrelevant tags.</t>
+</li>
+</ul></li>
+</ul>
+
+</section>
+</section>
+</section>
+
+<section anchor="metadata-schema"><name>Metadata Schema</name>
+<t>The MATF metadata schema is defined in <xref target="json-schema-for-matf-metadata"/>. This schema specifies the format for describing entities involved in MATF and their associated information.</t>
+<aside><t>Note: The schema in <xref target="json-schema-for-matf-metadata"/> is folded due to line length limitations as specified in <xref target="RFC8792"/>.</t></aside>
+</section>
+
+<section anchor="example-metadata"><name>Example Metadata</name>
+<t>The following is a non-normative example of a metadata statement. Line breaks in the <tt>issuers</tt> claim example are for readability only.</t>
+
+<sourcecode type="json"><![CDATA[
+{
+  "iat": 1755514949,
+  "exp": 1756119888,
+  "iss": "https://federation.example.org",
+  "version": "1.0.0",
+  "cache_ttl": 3600,
+  "entities": [{
+    "entity_id": "https://example.com",
+    "organization": "Example Org",
+    "issuers": [{
+      "x509certificate": "-----BEGIN CERTIFICATE-----\nMIIDDDCCAf
+      SgAwIBAgIJAIOsfJBStJQhMA0GCSqGSIb3DQEBCwUAMBsxGTAXBgNV\nBAM
+      MEHNjaW0uZXhhbXBsZS5jb20wHhcNMTcwNDA2MDc1MzE3WhcNMTcwNTA2MD
+      c1\nMzE3WjAbMRkwFwYDVQQDDBBzY2ltLmV4YW1wbGUuY29tMIIBIjANBgk
+      qhkiG9w0B\nAQEFAAOCAQ8AMIIBCgKCAQEAyr+3dXTC8YXoi0LDJTH0lTfv
+      8omQivWFOr3+/PBE\n6hmpLSNXK/EZJBD6ZT4Q+tY8dPhyhzT5RFZCVlrDs
+      e/kY00F4yoflKiqx9WSuCrq\nZFr1AUtIfGR/LvRUvDFtuHo1MzFttiK8Wr
+      wskMYZrw1zLHTIVwBkfMw1qr2XzxFK\njt0CcDmFxNdY5Q8kuBojH9+xt5s
+      ZbrJ9AVH/OI8JamSqDjk9ODyGg+GrEZFClP/B\nxa4Fsl04En/9GfaJnCU1
+      NpU0cqvWbVUlLOy8DaQMN14HIdkTdmegEsg2LR/XrJkt\nho16diAXrgS25
+      3xbkdD3T5d6lHiZCL6UxkBh4ZHRcoftSwIDAQABo1MwUTAdBgNV\nHQ4EFg
+      QUs1dXuhGhGc2UNb7ikn3t6cBuU34wHwYDVR0jBBgwFoAUs1dXuhGhGc2U\
+      nNb7ikn3t6cBuU34wDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAA
+      OCAQEA\nrR9wxPhUa2XfQ0agAC0oC8TFf8wbTYb0ElP5Ej834xMMW/wWTSA
+      N8/3WqOWNQJ23\nf0vEeYQwfvbD2fjLvYTyM2tSPOWrtQpKuvulIrxV7Zz8
+      A61NIjblE3rfea1eC8my\nTkDOlMKV+wlXXgUxirride+6ubOWRGf92fgze
+      DGJWkmm/a9tj0L/3e0xIXeujxC7\nMIt3p99teHjvnZQ7FiIBlvGc1o8FD1
+      FKmFYd74s7RxrAusBEAAmBo3xyB89cFU0d\nKB2fkH2lkqiqkyOtjrlHPoy
+      6ws6g1S6U/Jx9n0NEeEqCfzXnh9jEpxisSO+fBZER\npCwj2LMNPQxZBqBF
+      oxbFPw==\n-----END CERTIFICATE-----"
+    }],
+    "servers": [{
+      "description": "SCIM Server 1",
+      "base_uri": "https://scim.example.com/",
+      "pins": [{
+        "alg": "sha256",
+        "digest": "+hcmCjJEtLq4BRPhrILyhgn98Lhy6DaWdpmsBAgOLCQ="
+      }],
+      "tags": [
+        "scim"
+      ]
+    }],
+    "clients": [{
+      "description": "SCIM Client 1",
+      "pins": [{
+        "alg": "sha256",
+        "digest": "+hcmCjJEtLq4BRPhrILyhgn98Lhy6DaWdpmsBAgOLCQ="
+      }]
+    }]
+  }]
+}]]></sourcecode>
+</section>
+
+<section anchor="metadata-signing"><name>Metadata Signing</name>
+<t>Federation metadata is signed using JWS and published using JWS JSON Serialization according to the general JWS JSON Serialization syntax defined in <xref target="RFC7515"/>. Federation metadata signatures are <bcp14>RECOMMENDED</bcp14> to be created using the algorithm ECDSA using P-256 and SHA-256 (&quot;ES256&quot;) as defined in <xref target="RFC7518"/>. However, to accommodate evolving cryptographic standards, alternative algorithms <bcp14>MAY</bcp14> be used, provided they meet the security requirements of the federation.</t>
+<t>Federations may need to transition to post-quantum cryptographic algorithms for federation metadata signatures and for endpoint certificate public key types. MATF can accommodate such transitions through key rollover and by updating published pins as new key types are deployed.</t>
+<t>The following JWS Protected Header parameters are <bcp14>REQUIRED</bcp14>:</t>
+
+<ul>
+<li><t><tt>alg</tt> (Algorithm)</t>
+<t>Identifies the algorithm used to generate the JWS signature <xref target="RFC7515" sectionFormat="comma" section="4.1.1"/>.</t>
+</li>
+<li><t><tt>kid</tt> (Key Identifier)</t>
+<t>Identifies the key in the issuer's key set that was used to generate the JWS signature <xref target="RFC7515" sectionFormat="comma" section="4.1.4"/>.</t>
+</li>
+</ul>
+</section>
+
+<section anchor="example-signature-protected-header"><name>Example Signature Protected Header</name>
+<t>The following is a non-normative example of a signature protected header.</t>
+
+<sourcecode type="json"><![CDATA[
+{
+    "alg": "ES256",
+    "kid": "c2fb760e-f4b6-4f7e-b17a-7115d2826d51"
+}]]></sourcecode>
+
+</section>
+</section>
+
+<section anchor="example-usage-scenarios"><name>Example Usage Scenarios</name>
+<t>The examples in this section are not normative and illustrate the procedures described in Sections <xref format="counter" target="pin-discovery-and-preloading"/> and <xref format="counter" target="verification-of-received-certificates"/>.</t>
+<t>The following example describes a scenario within the federation &quot;Skolfederation&quot; where MATF is deployed. Both clients and servers are registered members of the federation. In this scenario, clients manage cross-domain user accounts using SS 12000:2018, which is a System for Cross-domain Identity Management (SCIM) extension.</t>
+
+<artwork><![CDATA[
++------------------------------------------------------+
+|                                                      |
+|                  Federation Metadata                 |
+|                                                      |
++-----+-------------------------------+----------------+
+      |                               |
+     (A)                             (A)
+      |                               |
+      v                               v
++-----------+         +--------------------------------+
+| Local MD  |         |            Local MD            |
++-----+-----+         +------+---------------------+---+
+      |                      |                     |
+     (B)                    (C)                   (F)
+      |                      |                     |
+      v                      v                     v
++-----------+         +--------------+         +-------+
+|           |         |              |         |       |
+|  Client   +---(D)-->+ Intermediary +---(E)-->+  App  |
+|           |         |              |         |       |
++-----------+         +--------------+         +-------+]]></artwork>
+
+<ol type="A">
+<li>Clients and servers retrieve federation metadata and update their local metadata stores as described in <xref target="maintaining-up-to-date-metadata"/>.</li>
+<li>The client selects a server endpoint based on metadata claims and preloads the pins published for that endpoint.</li>
+<li>If certificate chain validation is performed, the TLS client or intermediary configures its trust store using the <tt>issuers</tt> listed in the federation metadata for the selected entity.</li>
+<li>The client initiates a TLS connection to the selected <tt>base_uri</tt> and presents its client certificate.</li>
+<li>If an intermediary terminates the TLS session, it forwards identity material derived from the TLS session to the application as described in Sections <xref format="counter" target="verification-of-received-certificates"/> and <xref format="counter" target="implementation-guidelines"/>.</li>
+<li>The application maps the derived pin to a matching metadata entry and uses the associated <tt>entity_id</tt> for identification and authorization.</li>
+</ol>
+
+<section anchor="client-behavior"><name>Client Behavior</name>
+<t>A certificate is issued for the client. The client's certificate issuer and public key <tt>pins</tt> are published in the federation metadata.</t>
+
+<t>When a client initiates a connection to a remote server (identified by the server's <tt>entity_id</tt>), the following steps are performed:</t>
+
+<ol type="1">
+<li>The client selects a server endpoint from the identified entity's <tt>servers</tt> list whose <tt>tags</tt> match the required service capabilities.</li>
+<li>The client preloads the selected endpoint's <tt>pins</tt> from its local metadata store. If certificate chain validation is performed, the client also loads the <tt>issuers</tt> listed for the entity.</li>
+<li>The client initiates a TLS connection to the selected endpoint using the <tt>base_uri</tt> and presents its client certificate.</li>
+<li>The client performs pin validation for the server certificate as described in <xref target="verification-of-received-certificates"/>. This validation may be performed by the TLS stack during the handshake or by application logic after the connection is established, but it completes before any application data is exchanged.</li>
+<li>If validation succeeds, the client proceeds with application transactions.</li>
+</ol>
+</section>
+
+<section anchor="server-behavior"><name>Server Behavior</name>
+<t>To accept inbound connections from a client, the server uses federation metadata to perform pin validation of the public key in the presented client certificate. The federation metadata publishes client public key <tt>pins</tt>, and for deployments that perform certificate chain validation, the allowed <tt>issuers</tt>.</t>
+<t>When the server receives a TLS connection attempt from a remote client, the following steps are performed:</t>
+
+<ol>
+<li>The server is configured to request or require a client certificate. If certificate chain validation is performed, the trust store is populated using the <tt>issuers</tt> published in the federation metadata. Otherwise, the server requests a client certificate without issuer validation (for example, <tt>optional_no_ca</tt>).</li>
+<li>The server can prefilter the federation metadata to identify the set of clients it is willing to communicate with and preload only the <tt>pins</tt> for those clients, as described in <xref target="pin-discovery-and-preloading"/>.</li>
+<li>After the TLS handshake completes, the server derives the client's pin from the presented certificate and matches it against the preloaded pins. When a match is found, the server determines the client's <tt>entity_id</tt> from the corresponding metadata entry.</li>
+<li>If pin validation succeeds, the server proceeds with application transactions. If pin validation fails, the server terminates the connection.</li>
+</ol>
+</section>
+
+<section anchor="spki-generation"><name>SPKI Generation</name>
+<t>The following is an example of how to use OpenSSL to generate a SPKI fingerprint from a PEM-encoded certificate.</t>
+
+<sourcecode type="bash"><![CDATA[
+  openssl x509 -in <certificate.pem> -pubkey -noout | \
+  openssl pkey -pubin -outform der | \
+  openssl dgst -sha256 -binary | \
+  openssl enc -base64]]></sourcecode>
+</section>
+
+<section anchor="curl-and-public-key-pinning"><name>Curl and Public Key Pinning</name>
+<t>The following is an example of public key pinning with curl.</t>
+
+<sourcecode type="bash"><![CDATA[
+  curl --cert client.pem --key client.key \
+  --pinnedpubkey \
+  'sha256//0Ok2aNfcrCNDMhC2uXIdxBFOvMfEVtzlNVUT5pur0Dk=' \
+  https://host.example.com]]></sourcecode>
+</section>
+</section>
+
+<section anchor="deployments-of-the-matf-framework"><name>Deployments of the MATF Framework</name>
+<t>The MATF framework has proven its practical value and robustness through successful deployments in several environments.</t>
+
+<section anchor="skolfederation-moa"><name>Skolfederation Moa</name>
+<t>Skolfederation Moa <xref target="Moa"/> is a federation designed to secure communication between digital educational resources and schools. MATF was developed to meet Moa's needs and enables secure data exchange for schools, municipalities, educational platforms, and services across Sweden.</t>
+<t>The community plays a crucial role in this type of federation. Members are active participants, and the federation operator ensures the federation runs smoothly and serves their needs. Moa's success highlights the importance of collaboration, with members and the federation operator working together to maintain trust, security, and interoperability in the education sector.</t>
+<t>The deployment of MATF in the Swedish education sector has provided several key insights. Maintaining an accurate registry of metadata ownership with reliable contact information is essential for troubleshooting and ensuring accountability. The deployment also demonstrated the importance of setting reasonable expiration times for metadata. Too short an expiration can hinder the ability to implement contingency plans for publishing new metadata during outages.</t>
+<t>Metadata validation is necessary to maintain a stable federation. While manual validation may be sufficient in the early stages of a federation, it becomes unmanageable as the federation scales. Without an automated validation process, incorrect metadata uploaded by members is likely to go undetected, leading to publication of incorrect metadata.</t>
+<t>The federation metadata signing private key is required to publish signed federation metadata. In fallback scenarios, federation metadata may be retrieved from an alternate location, but publishing updated federation metadata requires access to the signing private key. Therefore, secure and redundant management of the signing private key is necessary to support fallback mechanisms and reliable publication. Recipients <bcp14>MUST</bcp14> validate the JWS signature using the federation signature verification key before using federation metadata, regardless of where it is obtained.</t>
+</section>
+
+<section anchor="swedish-national-agency-for-education"><name>Swedish National Agency for Education</name>
+<t>The Swedish National Agency for Education <xref target="SkolverketMATF"/> leverages MATF within its digital national test platform to establish a robust authentication mechanism. The platform utilizes an API for client verification prior to secure data transfer to the agency's test service, ensuring the integrity and confidentiality of educational data.</t>
+</section>
+
+<section anchor="sambruk-s-egil"><name>Sambruk's EGIL</name>
+<t>Sambruk's EGIL <xref target="EGIL"/>, a platform providing digital services to municipalities, has successfully integrated the MATF framework. This deployment demonstrates the framework's adaptability to support a wide range of digital service infrastructures.</t>
+<t>These deployments highlight the effectiveness of the MATF framework in enhancing security and interoperability within the educational sector.</t>
+</section>
+</section>
+
+<section anchor="security-considerations"><name>Security Considerations</name>
+
+<section anchor="security-risks-and-trust-management"><name>Security Risks and Trust Management</name>
+<t>The security risks associated with the MATF framework are confined to each individual federation. Both the federation operator and federation members share the responsibility of maintaining trust and security. Proper handling of metadata and thorough vetting of members are crucial to sustaining this trust.</t>
+<t>Deployments that terminate a session at an intermediary and convey identity material to an application introduce a critical trust boundary. If the intermediary is compromised or fails to properly sanitize inbound headers, an attacker could spoof a peer's <tt>entity_id</tt>. Therefore, intermediaries that convey identity material to an application <bcp14>MUST</bcp14> comply with the requirements in <xref target="implementation-guidelines"/>.</t>
+<t>Implementations <bcp14>SHOULD</bcp14> avoid logging conveyed certificates, pins, or identity values unless required for diagnostics to prevent the accidental exposure of session-specific identity material.</t>
+</section>
+
+<section anchor="tls"><name>TLS</name>
+<t>The security considerations for TLS 1.3 are detailed in Section <xref target="RFC8446" section="10" sectionFormat="bare"/> and Appendices <xref target="RFC8446" section="C" sectionFormat="bare"/>, <xref target="RFC8446" section="D" sectionFormat="bare"/>, and <xref target="RFC8446" section="E" sectionFormat="bare"/> of <xref target="RFC8446"/>.</t>
+</section>
+
+<section anchor="federation-metadata-updates"><name>Federation Metadata Updates</name>
+<t>Regularly updating the local copy of federation metadata is essential for accessing the latest information about active entities, current public key pins <xref target="RFC7469"/>, and valid issuer certificates. The use of outdated metadata may expose systems to security risks, such as interaction with revoked entities or acceptance of manipulated data.</t>
+</section>
+
+<section anchor="verifying-the-federation-metadata-signature"><name>Verifying the Federation Metadata Signature</name>
+<t>Ensuring data integrity and security within the MATF framework relies on verifying the signature of downloaded federation metadata. This verification confirms the origin of the metadata by validating the JWS signature using the federation signature verification key trusted by the recipient. It also confirms that the signed content has not been altered by unauthorized parties. By verifying the signature, trust is maintained in the integrity of the information used for validation, including member public key pins and issuer certificates. To achieve a robust implementation, it is important to consider the security aspects outlined in <xref target="RFC7515"/>, which describes security considerations related to algorithm selection, key compromise, and signature integrity.</t>
+</section>
+
+<section anchor="time-synchronization"><name>Time Synchronization</name>
+<t>Maintaining synchronized clocks across all federation members is critical for the security of the MATF framework. Inaccurate timestamps can compromise the validity of digital signatures and certificates, hinder reliable log analysis, and potentially expose the system to time-based attacks. Therefore, all federation members <bcp14>MUST</bcp14> employ methods to ensure their system clocks are synchronized with a reliable time source.</t>
+</section>
+</section>
+
+<section anchor="iana-considerations"><name>IANA Considerations</name>
+<t>This document has no IANA actions.</t>
+</section>
+
+</middle>
+
+<back>
+<references><name>References</name>
+<references><name>Normative References</name>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7469.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7468.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7515.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7517.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7518.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7519.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7638.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+</references>
+<references><name>Informative References</name>
+<reference quoteTitle="false" anchor="EGIL" target="https://sambruk.se/egil-dnp/">
+  <front>
+    <title>"EGIL - smidig hantering av skolans digitala användarkonton" [EGIL - manage your school's digital user accounts efficiently]</title>
+    <author>
+      <organization>Sambruk</organization>
+    </author>
+  </front>
+</reference>
+<reference anchor="Moa" target="https://wiki.federationer.internetstiftelsen.se/x/LYA5AQ">
+  <front>
+    <title>Machine and Organization Authentication</title>
+    <author>
+      <organization>Internetstiftelsens Federationer [The Swedish Internet Foundation]</organization>
+    </author>
+    <date day="6" month="10" year="2025"></date>
+  </front>
+</reference>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8792.xml"/>
+<reference quoteTitle="false" anchor="SkolverketMATF" target="https://github.com/skolverket/dnp-usermanagement/blob/main/authentication-api/README.md">
+  <front>
+    <title>"API för autentisering" [Authentication API for User Management]</title>
+    <author>
+      <organization>Skolverket [Swedish National Agency for Education]</organization>
+    </author>
+    <date day="4" month="9" year="2025"></date>
+  </front>
+  <refcontent>commit f8c2e93</refcontent>
+</reference>
+
+<reference anchor="eIDAS" target="https://eur-lex.europa.eu/eli/reg/2014/910">
+  <front>
+    <title>Consolidated text: Regulation (EU) No 910/2014 of the European Parliament and of the Council of 23 July 2014 on electronic identification and trust services for electronic transactions in the internal market and repealing Directive 1999/93/EC</title>
+    <author>
+      <organization>European Union</organization>
+    </author>
+    <date day="18" month="October" year="2024"/>
+  </front>
+</reference>
+<reference anchor="eduGAIN" target="https://edugain.org">
+  <front>
+    <title>eduGAIN: Interfederation service connecting research and education identity federations worldwide</title>
+    <author>
+      <organization>eduGAIN</organization>
+    </author>
+  </front>
+</reference>
+</references>
+</references>
+<section anchor="json-schema-for-matf-metadata"><name>JSON Schema for MATF Metadata</name>
+<t>The following JSON Schema defines the structure of MATF metadata. It conforms to draft 2020-12 of the JSON Schema standard.</t>
+<t>Version: 1.0.0</t>
+
+<sourcecode type="json"><![CDATA[
+=============== NOTE: '\\' line wrapping per RFC 8792 ===============
+
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://mtlsfed.se/schema/matf-metadata-schema.json",
+    "title": "JSON Schema for Mutually Authenticating TLS in the con\
+\text of Federations",
+    "description": "Version: 1.0.0",
+    "type": "object",
+    "additionalProperties": true,
+    "required": [
+        "iat",
+        "exp",
+        "iss",
+        "version",
+        "entities"
+    ],
+    "properties": {
+        "iat": {
+            "title": "Issued at",
+            "description": "Time at which the metadata was issued (U\
+\NIX timestamp)",
+            "type": "integer",
+            "minimum": 0,
+            "examples": [
+                1755514949
+            ]
+        },
+        "exp": {
+            "title": "Expiration time",
+            "description": "Time at which the metadata expires (UNIX\
+\ timestamp)",
+            "type": "integer",
+            "minimum": 0,
+            "examples": [
+                1756119888
+            ]
+        },
+        "iss": {
+            "title": "The federation issuing the metadata",
+            "description": "A URI that uniquely identifies the feder\
+\ation that issued the metadata",
+            "type": "string",
+            "format": "uri",
+            "minLength": 1,
+            "examples": [
+                "https://example.com/federation"
+            ]
+        },
+        "version": {
+            "title": "Metadata schema version",
+            "description": "Schema version follows semantic versioni\
+\ng (https://semver.org)",
+            "type": "string",
+            "pattern": "^\\d+\\.\\d+\\.\\d+$",
+            "examples": [
+                "1.0.0"
+            ]
+        },
+        "cache_ttl": {
+            "title": "Metadata cache TTL",
+            "description": "How long in seconds to cache metadata. T\
+\he effective maximum is bounded by the exp claim.",
+            "type": "integer",
+            "minimum": 0,
+            "examples": [
+                3600
+            ]
+        },
+        "entities": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "$ref": "#/$defs/entity"
+            }
+        }
+    },
+    "$defs": {
+        "entity": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+                "entity_id",
+                "issuers"
+            ],
+            "properties": {
+                "entity_id": {
+                    "title": "Entity identifier",
+                    "description": "Globally unique identifier for t\
+\he entity.",
+                    "type": "string",
+                    "format": "uri",
+                    "examples": [
+                        "https://example.com"
+                    ]
+                },
+                "organization": {
+                    "title": "Name of entity organization",
+                    "description": "Name identifying the organizatio\
+\n that the entity's metadata represents.",
+                    "type": "string",
+                    "examples": [
+                        "Example Org"
+                    ]
+                },
+                "issuers": {
+                    "title": "Entity certificate issuers",
+                    "description": "A list of certificate issuers th\
+\at are allowed to issue certificates for the entity's endpoints. Fo\
+\r each issuer, the issuer's root CA certificate is included in the \
+\x509certificate property (PEM-encoded).",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/$defs/cert_issuers"
+                    }
+                },
+                "servers": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/endpoint"
+                    }
+                },
+                "clients": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/$defs/endpoint"
+                    }
+                }
+            }
+        },
+        "endpoint": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": [
+                "pins"
+            ],
+            "properties": {
+                "description": {
+                    "title": "Endpoint description",
+                    "type": "string",
+                    "examples": [
+                        "SCIM Server 1"
+                    ]
+                },
+                "tags": {
+                    "title": "Endpoint tags",
+                    "description": "A list of strings that describe \
+\the endpoint's capabilities.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "pattern": "^[a-z0-9]{1,64}$",
+                        "examples": [
+                            "xyzzy"
+                        ]
+                    }
+                },
+                "base_uri": {
+                    "title": "Endpoint base URI",
+                    "type": "string",
+                    "format": "uri",
+                    "examples": [
+                        "https://scim.example.com"
+                    ]
+                },
+                "pins": {
+                    "title": "Certificate pin set",
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {
+                        "$ref": "#/$defs/pin_directive"
+                    }
+                }
+            }
+        },
+        "cert_issuers": {
+            "title": "Certificate issuers",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "x509certificate"
+            ],
+            "properties": {
+                "x509certificate": {
+                    "title": "X.509 Certificate (PEM)",
+                    "type": "string",
+                    "pattern": "^-----BEGIN CERTIFICATE-----(?:\\r?\\
+\\n)(?:[A-Za-z0-9+/=]{64}\\r?\\n)*(?:[A-Za-z0-9+/=]{1,64}\\r?\\n)---\
+\--END CERTIFICATE-----(?:\\r?\\n)?$"
+                }
+            }
+        },
+        "pin_directive": {
+            "title": "RFC 7469 pin directive",
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+                "alg",
+                "digest"
+            ],
+            "properties": {
+                "alg": {
+                    "title": "Directive name",
+                    "type": "string",
+                    "enum": [
+                        "sha256"
+                    ],
+                    "examples": [
+                        "sha256"
+                    ]
+                },
+                "digest": {
+                    "title": "Directive value (Base64)",
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9+/]{43}=$",
+                    "examples": [
+                        "HiMkrb4phPSP+OvGqmZd6sGvy7AUn4k3XEe8OMBrzt8\
+\="
+                    ]
+                }
+            }
+        }
+    }
+}]]></sourcecode>
+</section>
+
+<section anchor="acknowledgements" numbered="false"><name>Acknowledgements</name>
+<t>This project was funded through the NGI0 PET Fund, a fund established by NLnet with financial support from the European Commission's Next Generation Internet programme, under the aegis of DG Communications Networks, Content and Technology under grant agreement No 825310.</t>
+<t>The authors thank the following people for the detailed review and suggestions:</t>
+
+<ul>
+<li><t><contact fullname="Rasmus Larsson"/></t></li>
+<li><t><contact fullname="Mats Dufberg"/></t></li>
+<li><t><contact fullname="Joe Siltberg"/></t></li>
+<li><t><contact fullname="Stefan Norberg"/></t></li>
+<li><t><contact fullname="Petter Blomberg"/></t></li>
+</ul>
+
+<t>The authors would also like to thank participants in the EGIL working group for their comments on this specification.</t>
+</section>
+</back>
+</rfc>

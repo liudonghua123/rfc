@@ -1,0 +1,617 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-lsr-igp-ureach-prefix-announce-11" number="9929" ipr="trust200902" obsoletes="" updates="" consensus="true" xml:lang="en" submissionType="IETF" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="IGP Unreachable Prefix Announcement">IGP Unreachable Prefix
+     Announcement</title>
+    <seriesInfo name="RFC" value="9929"/>
+    <author fullname="Peter Psenak" initials="P" role="editor" surname="Psenak">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <street>Pribinova Street 10</street>
+          <city>Bratislava 81109</city>
+          <country>Slovakia</country>
+        </postal>
+        <email>ppsenak@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Clarence Filsfils" initials="C" surname="Filsfils">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <city>Brussels</city>
+          <country>Belgium</country>
+        </postal>
+        <email>cfilsfil@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Daniel Voyer" initials="D" surname="Voyer">
+      <organization>Cisco Systems</organization>
+      <address>
+        <email>davoyer@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Shraddha Hegde" initials="S" surname="Hegde">
+      <organization>HPE</organization>
+      <address>
+        <email>shraddha.hegde@hpe.com</email>
+      </address>
+    </author>
+    <author fullname="Gyan Mishra" initials="G. " surname="Mishra">
+      <organization>Verizon Inc.</organization>
+      <address>
+        <email>hayabusagsm@gmail.com</email>
+      </address>
+    </author>
+    <date year="2026" month="February"/>
+    <area>RTG</area>
+    <workgroup>lsr</workgroup>
+
+    <abstract>
+      <t>Summarization is often used in multi-area or multi-domain networks to improve 
+      network efficiency and scalability. With summarization in place, there is a need 
+      to signal loss of reachability to an individual prefix covered by the summary. 
+      This enables fast convergence by steering traffic, when applicable, away from the 
+      node which owns the prefix and is no longer reachable.</t>
+      <t>This document specifies protocol mechanisms in IS-IS and OSPF, together with 
+      two new flags, to advertise such prefix reachability loss.</t>
+      <t>The term "OSPF" in this document is used to refer to both OSPFv2 and OSPFv3.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>Link-state Interior Gateway Protocols (IGPs) like Intermediate
+      System to Intermediate System (IS-IS) <xref target="ISO10589"/>, Open Shortest Path 
+      First version 2 (OSPFv2)) <xref target="RFC2328"/>, and Open Shortest Path 
+      First version 3 (OSPFv3) <xref target="RFC5340"/> are primarily used to
+      distribute routing information between routers belonging to a single
+      Autonomous System (AS) and to calculate the reachability for IPv4 or
+      IPv6 prefixes advertised by the individual nodes inside the AS. Each
+      node advertises the state of its local adjacencies, connected prefixes,
+      capabilities, etc. The collection of these states from all the routers
+      inside the area form a Link State Database (LSDB) that describes the
+      topology of the area and holds additional state information about the
+      prefixes, router capabilities, etc.</t>
+      <t>The growth of networks running a link-state routing protocol results
+      in the addition of more state, which leads to scalability and convergence
+      challenges. The organization of networks into levels/areas and IGP
+      domains helps limit the scope of link-state information within certain
+      boundaries. However, the state related to prefix reachability often
+      requires propagation across a multi-area/level and/or multi-domain IGP
+      network. IGP summarization is a network engineering technique for combining 
+      multiple smaller, contiguous IP networks into a single, larger summary route.
+      Techniques such as summarization have been used to address the scaling 
+      challenges associated with advertising prefix state outside of the local area/domain. 
+      However, this results in suppression of the individual prefix state that is useful 
+      for triggering fast-convergence mechanisms outside of the IGPs -- e.g., 
+      Border Gateway Protocol (BGP) Prefix-Independent Convergence (PIC) 
+      <xref target="I-D.ietf-rtgwg-bgp-pic"/>.</t>
+
+      <t>Similarly, when a router needs to be taken out of service for maintenance,
+      the traffic is drained from the node before taking it down. This is typically 
+      achieved by setting the OVERLOAD bit together with using a high metric for all prefixes 
+      advertised by the node in IS-IS.
+The mechanisms available for that purpose are (in OSPFv2) using the cost 
+of MaxLinkMetric for all non-stub links in the router-LSA <xref target="RFC6987"/> or using 
+the H-bit <xref target="RFC8770"/>, or (in OSPFv3 <xref target="RFC5340"/>) using the R-bit.
+</t>
+      <t>When prefixes from such nodes are summarized
+      by an Area Border Router (ABR) or Autonomous System Boundary Router (ASBR), 
+      nodes outside of the area or domain are unaware of these summarized 
+      prefixes becoming unreachable. This document proposes protocol extensions to carry
+      information about such prefixes in a backward-compatible manner.</t>
+      <t>This document does not define how to advertise a prefix that is not reachable for 
+      routing. That has been defined for IS-IS in <xref target="RFC5305"/> and
+      <xref target="RFC5308"/>, for OSPFv2 in <xref target="RFC2328"/>, and for OSPFv3 
+      in <xref target="RFC5340"/>.</t>
+      <t>This document defines a method to signal a specific reason for which the
+      prefix was advertised with the metric that excludes it from the route calculation. 
+      This is done to distinguish it from any other possible cases, where such 
+      metric advertisement may be used.</t>
+      <t>IGPs typically only advertise the reachability of the prefix. A prefix that was 
+      previously advertised as reachable is made unreachable just by withdrawing the
+      previous advertisement of the prefix. Some of the use cases mentioned earlier in this 
+      section require that unreachability be signaled for a prefix for which the reachability 
+      was not explicitly signaled previously, because it was covered by the 
+      reachability of the summary prefix.</t>
+      <t>This document defines two new flags in IS-IS, OSPFv2, and OSPFv3.  
+      These flags provide the support for advertising prefix unreachability, 
+      together with the reason for which the unreachability is advertised. The 
+      functionality being described is called Unreachable Prefix Announcement (UPA).</t>
+      <t>This document also defines how the UPA is propagated across IS-IS levels and 
+      OSPF areas.</t>
+      <t>The term "OSPF" in this document is used to cover both OSPFv2 and OSPFv3 protocols.</t>
+
+      <section>
+      <name>Requirements Language</name>
+               <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+    </section>
+    </section>
+    <section anchor="UPA-GEN">
+      <name>Generation of the UPA</name>
+      <t>UPA <bcp14>MAY</bcp14> be generated by an ABR or ASBR for a prefix that is summarized by the 
+      summary prefix originated by an ABR or ASBR in the following cases:</t>
+      <ol spacing="normal" type="1">
+
+	<li>A prefix that was reachable earlier becomes unreachable.</li>
+        <li><t>For any of the planned maintenance cases:</t>
+	<ul spacing="normal">
+          <li>the node originating the prefix is signaling the overload
+          state in IS-IS, or the H-bit in OSPFv2 <xref target="RFC8770"/>, or
+          the R-bit in OSPFv3 <xref target="RFC5340"/>, or</li>
+          <li>the metric to reach the prefix from an ABR or ASBR crosses the
+          configured threshold.</li>
+        </ul></li>
+      </ol>
+      <t>Generation as well as propagation of the UPA at an ABR or ASBR is optional 
+      and <bcp14>SHOULD</bcp14> be controlled by a configuration knob. It <bcp14>SHOULD</bcp14> be disabled by default.</t>
+      <t>Implementations <bcp14>MAY</bcp14> limit the UPA generation as well as propagation to specific 
+      prefixes, e.g. host prefixes, Segment Routing over IPv6 (SRv6) locators, or similar. Such filtering is optional
+      and <bcp14>SHOULD</bcp14> be controlled via configuration.</t>
+      <t>The intent of UPA is to provide an event-driven signal of the transition of 
+      a destination from reachable to unreachable. It is not intended to advertise 
+      a persistent state.</t>
+      <t>ABR or ASBR <bcp14>MUST</bcp14> withdraw the previously advertised UPA when the reason for which 
+      the UPA was generated ceases, e.g., prefix reachability was restored or its metric 
+      has changed such that it is below a configured threshold value.</t>
+      <t>Even if the reasons persist, UPA advertisements <bcp14>SHOULD</bcp14> be withdrawn after some 
+      amount of time, that would provide sufficient time for UPA to be flooded 
+      network-wide and acted upon by receiving nodes, but limits the presence of UPA 
+      in the network.  The time the UPA is kept in the network <bcp14>SHOULD</bcp14> also reflect the 
+      intended use case for which the UPA was advertised. Not withdrawing the UPA 
+      would result in stale information being kept in the link state databases of all 
+      routers in the area.</t>
+      <t>Implementations <bcp14>SHOULD</bcp14> provide a configuration option to specify the UPA lifetime at 
+      the originating ABR or ASBR.</t>
+      <t>As UPA advertisements in IS-IS are advertised in existing Link State PDUs
+      (LSPs) and the unit of flooding in IS-IS is an LSP, it is <bcp14>RECOMMENDED</bcp14> that, when 
+      possible, UPAs are advertised in LSPs dedicated to this type of advertisement.  
+      This will minimize the number of LSPs that need to be updated when UPAs are 
+      advertised and withdrawn.</t>
+      <t>In OSPFv2 and OSPFv3, each inter-area and external prefix is advertised in its 
+      own LSA, so the above consideration does not apply to OSPFv2 and OSPFv3.</t>
+      <t>It is also <bcp14>RECOMMENDED</bcp14> that implementations limit the number of UPA advertisements 
+      that can be originated at a given time to limit the number of UPAs present
+      in the network at any given point of time. UPA implementations <bcp14>SHOULD</bcp14> provide a 
+      configuration option to limit the number of such UPAs.</t>
+    </section>
+    <section anchor="UPA-IS-IS">
+      <name>Supporting UPA in IS-IS</name>
+      <t><xref target="RFC5305"/> defines the encoding for advertising IPv4
+      prefixes using 4 octets of metric information, and <xref
+      target="RFC5305" section="4"/> specifies:</t>
+
+<blockquote>
+      <t>If a prefix is advertised with a metric larger than MAX_PATH_METRIC
+      (0xFE000000, see paragraph 3.0), this prefix <bcp14>MUST NOT</bcp14> be considered
+      during the normal SPF computation. This allows advertisement of a prefix
+      for purposes other than building the normal IP routing table.</t>
+</blockquote>
+
+      <t>Similarly, <xref target="RFC5308"/> defines the encoding for
+      advertising IPv6 prefixes using 4 octets of metric information and
+      <xref target="RFC5308" section="2"/> states:</t>
+
+<blockquote>
+      <t>...if a prefix is advertised with a metric larger than
+      MAX_V6_PATH_METRIC (0xFE000000), this prefix <bcp14>MUST NOT</bcp14> be considered
+      during the normal Shortest Path First (SPF) computation. This will allow
+      advertisement of a prefix for purposes other than building the normal
+      IPv6 routing table.</t>
+</blockquote>
+      <t>This functionality can be used to advertise a prefix (IPv4 or IPv6)
+      in a manner that indicates that reachability has been lost -- and to do
+      so without requiring all nodes in the network to be upgraded to support
+      the functionality.</t>
+      <section anchor="UPA-IS-IS-ADV">
+        <name>Advertisement of UPA in IS-IS</name>
+        <t>Existing nodes in a network that do not support UPA will not use UPAs 
+        during the route calculation but will continue to flood them within the area. 
+        This allows flooding of such advertisements to occur without the need to 
+        upgrade all nodes in a network to support this specification.</t>
+        <t> Those ABRs or ASBRs that are responsible for propagating UPA advertisements 
+        into other areas or domains are also expected to recognize UPA advertisements.</t>
+
+        <t>As per the definitions referenced in <xref target="UPA-IS-IS"/>, any 
+        prefix advertisement with a metric value greater than 0xFE000000 can
+        be used for purposes other than normal routing calculations. Such a metric 
+        <bcp14>MUST</bcp14> be used when advertising UPA in IS-IS.</t>
+        <t><xref target="RFC7370"/> introduced the "IS-IS Sub-TLVs for TLVs Advertising Prefix 
+        Reachability" registry, which lists TLVs for advertising different types of prefix
+        reachability. (The list at the time of publication of this document is below.)
+        UPA in IS-IS is supported for prefixes advertised in all such TLVs identified 
+        by that registry, for example:</t>
+        <ul spacing="normal">
+          <li>SRv6 Locator <xref target="RFC9352"/></li>
+          <li>Extended IP reachability <xref target="RFC5305"/></li>
+          <li>Multi-Topology (MT) IP Reach <xref target="RFC5120"/></li>
+          <li>IPv6 IP Reach <xref target="RFC5308"/></li>
+          <li>MT IPv6 IP Reach <xref target="RFC5120"/></li>
+          <li>IPv4 Algorithm Prefix Reachability TLV <xref target="RFC9502"/></li>
+          <li>IPv6 Algorithm Prefix Reachability TLV  <xref target="RFC9502"/></li>
+        </ul>
+      </section>
+      <section anchor="UPA-SIGN-IS-IS">
+        <name>Signaling UPA in IS-IS</name>
+	<t>
+   In IS-IS, a prefix can be advertised with a metric higher than
+   0xFE000000, for various reasons.
+   While IS-IS specifies the treatment of such metrics, explicit 
+   signaling is required to distinguish UPA from other high-metric 
+   advertisements.
+      </t>
+        <t>Two new bits in the IPv4/IPv6 Extended Reachability Attribute Flags 
+       <xref target="RFC7794"/> are defined:</t>
+        <dl newline="false" spacing="normal">
+          <dt>U-Flag:</dt><dd>Unreachable Prefix Flag (bit 5). When set, it indicates that the 
+      prefix is unreachable.</dd>
+          <dt>UP-Flag:</dt><dd>Unreachable Planned Prefix Flag (bit 6). When set, this flag 
+      indicates that the prefix is unreachable due to a planned event 
+      (e.g., planned maintenance).</dd>
+	</dl>
+          <t>The originating node <bcp14>MUST NOT</bcp14> set the UP-flag without setting the U-flag.</t>
+          <t>The receiving node <bcp14>MUST</bcp14> ignore the UP-flag in the advertisement if the U-flag is not set.</t>
+
+        <t>The prefix that is advertised with the U-flag <bcp14>MUST</bcp14> have the metric
+      set to a value larger than 0xFE000000.  If the prefix metric is less
+      than or equal 0xFE000000, both of these flags <bcp14>MUST</bcp14> be ignored.</t>
+      </section>
+      <section anchor="UPA-IS-IS-PROP">
+        <name>Propagation of UPA in IS-IS</name>
+        <t>IS-IS L1/L2 routers, which would be responsible for propagating UPA 
+        advertisements between levels, need to recognize such advertisements.
+        Failure to do so would prevent UPA from reaching the routers in the remote areas.</t>
+        <t>IS-IS allows propagation of IP prefixes in both directions between level 1 and level 2. Propagation is only done if the prefix is reachable in the source level, 
+        i.e., the prefix is only propagated from a level in which the prefix is reachable.
+        Such requirement of reachability <bcp14>MUST NOT</bcp14> be applied for UPAs, as they are 
+        propagating unreachability.</t>
+        <t>IS-IS L1/L2 routers may wish to advertise received UPAs into other areas (upwards
+        and/or downwards). When propagating UPAs, the original metric value
+        <bcp14>MUST</bcp14> be preserved. The cost to reach the originator of the received
+        UPA <bcp14>MUST NOT</bcp14> be considered when readvertising the UPA.</t>
+      </section>
+    </section>
+    <section anchor="UPA-OSPF">
+      <name>Supporting UPA in OSPF</name>
+      <t><xref section="B" target="RFC2328"/> defines the following
+      architectural constant for OSPFv2:</t>
+<blockquote>
+  <dl newline="true"><dt>LSInfinity</dt>
+  <dd>The metric value indicating that the destination described
+      by an LSA is unreachable. Used in summary-LSAs and AS-external-LSAs as
+      an alternative to premature aging (see Section 14.1). It is defined to be the 24-bit
+      binary value of all ones: 0xffffff.</dd></dl>
+</blockquote>
+
+      <t><xref section="B" target="RFC5340"/> states:</t>
+<blockquote>
+      <t>Architectural constants for the OSPF protocol are defined in
+      Appendix B of [OSPFV2].</t>
+</blockquote>
+
+      <t>indicating that these same constants are applicable to OSPFv3.</t>
+      <t><xref target="RFC2328" section="14.1" sectionFormat="comma"/> also
+      describes the usage of LSInfinity as a way to indicate loss of prefix
+      reachability:</t>
+
+<blockquote>
+      <t>Premature aging can also be used when, for example, one of the
+        router's previously advertised external routes is no longer
+        reachable.  In this circumstance, the router can flush its AS-
+        external-LSA from the routing domain via premature aging. This
+        procedure is preferable to the alternative, which is to
+        originate a new LSA for the destination specifying a metric of
+        LSInfinity.</t>
+</blockquote>
+
+      <t>In addition, the NU-bit is defined for OSPFv3 <xref target="RFC5340"/>. Prefixes having 
+     the NU-bit set in their PrefixOptions field are not included in the routing 
+     calculation.</t>
+      <t>UPA in OSPFv2 is supported for prefix reachability advertised via 
+      OSPFv2 Summary-LSA <xref target="RFC2328"/>, 
+      AS-external-LSAs <xref target="RFC2328"/>, Not-So-Stubby Area (NSSA) AS-external-LSA <xref target="RFC3101"/>, 
+      and OSPFv2 IP Algorithm Prefix Reachability Sub-TLV <xref target="RFC9502"/>.</t>
+      <t>UPA in OSPFv3 is supported for prefix reachability advertised via OSPFv3 
+      E-Inter-Area-Prefix-LSA <xref target="RFC8362"/>, 
+      E-AS-External-LSA <xref target="RFC8362"/>, E-Type-7-LSA <xref target="RFC8362"/>, 
+      and SRv6 Locator LSA <xref target="RFC9513"/>.</t>
+      <t>For prefix reachability advertised via Inter-Area-Prefix-LSA <xref target="RFC5340"/>, 
+      AS-External-LSA <xref target="RFC5340"/>, NSSA-LSA <xref target="RFC5340"/>,
+      UPA is signaled using their corresponding extended LSAs. This requires support of the  
+      OSPFv3 Extended LSAs in a sparse mode as specified in <xref target="RFC8362" section="6.2"/>.</t>
+      <section anchor="UPA-OSPF-ADV">
+        <name>Advertisement of UPA in OSPF</name>
+        <t>If an ABR or ASBR advertises UPA in an advertisement of an inter-area or
+      external prefix inside OSPFv2 or OSPFv3, then it <bcp14>MUST</bcp14> set the age
+      to a value lower than MaxAge and set the metric to LSInfinity.</t>
+        <t>UPA flooding inside the area follows the existing standard procedures defined 
+      by OSPFv2 <xref target="RFC2328"/> and OSPFv3 <xref target="RFC5340"/>.</t>
+      </section>
+      <section anchor="UPA-SIGN-OSPF">
+        <name>Signaling UPA in OSPF</name>
+
+
+
+
+      <t>
+   A prefix can be advertised (in OSPFv2) with the LSInfinity metric or
+   (in OSPFv3) with the NU-bit set in PrefixOptions, for various reasons.
+   While OSPFv2 and OSPFv3 specify the treatment of the LSInfinity metric
+   and the NU-bit, explicit signaling is required to distinguish UPA
+   from other scenarios using the LSInfinity metric or NU-bit.
+      </t>
+        <t>OSPFv2 and OSPFv3 Prefix Extended Flags Sub-TLVs been defined in 
+       <xref target="RFC9792"/> for advertising additional 
+       prefix attribute flags in OSPFv2 and OSPFv3.</t>
+
+       <t>Two new bits in the Prefix Attribute Flags Sub-TLV are defined:</t>
+
+        <dl newline="false" spacing="normal">
+          <dt>U-Flag:</dt><dd>Unreachable Prefix Flag (bit 0). When set, it indicates that the 
+      prefix is unreachable.</dd>
+          <dt>UP-Flag:</dt><dd>Unreachable Planned Prefix Flag (bit 1). When set, this flag 
+      indicates that the prefix is unreachable due to a planned event 
+      (e.g., planned maintenance).</dd>
+	</dl>
+          <t>The originating node <bcp14>MUST NOT</bcp14> set the UP-flag without setting the U-flag.</t>
+          <t>The receiving node <bcp14>MUST</bcp14> ignore the UP-flag in the advertisement if the U-flag is not set.</t>
+
+        <section anchor="UPA-SIGN-OSPFv2">
+          <name>Signaling UPA in OSPFv2</name>
+          <t>The OSPFv2 Prefix Extended Flags Sub-TLV <xref target="RFC9792"/> is a sub-TLV of 
+     the OSPFv2 Extended Prefix TLV <xref target="RFC7684"/>.</t>
+<t>
+The prefix that is advertised with U-Flag or UP-Flag <bcp14>MUST</bcp14> have the metric set to a value LSInfinity. 
+If the prefix metric is not equal to LSInfinity, both of these flags <bcp14>MUST</bcp14> be ignored. Therefore, for the prefixes in default algorithm 0 that are advertised with U-Flag, or Up-Flag, it is REQUIRED to advertise the unreachable prefix in the base OSPFv2 LSA, e.g., 
+     e.g., OSPFv2 Summary-LSA <xref target="RFC2328"/>, or AS-external-LSAs 
+     <xref target="RFC2328"/>, or NSSA AS-external LSA <xref target="RFC3101"/>.</t>
+        </section>
+        <section anchor="UPA-SIGN-OSPFv3">
+          <name>Signaling UPA in OSPFv3</name>
+          <t>OSPFv3 Prefix Extended Flags Sub-TLV is defined as a sub-TLV of the 
+    following OSPFv3 TLVs that are defined in <xref target="RFC8362"/>:
+          </t>
+
+          <ul spacing="normal">
+            <li>Intra-Area-Prefix TLV</li>
+            <li>Inter-Area-Prefix TLV</li>
+            <li>External-Prefix TLV</li>
+          </ul>
+          <t>The prefix that is advertised with U-Flag or UP-flag <bcp14>MUST</bcp14> have the metric set to 
+    a value LSInfinity. For default algorithm 0 prefixes, the LSInfinity <bcp14>MUST</bcp14> be set 
+    in the parent TLV. For IP Algorithm Prefixes <xref target="RFC9502"/>,
+    the LSInfinity <bcp14>MUST</bcp14> be set in OSPFv3 IP Algorithm Prefix Reachability sub-TLV. 
+    If the prefix metric is not equal to LSInfinity, both of these flags <bcp14>MUST</bcp14> be ignored.</t>
+          <t>The prefix that is advertised with U-Flag or UP-Flag <bcp14>MUST</bcp14> have the NU-bit set 
+    in the PrefixOptions of the parent TLV. If the NU-bit in PrefixOptions of the parent
+    TLV is not set, both of these flags <bcp14>MUST</bcp14> be ignored.</t>
+        </section>
+      </section>
+      <section anchor="UPA-OSPF-PROP">
+        <name>Propagation of UPA in OSPF</name>
+        <t>OSPF ABRs, which would be responsible for propagating 
+       UPA advertisements into other areas, need to recognize such advertisements. 
+       Failure to do so would prevent UPA from reaching the routers in the remote areas.</t>
+        <t>Advertising prefix reachability between OSPF areas assumes prefix reachability 
+       in a source area. Such a requirement of reachability <bcp14>MUST NOT</bcp14> be applied 
+       for UPAs, as they are propagating unreachability.</t>
+        <t>OSPF ABRs or ASBRs <bcp14>MAY</bcp14> advertise received UPAs between connected 
+       areas or domains.  When doing so, the original LSInfinity metric value in 
+       UPA <bcp14>MUST</bcp14> be preserved. The cost to reach the originator of the received
+       UPA <bcp14>MUST NOT</bcp14> be considered when readvertising the UPA to connected areas.</t>
+      </section>
+    </section>
+    <section anchor="UPA-RXPROCESS">
+      <name>Processing of the UPA</name>
+      <t>Processing of the received UPAs is optional and <bcp14>SHOULD</bcp14> be controlled by the 
+       configuration at the receiver. The receiver itself, based on its configuration, 
+       decides what the UPA will be used for and what applications, if any, will be notified 
+       when UPA is received. Usage of the UPA at the receiver is outside of the scope of this 
+       document.</t>
+      <t>As an example, UPA may be used to trigger BGP PIC Edge at the receiving router
+       <xref target="I-D.ietf-rtgwg-bgp-pic"/>.</t>
+      <t>Applications using the UPA cannot use the absence of the UPA to infer that the 
+       reachability of the prefix is back. They must rely on their own mechanisms to verify 
+       the reachability of the remote endpoints.</t>
+    </section>
+    <section anchor="UPA-PARTITION">
+      <name>Area and Domain Partition</name>
+      <t>UPA is not meant to address an area/domain partition. When an area or domain partitions,
+        while multiple ABRs or ASBRs advertise the same summary, each of them can only reach a portion
+        of the summarized prefix. As a result, depending on which ABR or ASBR the traffic is using
+        to enter a partitioned area, the traffic could be either dropped or delivered to its
+        final destination. UPA does not make the problem of an area partition any worse. 
+        In case of an area partition, each ABR or ASBR will generate UPAs for the 
+        destinations for which the reachability was lost locally. As the UPA propagates to the 
+        nodes outside a partitioned area, it may result in such nodes picking
+        an alternative egress node for the traffic, if such a node exists.
+        If such an alternative egress node resides outside a partitioned area, traffic will
+        be restored. If such an alternative egress node resides in a partitioned area and is 
+        covered by the summary, the traffic will be dropped if it enters a partitioned 
+        area via an ABR or ASBR that cannot reach that node. This will result in 
+        similar behavior as without the UPA. The above statements are also applicable to a
+        domain partition.</t>
+    </section>
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <section anchor="UBIT-IS-IS">
+        <name>IS-IS Prefix Attribute Flags Sub-TLV</name>
+        <t>This document adds two new bits in the "IS-IS Bit Values for Prefix Attribute 
+       Flags Sub-TLV" registry:</t>
+        <dl newline="false" spacing="compact">
+          <dt>Bit #:</dt><dd>5</dd>
+          <dt>Name:</dt><dd>U-Flag</dd>
+          <dt>Reference:</dt><dd>RFC 9929 (<xref target="UPA-SIGN-IS-IS"/>)</dd>
+	</dl>
+        <dl newline="false" spacing="compact">
+          <dt>Bit #:</dt><dd>6</dd>
+          <dt>Name:</dt><dd>UP-Flag</dd>
+          <dt>Reference:</dt><dd>RFC 9929 (<xref target="UPA-SIGN-IS-IS"/>)</dd>
+        </dl>
+      </section>
+      <section anchor="UBIT-OSPF">
+        <name>OSPFv2 and OSPFv3 Prefix Extended Flags</name>
+        <t>This document adds two new bits in the "OSPFv2 Prefix Extended Flags" 
+       and "OSPFv3 Prefix Extended Flags" registries:</t>
+        <dl newline="false" spacing="compact">
+          <dt>Bit:</dt><dd>0</dd>
+          <dt>Description:</dt><dd>U-Flag</dd>
+          <dt>Reference:</dt><dd>RFC 9929 (<xref target="UPA-SIGN-OSPF"/>)</dd>
+	</dl>
+        <dl newline="false" spacing="compact">
+          <dt>Bit:</dt><dd>1</dd>
+          <dt>Description:</dt><dd>UP-Flag</dd>
+          <dt>Reference:</dt><dd>RFC 9929 (<xref target="UPA-SIGN-OSPF"/>)</dd>
+        </dl>
+      </section>
+    </section>
+    <section anchor="SEC_ISIS">
+      <name>Security Considerations</name>
+      <t>The use of UPAs introduces the possibility that an attacker could
+      inject a false, but apparently valid, UPA. However, the risk of this
+      occurring is no greater than the risk today of an attacker injecting any
+      other type of false advertisement.</t>
+      <t>The risks can be reduced by the use of existing security extensions
+      as described in:</t>
+
+      <ul spacing="normal">
+        <li><xref target="RFC5304"/>, <xref target="RFC5310"/>, and <xref
+        target="RFC7794"/> for IS-IS.</li>
+        <li><xref target="RFC2328"/>, <xref target="RFC7474"/>, and <xref
+        target="RFC7684"/> for OSPFv2.</li>
+        <li><xref target="RFC5340"/>, <xref target="RFC4552"/>, and <xref
+        target="RFC8362"/> for OSPFv3.</li>
+      </ul>
+    </section>
+
+  </middle>
+  <back>
+
+<displayreference target="I-D.ietf-rtgwg-bgp-pic" to="BGP-PIC"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+
+        <reference anchor="ISO10589" target="https://www.iso.org/en/contents/data/standard/03/09/30932.html">
+          <front>
+            <title>Information technology -- Telecommunications and information exchange between systems -- Intermediate System to Intermediate System intra-domain routeing information exchange protocol for use in conjunction with the protocol for providing the connectionless-mode network service (ISO 8473)</title>
+            <author>
+              <organization abbrev="ISO/IEC">International Organization for
+            Standardization/International Electrotechnical Commission </organization>
+            </author>
+            <date month="Nov" year="2002"/>
+          </front>
+          <seriesInfo name="ISO/IEC" value="10589:2002"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2328.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4552.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5305.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5304.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5308.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5310.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5340.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7370.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7474.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7684.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5120.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3101.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6987.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8362.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8770.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7794.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9502.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9513.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9352.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9792.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+<!-- [I-D.ietf-rtgwg-bgp-pic] long form to include editor information -->
+<reference anchor="I-D.ietf-rtgwg-bgp-pic" target="https://datatracker.ietf.org/doc/html/draft-ietf-rtgwg-bgp-pic-23">
+  <front>
+    <title>BGP Prefix Independent Convergence</title>
+    <author fullname="Ahmed Bashandy" initials="A." surname="Bashandy" role="editor">
+      <organization>HPE</organization>
+    </author>
+    <author fullname="Clarence Filsfils" initials="C." surname="Filsfils">
+      <organization>Cisco Systems</organization>
+    </author>
+    <author fullname="Prodosh Mohapatra" initials="P." surname="Mohapatra">
+      <organization>Sproute Networks</organization>
+    </author>
+    <author fullname="Yingzhen Qu" initials="Y." surname="Qu">
+      <organization>Futurewei Technologies</organization>
+    </author>
+    <date day="15" month="February" year="2026"/>
+  </front>
+  <seriesInfo name="Internet-Draft" value="draft-ietf-rtgwg-bgp-pic-23"/>
+</reference>
+      </references>
+    </references>
+
+    <section anchor="Acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>The authors would like to thank <contact fullname="Kamran Raza"/>, <contact fullname="Michael MacKenzie"/>,
+      and <contact fullname="Luay Jalil"/> for their contributions and support of the overall solution 
+      proposed in this document.</t>
+    </section>
+
+    <section anchor="CONTR" numbered="false">
+      <name>Contributors</name>
+      <t>The following people contributed to the content of this document and should be 
+    considered coauthors:</t>
+      <contact fullname="Stephane Litkowski" initials="S." surname="Litkowski">
+        <address>
+          <email>slitkows@cisco.com</email>
+        </address>
+      </contact>
+      <contact fullname="Amit Dhamija" initials="A." surname="Dhamija">
+        <address>
+          <email>amitd@arrcus.com</email>
+        </address>
+      </contact>
+      <contact fullname="Gunter Van de Velde" initials="G." surname="Van de Velde">
+        <address>
+          <email>gunter.van_de_velde@nokia.com</email>
+        </address>
+      </contact>
+      <t>The following people contributed to the problem statement and the solution 
+    requirement discussion:</t>
+      <contact fullname="Aijun Wang" initials="A." surname="Wang">
+        <address>
+          <email>wangaj3@chinatelecom.cn</email>
+        </address>
+      </contact>
+      <contact fullname="Zhibo Hu" initials="Z." surname="Hu">
+        <address>
+          <email>huzhibo@huawei.com</email>
+        </address>
+      </contact>
+    </section>
+
+  </back>
+
+</rfc>

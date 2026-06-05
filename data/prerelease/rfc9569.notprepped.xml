@@ -1,0 +1,1880 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!-- xml2rfc v2v3 conversion 3.17.1 -->
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude"
+ipr="trust200902"
+docName="draft-ietf-alto-new-transport-22"
+number="9569"
+submissionType="IETF"
+category="std"
+consensus="true"
+updates=""
+obsoletes=""
+tocDepth="3"
+tocInclude="true"
+sortRefs="true"
+symRefs="true"
+xml:lang="en"
+version="3">
+
+  <front>
+    <title abbrev="ALTO TIPS">The Application-Layer Traffic Optimization (ALTO) Transport Information Publication Service (TIPS)</title>
+    <seriesInfo name="RFC" value="9569"/>
+
+    <author initials="K." surname="Gao" fullname="Kai Gao">
+      <organization>Sichuan University</organization>
+      <address>
+        <postal>
+          <street>No.24 South Section 1, Yihuan Road</street>
+          <city>Chengdu</city>
+          <code>610000</code>
+          <country>China</country>
+        </postal>
+        <email>kaigao@scu.edu.cn</email>
+      </address>
+    </author>
+    <author initials="R." surname="Schott" fullname="Roland Schott">
+      <organization>Deutsche Telekom</organization>
+      <address>
+        <postal>
+          <street>Deutsche-Telekom-Allee 9</street>
+          <city>Darmstadt</city>
+          <code>64295</code>
+          <country>Germany</country>
+        </postal>
+        <email>Roland.Schott@telekom.de</email>
+      </address>
+    </author>
+    <author initials="Y. R." surname="Yang" fullname="Yang Richard Yang">
+      <organization>Yale University</organization>
+      <address>
+        <postal>
+          <street>51 Prospect Street</street>
+          <city>New Haven</city>
+	  <code>06511</code>
+	  <region>CT</region>
+          <country>United States of America</country>
+        </postal>
+        <email>yry@cs.yale.edu</email>
+      </address>
+    </author>
+    <author initials="L." surname="Delwiche" fullname="Lauren Delwiche">
+      <organization>Yale University</organization>
+      <address>
+        <postal>
+          <street>51 Prospect Street</street>
+          <city>New Haven</city>
+	  <region>CT</region>
+          <code>06511</code>
+          <country>United States of America</country>
+        </postal>
+        <email>lauren.delwiche@yale.edu</email>
+      </address>
+    </author>
+    <author initials="L." surname="Keller" fullname="Lachlan Keller">
+      <organization>Yale University</organization>
+      <address>
+        <postal>
+          <street>51 Prospect Street</street>
+          <city>New Haven</city>
+	  <region>CT</region>
+          <code>06511</code>
+          <country>United States of America</country>
+        </postal>
+        <email>lachlan.keller@aya.yale.edu</email>
+      </address>
+    </author>
+
+    <date year="2024" month="September"/>
+
+    <area>Transport Area</area>
+    <workgroup>ALTO</workgroup>
+
+    <abstract>
+      <t>"Application-Layer Traffic Optimization (ALTO) Protocol" (RFC 7285) leverages HTTP/1.1 and is designed for
+      the simple, sequential request-reply use case, in which an ALTO client
+      requests a sequence of information resources and the server responds
+      with the complete content of each resource, one at a time.</t>
+      <t>RFC 8895, which describes ALTO incremental updates using Server-Sent Events (SSE),
+      defines a multiplexing protocol on top of HTTP/1.x, so that an ALTO
+      server can incrementally push resource updates to clients whenever
+      monitored network information resources change, allowing the clients to
+      monitor multiple resources at the same time. However, HTTP/2 and later
+      versions already support concurrent, non-blocking transport of multiple
+      streams in the same HTTP connection.</t>
+
+
+      <t>To take advantage of newer HTTP features, this document introduces
+      the ALTO Transport Information Publication Service (TIPS). TIPS uses an
+      incremental RESTful design to give an ALTO client the new capability to
+      explicitly and concurrently (in a non-blocking manner) request (or pull)
+      specific incremental updates using HTTP/2 or HTTP/3, while still
+      functioning for HTTP/1.1.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>The Application-Layer Traffic Optimization (ALTO) protocol provides means for network
+applications to obtain network status information. So far, the ALTO information
+can be transported in two ways:</t>
+      <ol spacing="normal" type="1"><li>Using the ALTO base protocol <xref target="RFC7285"/>, which is designed for the simple use case
+in which an ALTO client requests a network information resource and the
+server sends the complete content of the requested information (if any)
+resource to the client.</li>
+        <li>Using ALTO incremental updates using Server-Sent Events (ALTO/SSE) <xref target="RFC8895"/>;
+this method is designed for an ALTO client to indicate to the server that it wants
+to receive updates for a set of resources, and the server can then
+concurrently and incrementally push updates to that client whenever
+monitored resources change.</li>
+      </ol>
+
+
+
+      <t>Both protocols are designed for HTTP/1.1 <xref target="RFC9112"/>. While they still work with HTTP/2 <xref target="RFC9113"/> and
+HTTP/3 <xref target="RFC9114"/>, ALTO and ALTO/SSE cannot take full advantage of new features offered by HTTP/2 and HTTP/3.</t>
+      <ul spacing="normal">
+        <li>First, consider the ALTO base protocol, which is designed to transfer only
+complete information resources. A client can run the base protocol on top of
+HTTP/2 or HTTP/3 to request multiple information resources in concurrent
+streams, but each request must be for a complete information resource: there is
+no capability for the server to transmit incremental updates. Hence, there can be a large
+overhead when the client already has an information resource and then there are
+small changes to the resource.</li>
+        <li>Next, consider ALTO/SSE <xref target="RFC8895"/>. Although ALTO/SSE can transfer
+incremental updates, it introduces a customized multiplexing protocol on top
+of HTTP, assuming a total-order message channel from the server to the client.
+The multiplexing design does not provide naming (i.e., a resource identifier)
+to individual incremental updates. Such a design cannot use concurrent data
+streams available in HTTP/2 and HTTP/3 because both cases require a resource
+identifier. Additionally, ALTO/SSE is a push-only protocol, which denies the
+client flexibility in choosing how and when it receives updates.</li>
+      </ul>
+      <t>To mitigate these concerns, this document introduces a new ALTO service called
+the Transport Information Publication Service (TIPS). TIPS uses an incremental
+RESTful design to provide an ALTO client with a new capability to explicitly,
+concurrently issue non-blocking requests for specific incremental updates using
+HTTP/2 or HTTP/3, while still functioning for HTTP/1.1.</t>
+      <t>While both ALTO/SSE <xref target="RFC8895"/> and TIPS can transport incremental updates of
+ALTO information resources to clients, they have different design goals. The
+TIPS extension enables more scalable and robust distribution of incremental
+updates but is missing the session management and built-in server push
+capabilities of ALTO/SSE. From the performance perspective, TIPS is optimizing
+throughput by leveraging concurrent and out-of-order transport of data, while
+ALTO/SSE is optimizing latency as new events can be immediately transferred to
+the clients without waiting for another round of communication when there are
+multiple updates. Thus, we do not see TIPS as a replacement for ALTO/SSE, but as a complement
+to it. One example of combining these two extensions is shown in
+<xref target="tips-sse"/>.</t>
+      <t>Note that future extensions may leverage server push, a feature of HTTP/2
+<xref target="RFC9113"/> and HTTP/3 <xref target="RFC9114"/>, as an alternative of SSE. We discuss why
+this alternative design is not ready at the time of writing in <xref target="push"/>.</t>
+      <t>Specifically, this document specifies:</t>
+      <ul spacing="normal">
+        <li>Extensions to the ALTO Protocol for dynamic subscription and efficient
+uniform update delivery of an incrementally changing network information
+resource.</li>
+        <li>A new resource type that indicates the TIPS updates graph model for a
+resource.</li>
+        <li>URI patterns to fetch the snapshots or incremental updates.</li>
+      </ul>
+      <t>Some operational complexities that must be taken into consideration when
+implementing this extension are discussed in <xref target="ops-considerations"/>: these include
+load balancing in <xref target="load-balancing"/> and fetching and processing incremental updates
+of dependent resources in <xref target="cross-sched"/>.</t>
+      <t><xref target="sec-bcp-http"/> discusses to what extent the TIPS design adheres to the best
+current practices for building protocols with HTTP <xref target="RFC9205"/>.</t>
+
+<section anchor="requirements-language">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/>
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+      <section anchor="notations">
+        <name>Notations</name>
+        <t>This document uses the same syntax and notations as introduced in
+<xref section="8.2" sectionFormat="of" target="RFC7285"/> to specify the extensions to existing ALTO resources and services.</t>
+      </section>
+    </section>
+    <section anchor="overview">
+      <name>TIPS Overview</name>
+      <section anchor="requirements">
+        <name>Transport Requirements</name>
+        <t>The ALTO Protocol and its extensions support two transport mechanisms:</t>
+	<ol>
+<li>A client can directly request an ALTO resource and obtain a complete
+snapshot of that ALTO resource, as specified in the base protocol <xref target="RFC7285"/>;</li>
+<li>A client can subscribe to incremental changes of one or multiple ALTO
+resources using the incremental update extension <xref target="RFC8895"/>, and a server pushes
+the updates to the client through SSE.</li>
+	</ol>
+        <t>However, the current transport mechanisms are not optimized for storing,
+transmitting, and processing (incremental) updates of ALTO information
+resources. Specifically, the new transport mechanism must satisfy the following
+requirements:</t>
+        <dl>
+          <dt>Incremental updates:</dt>
+          <dd>
+            <t>Incremental updates only maintain and transfer the "diff" upon changes. Thus,
+it is more efficient than storing and transferring the full updates,
+especially when the change of an ALTO resource is minor. The base protocol
+does not support incremental updates and the current incremental update
+mechanism in <xref target="RFC8895"/> has limitations (as discussed below).</t>
+          </dd>
+          <dt>Concurrent, non-blocking update transmission:</dt>
+          <dd>
+            <t>When a client needs to receive and apply multiple incremental updates, it is
+desired to transmit the updates concurrently to fully utilize the bandwidth
+and to reduce head-of-line blocking. Unfortunately, the ALTO incremental update extension
+<xref target="RFC8895"/> does not satisfy this requirement. Even though
+the updates can be multiplexed by the server to avoid head-of-line blocking
+between multiple resources, the updates are delivered sequentially and can
+suffer from head-of-line blocking inside the connection (for example, when
+there is a packet loss).</t>
+          </dd>
+          <dt>Long polling updates:</dt>
+          <dd>
+            <t>Long polling updates can reduce the time to send the request, making it
+possible to achieve sub-RTT transmission of ALTO incremental updates. In
+<xref target="RFC8895"/>, this requirement is fulfilled using SSE and
+is still desired in the new ALTO transport.</t>
+          </dd>
+          <dt>Backward compatibility:</dt>
+          <dd>
+            <t>While some of the previous requirements are offered by HTTP/2 <xref target="RFC9113"/> and
+HTTP/3 <xref target="RFC9114"/>, it is desired that the new ALTO transport mechanism can
+work with HTTP/1.1 as many development tools and current ALTO implementations
+are based on HTTP/1.1.</t>
+          </dd>
+        </dl>
+
+        <t>The new ALTO transport specified in this document satisfies all of the following design
+requirements above by:</t>
+        <ul spacing="normal">
+          <li>Reusing the data format introduced in <xref target="RFC8895"/> that enables
+incremental updates using JSON patches or merge patches.</li>
+          <li>Introducing a unified data model to describe the
+     changes (snapshots and incremental updates) of an ALTO resource,
+     referred to as a "TIPS view".  In the data model, snapshots and
+     incremental updates are indexed as individual HTTP resources
+     following a unified naming convention, independent of the HTTP
+     version.  Thus, these updates can be concurrently requested and be
+     transferred in a non-blocking manner either by using multiple
+     connections or leveraging multiplexed data transfer offered by
+     HTTP/2 or HTTP/3.</li>
+          <li>Basing the unified naming convention on a monotonically
+     increasing sequence number, making it possible for a client to
+     construct the URL of a future update and send a long polling
+     request.</li>
+          <li>Making the unified naming convention independent of the HTTP versions
+     and able to operate atop HTTP/1.1, HTTP/2, or HTTP/3.</li>
+        </ul>
+        <t>This document assumes the deployment model discussed in  <xref target="sec-dep-model"/>.</t>
+      </section>
+      <section anchor="terminology">
+        <name>TIPS Terminology</name>
+        <t>In addition to the terms defined in <xref target="RFC7285"/>, this document uses the following terms:</t>
+        <dl>
+          <dt>Transport Information Publication Service (TIPS):</dt>
+          <dd>
+            <t>A new type of ALTO service, as specified in this document, to enable a
+uniform transport mechanism for updates of an incrementally changing ALTO
+network information resource.</t>
+          </dd>
+          <dt>Network information resource:</dt>
+          <dd>
+            <t>A piece of retrievable information about network state, per <xref target="RFC7285"/>.</t>
+          </dd>
+          <dt>TIPS view (tv):</dt>
+          <dd>
+            <t>The container of incremental transport
+information about the network information resource. The TIPS view has one
+basic component, the updates graph (ug), but may include other transport
+information.</t>
+          </dd>
+          <dt>Updates graph (ug):</dt>
+          <dd>
+            <t>A directed, acyclic graph whose nodes represent the set of
+            versions of an information resource and whose edges represent the
+            set of update items to compute these versions. An ALTO map service
+            (e.g., a cost map or a network map) may need only a single updates
+            graph. A dynamic network information service (e.g., a filtered
+            cost map) may create an updates graph (within a new TIPS view) for
+            each unique request. The encoding of an updates graph is specified
+            in <xref target="open-req"/>.</t>
+          </dd>
+          <dt>Version:</dt>
+          <dd>
+            <t>The representation of a historical content of an information resource. For an information
+resource, each version is associated with and uniquely identified by a
+monotonically and consecutively increased sequence number. This document uses
+the term "version s" to refer to the version associated with sequence number
+"s". The version is encoded as a JSONNumber, as specified in <xref target="open-req"/>.</t>
+          </dd>
+          <dt>Start sequence number (&lt;start-seq&gt;):</dt>
+          <dd>
+            <t>The smallest non-zero sequence number in an updates graph.</t>
+          </dd>
+          <dt>End sequence number (&lt;end-seq&gt;):</dt>
+          <dd>
+            <t>The largest sequence number in an updates graph.</t>
+          </dd>
+          <dt>Snapshot:</dt>
+          <dd>
+            <t>A full replacement of a resource that is contained within an updates graph.</t>
+          </dd>
+
+
+
+          <dt>Incremental update:</dt>
+          <dd>
+            <t>A partial replacement of a resource contained within an
+            updates graph, codified in this document as a JSON merge patch or
+            a JSON patch. An incremental update is mandatory if the source
+            version (i) and the target version (j) are consecutive (i.e., i + 1 =
+            j); otherwise, it is optional (or a shortcut). Mandatory incremental
+            updates are always in an updates graph, while optional/shortcut
+            incremental updates may or may not be included in an updates
+            graph.</t>
+          </dd>
+          <dt>Update item:</dt>
+          <dd>
+            <t>The content on an edge of the updates graph, which can be either a
+snapshot or an incremental update. An update item can be considered to be a pair
+(op, data) where op denotes whether the item is an incremental update or a
+snapshot and data is the content of the item.</t>
+          </dd>
+          <dt>ID#i-#j:</dt>
+          <dd>
+            <t>Denotation of the update item on a specific edge in the updates graph to transition
+from version i to version j, where i and j are the sequence numbers of the
+source node and the target node of the edge, respectively.</t>
+          </dd>
+        </dl>
+        <figure anchor="fig-overview">
+          <name>Overview of ALTO TIPS</name>
+          <artwork type="drawing" align="center"><![CDATA[
+                                   +-------------+
+    +-----------+ +--------------+ |  Dynamic    | +-----------+
+    |  Routing  | | Provisioning | |  Network    | | External  |
+    | Protocols | |    Policy    | | Information | | Interface |
+    +-----------+ +--------------+ +-------------+ +-----------+
+          |              |                |              |
++-----------------------------------------------------------------+
+| ALTO Server                                                     |
+| +-------------------------------------------------------------+ |
+| |                                         Network Information | |
+| | +-------------+                         +-------------+     | |
+| | | Information |                         | Information |     | |
+| | | Resource #1 |                         | Resource #2 |     | |
+| | +-------------+                         +-------------+     | |
+| +-----|--------------------------------------/-------\--------+ |
+|       |                                     /         \         |
+| +-----|------------------------------------/-----------\------+ |
+| |     |       Transport Information       /             \     | |
+| | +--------+                     +--------+        +--------+ | |
+| | |  tv1   |                     |  tv2   |        |  tv3   | | |
+| | +--------+                     +--------+        +--------+ | |
+| |     |                          /                     |      | |
+| | +--------+            +--------+                 +--------+ | |
+| | | tv1/ug |            | tv2/ug |                 | tv3/ug | | |
+| | +--------+            +--------+                 +--------+ | |
+| +----|----\----------------|-------------------------|--------+ |
+|      |     \               |                         |          |
++------|------\--------------|-------------------------|----------+
+       |       +------+      |                         |
+       |               \     |                         |
+   +----------+       +----------+                 +----------+
+   | Client 1 |       | Client 2 |                 | Client 3 |
+   +----------+       +----------+                 +----------+
+
+tvi   = TIPS view i
+tvi/ug = incremental updates graph associated with tvi
+]]></artwork>
+        </figure>
+        <t><xref target="fig-overview"/> shows an example illustrating an overview of the ALTO TIPS
+extension. The server provides TIPS for two information resources (#1
+and #2) where #1 is an ALTO map service and #2 is a filterable
+service. There are three ALTO clients (Client 1, Client 2, and Client 3) that are
+connected to the ALTO server.</t>
+        <t>Each client uses the TIPS view to retrieve updates. Specifically, a TIPS view
+(tv1) is created for the map service #1 and is shared by multiple clients. For
+the filtering service #2, two different TIPS views (tv2 and tv3) are created upon
+different client requests with different filter sets.</t>
+      </section>
+    </section>
+    <section anchor="tips-updates-graph">
+      <name>TIPS Updates Graph</name>
+      <t>In order to provide incremental updates for a resource, an ALTO server creates
+an updates graph, which is a directed acyclic graph that contains a sequence of
+incremental updates and snapshots (collectively called "update items") of a
+network information resource.</t>
+      <section anchor="data-model">
+        <name>Basic Data Model of an Updates Graph</name>
+        <t>For each resource (e.g., a cost map or a network map), the incremental updates and
+snapshots can be represented using the following directed acyclic graph model,
+where the server tracks the change of the resource maps with version IDs that are
+assigned sequentially (i.e., incremented by one each time):</t>
+        <ul spacing="normal">
+          <li>Each node in the graph is a version of the resource, which is identified by a
+sequence number (defined as a JSONNumber). Version 0 is reserved as the
+initial state (empty/null).</li>
+          <li>A tag identifies the content of a node. A tag has the same format as the
+"tag" field in <xref section="10.3" sectionFormat="of" target="RFC7285"/> and is valid only within the
+scope of the resource.</li>
+
+
+          <li>Each edge is an update item. In particular, the edge from i to j is the update
+item to transit from version i to version j.</li>
+          <li>The version is path independent, i.e., different paths arriving at the node associated with the same version
+have the same content.</li>
+        </ul>
+
+
+        <t>A concrete example is shown in <xref target="fig-ug"/>. There are seven nodes in the graph,
+representing seven different versions of the resource. Edges in the figure represent
+the updates from the source version to the target version. Thick lines represent
+mandatory incremental updates (e.g., ID103-104), dotted lines represent optional
+incremental updates (e.g., ID103-105), and thin lines represent snapshots (e.g.,
+ID0-103). Note that node content is path independent: the content of node v can
+be obtained by applying the updates from any path that ends at v. For example,
+assume the latest version is 105 and a client already has version 103. The base
+version of the client is 103 as it serves as a base upon which incremental
+updates can be applied.</t>
+
+
+<t>The target version 105 can be:</t>
+
+<ul>
+  <li>directly fetched as a snapshot;</li>
+
+  <li>computed incrementally by applying the incremental updates between
+  103 and 104, then 104 and 105; or,</li>
+
+  <li>computed incrementally by taking the "shortcut" path from 103 to
+  105 if the optional update from 103 to 105 exists.</li></ul>
+
+        <figure anchor="fig-ug">
+          <name>TIPS Model Example</name>
+          <artwork type="drawing" align="center"><![CDATA[
+                                                    +======+
+                                              ------|  0   |
+                                             /      +======+
+                                    ID0-101 /        |   |
+                                          |/__       |   |
+                                   +======+          |   |
+                   tag: 3421097 -> | 101  |          |   |
+                                   +======+          |   |
+                           ID101-102  ||             |   |
+                                      \/             |   |
+                                   +======+          |   |
+                   tag: 6431234 -> | 102  |          |   |
+                                   +======+          |   |
+                           ID102-103  ||             |   |
+                                      \/             |   |
+                                   +======+          /   |
++--------------+   tag: 0881080 -> | 103  |<--------/    |
+| Base Version |   =======>        +======+ ID0-103      |
++--------------+             103-104  ||    ..           |
+                                      \/     ..          |
+                                   +======+  ..          |
+                   tag: 6452654 -> | 104  |  .. ID103    |
+                                   +======+  .. -105     |
+                           ID104-105  ||     ..          | ID0-105
+                                      \/   |._           /
+                                   +======+             /
+                   tag: 7838392 -> | 105  |<-----------/
+                                   +======+
+                           ID105-106  ||
+                                      \/
+                                   +======+
+                   tag: 6470983 -> | 106  |
+                                   +======+
+]]></artwork>
+        </figure>
+      </section>
+      <section anchor="updates-graph-modification-invariants">
+        <name>Updates Graph Modification Invariants</name>
+        <t>A server might change its updates graph (to compact it, to add nodes,
+etc.), but it will need to ensure that any resource state that it makes
+available is reachable by clients, either directly via a snapshot
+(that is, relative to 0) or indirectly by requesting an earlier
+snapshot and a contiguous set of incremental updates.  Additionally,
+to allow clients to proactively construct URIs for future update
+items, the ID of each added node in the updates graph will need to increment
+contiguously by 1.  More specifically, the updates graph <bcp14>MUST</bcp14> satisfy
+the following invariants:</t>
+        <dl spacing="normal">
+          <dt>Continuity:</dt><dd>At any time, let ns denote the smallest non-zero version (i.e.,
+&lt;start-seq&gt;) in the updates graph and let ne denote the latest version (i.e.,
+&lt;end-seq&gt;). Then, any version in between ns and ne <bcp14>MUST</bcp14> also exist.  This implies
+that the incremental update from ni to ni + 1 exists for any ns &lt;= ni &lt;= ne, and all the version numbers in the updates graph (except 0)
+   constitute exactly the integer interval [ns, ne].</dd>
+          <dt>Feasibility:</dt><dd>Let ns denote &lt;start-seq&gt; in the updates graph. The server <bcp14>MUST</bcp14>
+provide a snapshot of ns;  in other words, there is always a direct link
+to ns in the updates graph.</dd>
+          <dt>"Right shift" only:</dt><dd>Assume a server provides versions in [n1, n2] at time t
+and versions in [n1', n2'] at time t'. If t' &gt; t, then n1' &gt;= n1 and n2' &gt;=
+n2.</dd>
+        </dl>
+        <t>For example, consider the case that a server compacts a resource's updates graph
+to conserve space, using the example model in <xref target="data-model"/>. Assume at time 0,
+the server provides the versions {101, 102, 103, 104, 105, 106}.  At time 1,
+both {103, 104, 105, 106} and {105, 106} are valid sets. However, {102,
+103, 104, 105, 106} and {104, 105, 106} are not valid sets as there is no
+snapshot to version 102 or 104 in the updates graph. Thus, there is a risk that
+the right content of version 102 (in the first example) or 104 (in the second
+example) cannot be obtained by a client that does not have the previous version
+101 or 103, respectively.</t>
+      </section>
+    </section>
+    <section anchor="workflow">
+      <name>TIPS Workflow and Resource Location Schema</name>
+      <section anchor="workflow-overview">
+        <name>Workflow</name>
+        <t>At a high level, an ALTO client first requests the TIPS information resource (denoted as TIPS-F,
+where F is for frontend) to indicate the information resource or resources that the client
+wants to monitor. For each requested resource, the server returns a JSON object
+that contains a URI, which points to the root of a TIPS view (denoted as
+TIPS-V), and a summary of the current view, which contains the information to
+correctly interact with the current view. With the URI to the root of a TIPS
+view, clients can construct URIs (see <xref target="schema"/>) to fetch incremental updates.</t>
+        <t>An example workflow is shown in <xref target="fig-workflow-pull"/>. After the TIPS-F
+ receives the request from the client to monitor the updates of an ALTO
+resource, it creates a TIPS view resource and returns the corresponding
+information to the client. The URI points to that specific TIPS-V instance, and
+the summary contains the &lt;start-seq&gt; and &lt;end-seq&gt; of the updates graph and a
+server-recommended edge to consume first (e.g., from i to j).</t>
+        <t>An ALTO client can then continuously pull each additional update with the
+information. For example, the client in <xref target="fig-workflow-pull"/> first fetches the
+update from i to j and then from j to j+1. Note that the update item at
+"&lt;tips-view-uri&gt;/ug/&lt;j&gt;/&lt;j+1&gt;" might not yet exist, so the server holds the
+request until the update becomes available (i.e., long polling).</t>
+        <t>A server <bcp14>MAY</bcp14> close a TIPS view at any time (e.g., under high system load or due
+to client inactivity). In the event that a TIPS view is closed, an edge request
+will receive error code 404 (Not Found) in response, and the client will have to request a
+new TIPS view URI.</t>
+        <t>If resources allow, a server <bcp14>SHOULD</bcp14> avoid closing TIPS views that have active
+polling edge requests or have recently served responses until clients have had a
+reasonable interval to request the next update, unless guided by specific
+control policies.</t>
+        <figure anchor="fig-workflow-pull">
+          <name>ALTO TIPS Workflow Supporting Client Pull</name>
+          <artwork type="drawing" align="center"><![CDATA[
+Client                                 TIPS-F           TIPS-V
+  o                                       .                .
+  | POST to create/receive a TIPS view    .  Create TIPS   .
+  |           for resource 1              .      View      .
+  |-------------------------------------> |.-.-.-.-.-.-.-> |
+  | <tips-view-uri>, <tips-view-summary>  .                |
+  | <-------------------------------------| <-.-.-.-.-.-.-.|
+  |                                                        .
+  | GET /<tips-view-path>/ug/<i>/<j>                       .
+  |------------------------------------------------------> |
+  | content on edge i to j                                 |
+  | <------------------------------------------------------|
+  |                                                        .
+  | GET /<tips-view-path>/ug/<j>/<j+1>                     .
+  |------------------------------------------------------> |
+  .                                                        .
+  .                                                        .
+  | content on edge j to j+1                               |
+  | <------------------------------------------------------|
+  |                                                        .
+  o                                                        .
+                                                           .
+                                         TIPS View Closed  o
+]]></artwork>
+        </figure>
+      </section>
+      <section anchor="schema">
+        <name>Resource Location Schema</name>
+        <t>The resource location schema defines how a client constructs URIs to fetch
+incremental updates.</t>
+        <t>To access each update in an updates graph, consider the model
+represented as a "virtual" file system (adjacency list), contained within the
+root of a TIPS view URI (see <xref target="open-resp"/> for the definition of tips-view-uri).
+For example, assuming that the updates graph of a TIPS view is as shown in
+<xref target="fig-ug"/>, the location schema of this TIPS view will have the format as in
+<xref target="fig-ug-schema"/>.</t>
+        <figure anchor="fig-ug-schema">
+          <name>Location Schema Example</name>
+          <artwork type="drawing" align="center"><![CDATA[
+  <tips-view-path>  // root path to a TIPS view
+    |_ ug    // updates graph
+    |  |_ 0
+    |  |  |_ 101    // full 101 snapshot
+    |  |  |_ 103
+    |  |  \_ 105
+    |  |_ 101
+    |  |  \_ 102    // 101 -> 102 incremental update
+    |  |_ 102
+    |  |  \_ 103
+    |  |_ 103
+    |  |  |_ 104
+    |  |  \_ 105    // optional shortcut 103 -> 105 incr. update
+    |  |_ 104
+    |  |  \_ 105
+    |  \_ 105
+    |     \_ 106
+    \_ ...
+]]></artwork>
+        </figure>
+        <t>TIPS uses this directory schema to generate template URIs that allow
+clients to construct the location of incremental updates after receiving the
+tips-view-uri from the server. The generic template for the location of the
+update item on the edge from node 'i' to node 'j' in the updates graph is:</t>
+        <sourcecode type=""><![CDATA[
+    <tips-view-uri>/ug/<i>/<j>
+]]></sourcecode>
+        <t>Due to the sequential nature of the update item IDs, a client can long poll a
+future update that does not yet exist (e.g., the incremental update from 106 to
+107). This can be done by constructing the URI for the next edge that will be added, starting from
+the sequence number of the current last node (denoted as &lt;end-seq&gt;) in the graph
+to the next sequential node (with the sequence number of &lt;end-seq + 1&gt;):</t>
+        <sourcecode type=""><![CDATA[
+    <tips-view-uri>/ug/<end-seq>/<end-seq + 1>
+]]></sourcecode>
+        <t>Incremental updates of a TIPS view are read-only. Thus, they are fetched using
+the HTTP GET method.</t>
+      </section>
+    </section>
+    <section anchor="ird">
+      <name>TIPS Information Resource Directory (IRD) Announcement</name>
+      <t>To announce a TIPS information resource in the IRD, an ALTO server <bcp14>MUST</bcp14> specify "media-type", "capabilities", and "uses"
+as follows.</t>
+      <section anchor="media-type">
+        <name>Media Type</name>
+        <t>The media type of the Transport Information Publication Service (TIPS) resource is
+"application/alto-tips+json".</t>
+      </section>
+      <section anchor="caps">
+        <name>Capabilities</name>
+        <t>The "capabilities" field of a TIPS information resource is modeled on that defined in
+<xref target="RFC8895" sectionFormat="of" section="6.3"/>.</t>
+        <t>Specifically, the capabilities are defined as an object of the TIPSCapabilities type:</t>
+        <figure anchor="tips-cap">
+          <name>TIPSCapabilities</name>
+          <sourcecode type=""><![CDATA[
+     object {
+       IncrementalUpdateMediaTypes incremental-change-media-types;
+     } TIPSCapabilities;
+
+     object-map {
+        ResourceID -> String;
+     } IncrementalUpdateMediaTypes;
+]]></sourcecode>
+        </figure>
+        <t>with the field:</t>
+        <dl>
+          <dt>incremental-change-media-types:</dt>
+          <dd>
+            <t>If a TIPS information resource can provide updates with incremental changes for a
+resource, the "incremental-change-media-types" field has an entry
+whose key is the ID of the resource and the value is the supported media types
+of incremental changes, separated by commas. For the implementation of this
+specification, this <bcp14>MUST</bcp14> be "application/merge-patch+json",
+"application/json-patch+json", or
+"application/merge-patch+json,application/json-patch+json", unless defined by
+a future extension.
+</t>
+            <t>When choosing the media types to encode incremental updates for a
+resource, the server <bcp14>MUST</bcp14> consider the limitations of the
+encoding.  For example, when a JSON merge patch specifies that the
+value of a field is null, its semantics are that the field is
+removed from the target; hence, the field is no longer defined
+(i.e., undefined).  However, this may not be the intended result
+for the resource, when null and undefined have different semantics
+for the resource.  In such a case, the server <bcp14>MUST</bcp14> choose JSON
+patch encoding over JSON merge patch encoding for the incremental update if both media types "application/json-patch+json" and "application/merge-patch" are supported by the TIPS information resource.</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="uses">
+        <name>Uses</name>
+        <t>The "uses" attribute <bcp14>MUST</bcp14> be an array with the resource IDs of every
+network information resource for which this TIPS information resource can provide service.</t>
+        <t>This set <bcp14>MAY</bcp14> be any subset of the ALTO server's network information resources
+and <bcp14>MAY</bcp14> include resources defined in linked IRDs. However, it is <bcp14>RECOMMENDED</bcp14>
+that the ALTO server selects a set that is closed under the resource dependency
+relationship. That is, if a TIPS information resource's "uses" set includes resource R1, and resource
+R1 depends on ("uses") resource R0, then the "uses" set should include R0
+as well as R1. For example, if a TIPS information resource provides a TIPS view for a cost map, it
+should also provide a TIPS view for the network map upon which that cost map
+depends.</t>
+        <t>If the set is not closed, at least one resource R1 in the "uses" field of a TIPS information resource
+depends on another resource R0 that is not in the "uses" field of the same
+TIPS information resource. Thus, a client cannot receive incremental updates for another resource R0 that is not in the "uses" field of the same TIPS information resource.  If the client observes in an update of R1 that the version tag for
+R0 has changed, it must request the full content of R0, which is likely to be
+less efficient than receiving the incremental updates of R0.</t>
+      </section>
+      <section anchor="an-example">
+        <name>An Example</name>
+        <t>Extending the IRD example in <xref target="RFC8895" sectionFormat="of" section="8.1"/>, <xref target="ex-ird"/> is the IRD of an
+ALTO server supporting the ALTO base protocol, ALTO/SSE, and ALTO TIPS.</t>
+        <figure anchor="ex-ird">
+          <name>Example of an ALTO Server Supporting the ALTO Base Protocol, ALTO/&wj;SSE, and ALTO TIPS</name>
+
+
+          <sourcecode type="json"><![CDATA[
+  "my-network-map": {
+    "uri": "https://alto.example.com/networkmap",
+    "media-type": "application/alto-networkmap+json"
+  },
+  "my-routingcost-map": {
+    "uri": "https://alto.example.com/costmap/routingcost",
+    "media-type": "application/alto-costmap+json",
+    "uses": ["my-network-map"],
+    "capabilities": {
+      "cost-type-names": ["num-routingcost"]
+    }
+  },
+  "my-hopcount-map": {
+    "uri": "https://alto.example.com/costmap/hopcount",
+    "media-type": "application/alto-costmap+json",
+    "uses": ["my-network-map"],
+    "capabilities": {
+      "cost-type-names": ["num-hopcount"]
+    }
+  },
+  "my-simple-filtered-cost-map": {
+    "uri": "https://alto.example.com/costmap/filtered/simple",
+    "media-type": "application/alto-costmap+json",
+    "accepts": "application/alto-costmapfilter+json",
+    "uses": ["my-network-map"],
+    "capabilities": {
+      "cost-type-names": ["num-routingcost", "num-hopcount"],
+      "cost-constraints": false
+    }
+  },
+  "update-my-costs": {
+    "uri": "https://alto.example.com/updates/costs",
+    "media-type": "text/event-stream",
+    "accepts": "application/alto-updatestreamparams+json",
+    "uses": [
+        "my-network-map",
+        "my-routingcost-map",
+        "my-hopcount-map",
+        "my-simple-filtered-cost-map"
+    ],
+    "capabilities": {
+      "incremental-change-media-types": {
+        "my-network-map": "application/json-patch+json",
+        "my-routingcost-map": "application/merge-patch+json",
+        "my-hopcount-map": "application/merge-patch+json"
+      },
+      "support-stream-control": true
+    }
+  },
+  "update-my-costs-tips": {
+    "uri": "https://alto.example.com/updates-new/costs",
+    "media-type": "application/alto-tips+json",
+    "accepts": "application/alto-tipsparams+json",
+    "uses": [
+        "my-network-map",
+        "my-routingcost-map",
+        "my-hopcount-map",
+        "my-simple-filtered-cost-map"
+    ],
+    "capabilities": {
+      "incremental-change-media-types": {
+        "my-network-map": "application/json-patch+json",
+        "my-routingcost-map": "application/merge-patch+json",
+        "my-hopcount-map": "application/merge-patch+json",
+        "my-simple-filtered-cost-map": "application/merge-patch+json"
+      }
+    }
+  },
+  "tips-sse": {
+    "uri": "https://alto.example.com/updates/tips",
+    "media-type": "text/event-stream",
+    "accepts": "application/alto-updatestreamparams+json",
+    "uses": [ "update-my-costs-tips" ],
+    "capabilities": {
+      "incremental-change-media-types": {
+        "update-my-costs-tips": "application/merge-patch+json"
+      }
+    }
+  }
+]]></sourcecode>
+        </figure>
+        <t>Note that it is straightforward for an ALTO server to run HTTP/2 and
+support concurrent retrieval of multiple resources such as "my-network-map" and "my-routingcost-map" using multiple HTTP/2 streams.</t>
+        <t>The resource "update-my-costs-tips" provides an ALTO TIPS information resource, and this is
+indicated by the media type "application/alto-tips+json".</t>
+      </section>
+    </section>
+    <section anchor="tips-management">
+      <name>TIPS Management</name>
+      <t>Upon request, a server sends a TIPS view to a client. This TIPS view might be
+created at the time of the request or might already exist (either because another
+client has already created a TIPS view for the same requested network resource
+or because the server perpetually maintains a TIPS view for an often-requested
+resource).</t>
+      <section anchor="open-req">
+        <name>Open Request</name>
+        <t>An ALTO client requests that the server provide a TIPS view for a given resource
+by sending an HTTP POST body with the media type
+"application/alto-tipsparams+json". That body contains a JSON object of the TIPSReq type, where:</t>
+        <figure anchor="fig-open-req">
+          <name>TIPSReq</name>
+          <sourcecode type=""><![CDATA[
+    object {
+       ResourceID   resource-id;
+       [JSONString  tag;]
+       [Object      input;]
+    } TIPSReq;
+]]></sourcecode>
+        </figure>
+        <t>with the following fields:</t>
+        <dl>
+          <dt>resource-id:</dt>
+          <dd>
+            <t>This field contains the resource ID of an ALTO resource to be monitored, which <bcp14>MUST</bcp14> be in the TIPS information resource's "uses" list
+(<xref target="ird"/>). If a client does not support all incremental methods from the set
+announced in the server's capabilities, the client <bcp14>MUST NOT</bcp14> use the TIPS
+information resource.</t>
+          </dd>
+          <dt>tag:</dt>
+          <dd>
+            <t>If the "resource-id" is associated with a GET-mode resource with a version tag (or
+"vtag"), as defined in <xref target="RFC7285" sectionFormat="of" section="10.3"/>, and the ALTO
+client has previously retrieved a version of that resource from
+ALTO, the ALTO client <bcp14>MAY</bcp14> set the "tag" field to the tag part of
+the client's version of that resource.  The server <bcp14>MAY</bcp14> use the tag
+when calculating a recommended starting edge for the client to
+consume.  Note that the client <bcp14>MUST</bcp14> support all incremental
+methods from the set announced in the server's capabilities for
+this resource.</t>
+          </dd>
+          <dt>input:</dt>
+          <dd>
+            <t>If the resource is a POST-mode service that requires input, the
+ALTO client <bcp14>MUST</bcp14> set the "input" field to a JSON object with the
+parameters that the resource expects.</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="open-resp">
+        <name>Open Response</name>
+        <t>The response to a valid request <bcp14>MUST</bcp14> be a JSON object of the AddTIPSResponse type, denoted as media type "application/alto-tips+json":</t>
+        <figure anchor="fig-open-resp">
+          <name>AddTIPSResponse</name>
+          <sourcecode type=""><![CDATA[
+    object {
+      URI               tips-view-uri;
+      TIPSViewSummary   tips-view-summary;
+    } AddTIPSResponse;
+
+    object {
+      UpdatesGraphSummary   updates-graph-summary;
+    } TIPSViewSummary;
+
+    object {
+      JSONNumber       start-seq;
+      JSONNumber       end-seq;
+      StartEdgeRec     start-edge-rec;
+    } UpdatesGraphSummary;
+
+    object {
+      JSONNumber       seq-i;
+      JSONNumber       seq-j;
+    } StartEdgeRec;
+]]></sourcecode>
+        </figure>
+        <t>with the following fields:</t>
+        <dl>
+          <dt>tips-view-uri:</dt>
+          <dd>
+            <t>This is the URI to the requested TIPS view. The value of this field <bcp14>MUST</bcp14> have the
+following format:
+</t>
+            <sourcecode type=""><![CDATA[
+    scheme "://" tips-view-host "/" tips-view-path
+
+    tips-view-host = host [ ":" port]
+    tips-view-path = path
+]]></sourcecode>
+            <t>where scheme <bcp14>MUST</bcp14> be "http" or "https" unless specified by a future
+extension, and host, port, and path are as specified in Sections <xref target="RFC3986" sectionFormat="bare" section="3.2.2"/>, <xref target="RFC3986" sectionFormat="bare"
+section="3.2.3"/>, and <xref target="RFC3986" sectionFormat="bare"
+section="3.3"/> in <xref target="RFC3986"/>. An ALTO server <bcp14>SHOULD</bcp14> use the "https" scheme unless
+the contents of the TIPS view are intended to be publicly accessible and do
+not raise security concerns. The field <bcp14>MUST</bcp14> contain only ASCII characters. In
+case the original URL contains international characters (e.g., in the domain
+name), the ALTO server implementation <bcp14>MUST</bcp14> properly encode the URL into the
+ASCII format (e.g., using the "urlencode" function).</t>
+            <t>A server <bcp14>MUST NOT</bcp14> use the same URI for different TIPS views, either for
+different resources or for different request bodies to the same resource. URI
+generation is implementation specific; for example, one may compute a
+Universally Unique Identifier (UUID) <xref target="RFC9562"/> or a hash value based on
+the request and append it to a base URL. For performance considerations, it
+is <bcp14>NOT RECOMMENDED</bcp14> to use properties that are not included in the request
+body to determine the URI of a TIPS view, such as cookies or the client's IP
+address, which may result in duplicated TIPS views in cases such as mobile
+clients. However, this is not mandatory as a server might intentionally use
+client information to compute the TIPS view URI to provide service isolation
+between clients.</t>
+          </dd>
+          <dt>tips-view-summary:</dt>
+          <dd>
+            <t>Contains an updates-graph-summary.
+</t>
+            <t>The "updates-graph-summary" field contains the
+&lt;start-seq&gt; of the updates graph (in the "start-seq" field) and the &lt;end-seq&gt; that
+is currently available (in the "end-seq" field), along with a recommended edge to consume
+(in the "start-edge-rec" field). If the client does not provide a version tag, the server
+<bcp14>MUST</bcp14> recommend the edge of the latest available snapshot.
+If the client provides a version tag, the server <bcp14>MUST</bcp14> either recommend
+the first incremental update edge starting from the client's tagged version
+or recommend the edge of the latest snapshot: which edge is selected depends on the
+implementation. For example, a server <bcp14>MAY</bcp14> calculate the cumulative size of
+the incremental updates available from that version onward and compare it to
+the size of the complete resource snapshot. If the snapshot is bigger, the
+server recommends the first incremental update edge starting from the
+client's tagged version. Otherwise, the server recommends the latest snapshot
+edge.</t>
+          </dd>
+        </dl>
+        <t>If the request has any errors, the ALTO server <bcp14>MUST</bcp14> return an HTTP
+400 (Bad Request) error code to the ALTO client; the body of the response
+follows the generic ALTO error response format specified in
+<xref target="RFC7285" sectionFormat="of" section="8.5.2"/>.  Hence, an example ALTO error response
+has the format shown in <xref target="ex-bad-request"/>.</t>
+        <figure anchor="ex-bad-request">
+          <name>ALTO Error Example</name>
+          <sourcecode type=""><![CDATA[
+    HTTP/1.1 400 Bad Request
+    Content-Length: 131
+    Content-Type: application/alto-error+json
+
+    {
+        "meta":{
+            "code":  "E_INVALID_FIELD_VALUE",
+            "field": "resource-id",
+            "value": "my-network-map/#"
+        }
+    }
+]]></sourcecode>
+        </figure>
+        <t>Note that "field" and "value" are optional fields.  If the "value"
+field exists, the "field" field <bcp14>MUST</bcp14> exist.</t>
+        <ul spacing="normal">
+          <li>If the TIPS request does not have a "resource-id" field, the error code of
+the error message <bcp14>MUST</bcp14> be "E_MISSING_FIELD" and the "field" field, if
+present, <bcp14>MUST</bcp14> be "resource-id". The ALTO server <bcp14>MUST NOT</bcp14> create any TIPS
+view.</li>
+          <li>If the "resource-id" field is invalid or is not associated with the TIPS information resource, the
+error code of the error message <bcp14>MUST</bcp14> be "E_INVALID_FIELD_VALUE". If present,
+the "field" field <bcp14>MUST</bcp14> be the full path of the "resource-id" field, and the
+"value" field <bcp14>MUST</bcp14> be the value of the "resource-id" field in the request.</li>
+          <li>If the resource is a POST-mode service that requires input, the client <bcp14>MUST</bcp14>
+set the "input" field to a JSON object with the parameters that resource
+expects. If the "input" field is missing or invalid, the ALTO server <bcp14>MUST</bcp14> return the
+same error response that resource would return for missing or invalid inputs
+(see <xref target="RFC7285"/>).</li>
+        </ul>
+        <t>Furthermore, it is <bcp14>RECOMMENDED</bcp14> that the server use the following HTTP code to
+indicate other errors, with the media type "application/alto-error+json".</t>
+        <dl spacing="normal">
+          <dt>429 (Too Many Requests):</dt><dd>Indicates when the number of TIPS views open requests exceeds
+the server threshold. The server <bcp14>MAY</bcp14> indicate when to retry the request in
+the "Re-Try After" headers.</dd>
+        </dl>
+        <t>It is <bcp14>RECOMMENDED</bcp14> that the server provide the ALTO/SSE support for the TIPS
+resource. Thus, the client can be notified of the version updates of all the
+TIPS views that it monitors and make better cross-resource transport decisions
+(see <xref target="cross-sched"/> for related considerations).</t>
+      </section>
+      <section anchor="open-example">
+        <name>Open Example</name>
+        <section anchor="basic-example">
+          <name>Basic Example</name>
+
+          <t>For simplicity, assume that the ALTO server is using Basic
+authentication <xref target="RFC7617"/>.  If a client with username "client1" and password
+"helloalto" wants to create a TIPS view of an ALTO cost map resource
+with the resource ID "my-routingcost-map", it can send the
+request depicted in <xref target="ex-op"/>.</t>
+          <figure anchor="ex-op">
+            <name>Request Example of Opening a TIPS View</name>
+            <sourcecode type=""><![CDATA[
+    POST /tips HTTP/1.1
+    Host: alto.example.com
+    Accept: application/alto-tips+json, application/alto-error+json
+    Authorization: Basic Y2xpZW50MTpoZWxsb2FsdG8K
+    Content-Type: application/alto-tipsparams+json
+    Content-Length: 41
+
+    {
+      "resource-id": "my-routingcost-map"
+    }
+]]></sourcecode>
+          </figure>
+          <t>If the operation is successful, the ALTO server returns the
+message shown in <xref target="ex-op-rep"/>.</t>
+          <figure anchor="ex-op-rep">
+            <name>Response Example of Opening a TIPS View</name>
+            <sourcecode type=""><![CDATA[
+    HTTP/1.1 200 OK
+    Content-Type: application/alto-tips+json
+    Content-Length: 255
+
+    {
+      "tips-view-uri": "https://alto.example.com/tips/2718281828",
+      "tips-view-summary": {
+        "updates-graph-summary": {
+          "start-seq": 101,
+          "end-seq": 106,
+          "start-edge-rec" : {
+            "seq-i": 0,
+            "seq-j": 105
+          }
+        }
+      }
+    }
+]]></sourcecode>
+          </figure>
+        </section>
+        <section anchor="example-using-digest-authentication">
+          <name>Example Using Digest Authentication</name>
+          <t>Below is another example of the same query using Digest authentication, a
+mandatory authentication method of ALTO servers as defined in <xref section="8.3.5" sectionFormat="of" target="RFC7285"/>. The content of the response is the same as in <xref target="ex-op-rep"/>; thus, it has been
+omitted for simplicity.</t>
+          <figure anchor="ex-op-digest">
+            <name>Open Example with Digest Authentication</name>
+            <sourcecode type=""><![CDATA[
+    POST /tips HTTP/1.1
+    Host: alto.example.com
+    Accept: application/alto-tips+json, application/alto-error+json
+    Authorization: Basic Y2xpZW50MTpoZWxsb2FsdG8K
+    Content-Type: application/alto-tipsparams+json
+    Content-Length: 41
+
+    {
+      "resource-id": "my-routingcost-map"
+    }
+
+    HTTP/1.1 401 UNAUTHORIZED
+    WWW-Authenticate: Digest
+        realm="alto.example.com",
+        qop="auth",
+        algorithm="MD5",
+        nonce="173b5aba4242409ee2ac3a4fd797f9d7",
+        opaque="a237ff9ab865379a69d9993162ef55e4"
+
+    POST /tips HTTP/1.1
+    Host: alto.example.com
+    Accept: application/alto-tips+json, application/alto-error+json
+    Authorization: Digest
+        username="client1",
+        realm="alto.example.com",
+        uri="/tips",
+        qop=auth,
+        algorithm=MD5,
+        nonce="173b5aba4242409ee2ac3a4fd797f9d7",
+        nc=00000001,
+        cnonce="ZTg3MTI3NDFmMDQ0NzI1MDQ3MWE3ZTFjZmM5MTNiM2I=",
+        response="8e937ae696c1512e4f990fa21c7f9347",
+        opaque="a237ff9ab865379a69d9993162ef55e4"
+    Content-Type: application/alto-tipsparams+json
+    Content-Length: 41
+
+    {
+      "resource-id": "my-routingcost-map"
+    }
+
+
+    HTTP/1.1 200 OK
+    Content-Type: application/alto-tips+json
+    Content-Length: 258
+
+    {....}
+]]></sourcecode>
+          </figure>
+        </section>
+        <section anchor="tips-sse">
+          <name>Example Using ALTO/SSE</name>
+          <t>This section gives an example of receiving incremental updates of the TIPS view
+summary using ALTO/SSE <xref target="RFC8895"/>. Consider the "tips-sse" resource, as
+announced by the IRD in <xref target="ex-ird"/>, which provides ALTO/SSE for the
+"update-my-cost-tips" resource; a client might send the following request to
+receive updates of the TIPS view (authentication is omitted for simplicity).</t>
+          <figure anchor="ex-tips-sse">
+            <name>Example of Monitoring TIPS View with ALTO/SSE</name>
+            <sourcecode type=""><![CDATA[
+    POST /updates/tips HTTP/1.1
+    Host: alto.example.com
+    Accept: text/event-stream,application/alto-error+json
+    Content-Type: application/alto-updatestreamparams+json
+    Content-Length: 76
+
+    {
+      "add": {
+        "tips-123": { "resource-id": "update-my-cost-tips" }
+      }
+    }
+]]></sourcecode>
+          </figure>
+          <t>Then, the client will be able to receive the TIPS view summary as follows.</t>
+          <sourcecode type=""><![CDATA[
+ HTTP/1.1 200 OK
+ Connection: keep-alive
+ Content-Type: text/event-stream
+
+ event: application/alto-tips+json,tips-123
+ data: {
+ data:   "tips-view-uri": "https://alto.example.com/tips/2718281828",
+ data:   "tips-view-summary": {
+ data:     "updates-graph-summary": {
+ data:       "start-seq": 101,
+ data:       "end-seq": 106,
+ data:       "start-edge-rec" : {
+ data:         "seq-i": 0,
+ data:         "seq-j": 105
+ data:       }
+ data:     }
+ data:   }
+ data: }
+]]></sourcecode>
+          <t>When there is an update to the TIPS view (for example, when the "end-seq" field is
+increased by 1), the client will be able to receive the incremental update of the
+TIPS view summary as follows.</t>
+          <sourcecode type=""><![CDATA[
+    event: application/merge-patch+json,tips-123
+    data: {
+    data:   "tips-view-summary": {
+    data:     "updates-graph-summary": {
+    data:       "end-seq": 107
+    data:     }
+    data:   }
+    data: }
+]]></sourcecode>
+        </section>
+      </section>
+    </section>
+    <section anchor="pull">
+      <name>TIPS Data Transfers - Client Pull</name>
+      <t>TIPS allows an ALTO client to retrieve the content of an update item
+from the updates graph, with an update item defined as the content
+(incremental update or snapshot) on an edge in the updates graph.</t>
+      <section anchor="request">
+        <name>Request</name>
+        <t>The client sends an HTTP GET request, where the media type of an
+update item resource <bcp14>MUST</bcp14> be the same as the "media-type" field of
+the update item on the specified edge in the updates graph.</t>
+        <t>The GET request <bcp14>MUST</bcp14> have the following format:</t>
+        <sourcecode type=""><![CDATA[
+    GET /<tips-view-path>/ug/<i>/<j>
+    HOST: <tips-view-host>
+]]></sourcecode>
+        <t>For example, consider the updates graph in <xref target="fig-ug-schema"/>. If the client
+wants to query the content of the first update item (0 -&gt; 101) whose media type
+is "application/alto-costmap+json", it sends a request to
+"/tips/2718281828/ug/0/101" and sets the "Accept" header to
+"application/alto-costmap+json,application/alto-error+json". See <xref target="iu-example"/>
+for a concrete example.</t>
+      </section>
+      <section anchor="response">
+        <name>Response</name>
+        <t>If the request is valid (i.e., "ug/&lt;i&gt;/&lt;j&gt;" exists), the response is encoded
+as a JSON object whose data format is indicated by the media type.</t>
+        <t>A client <bcp14>MAY</bcp14> conduct proactive fetching of future updates, by long polling
+updates that have not been provided in the directory yet. For such updates, the
+client <bcp14>MUST</bcp14> indicate all media types that might appear. It is <bcp14>RECOMMENDED</bcp14> that the
+server allow for at least the long polling of &lt;end-seq&gt; -&gt; &lt;end-seq + 1&gt;.</t>
+        <t>Hence, the server processing logic <bcp14>MUST</bcp14> be:</t>
+        <ul spacing="normal">
+          <li>If a resource with path "ug/&lt;i&gt;/&lt;j&gt;" exists, return content using encoding.</li>
+          <li>Else, if long polling "ug/&lt;i&gt;/&lt;j&gt;" is acceptable, put request in a
+backlog queue, then either a response is triggered when the content is ready
+or the request is interrupted (e.g., by a network error).</li>
+          <li>Else, return error.</li>
+        </ul>
+        <t>It is <bcp14>RECOMMENDED</bcp14> that the server use the following HTTP codes to
+indicate errors, with the media type "application/alto-error+json",
+regarding update item requests.</t>
+        <dl spacing="normal">
+          <dt>404 (Not Found):</dt><dd>Indicates that the requested update does not exist or the requested
+TIPS view does not exist or is closed by the server.</dd>
+          <dt>410 (Gone):</dt><dd>Indicates an update has a seq that is smaller than the &lt;start-seq&gt;.</dd>
+          <dt>415 (Unsupported Media Type):</dt><dd>Indicates the media type (or types) accepted by the
+client does not include the media type of the update chosen by the
+server.</dd>
+          <dt>425 (Too Early):</dt><dd>Indicates the seq exceeds the server long polling window.</dd>
+          <dt>429 (Too Many Requests):</dt><dd>Indicates the number of pending (long poll)
+requests exceeds the server threshold. The server <bcp14>MAY</bcp14> indicate when to retry
+the request in the "Re-Try After" headers.</dd>
+        </dl>
+      </section>
+      <section anchor="iu-example">
+        <name>Example</name>
+        <t>Assume the client wants to get the contents of the update item on
+edge 0 to 101.  The format of the request is shown in <xref target="ex-get"/>.</t>
+        <figure anchor="ex-get">
+          <name>GET Example</name>
+          <sourcecode type=""><![CDATA[
+    GET /tips/2718281828/ug/0/101 HTTP/1.1
+    Host: alto.example.com
+    Accept: application/alto-costmap+json, \
+              application/alto-error+json
+]]></sourcecode>
+        </figure>
+        <t>The response is shown in <xref target="ex-get-res"/>.</t>
+        <figure anchor="ex-get-res">
+          <name>Response to a GET Request</name>
+          <sourcecode type=""><![CDATA[
+    HTTP/1.1 200 OK
+    Content-Type: application/alto-costmap+json
+    Content-Length: 50
+
+    { ... full replacement of my-routingcost-map ... }
+]]></sourcecode>
+        </figure>
+      </section>
+      <section anchor="new-next-edge-recommendation">
+        <name>New Next Edge Recommendation</name>
+        <t>While intended TIPS usage is for the client to receive a recommended
+starting edge in the TIPS summary, consume that edge, and then construct
+all future URIs by incrementing the sequence count by one, there may be
+cases in which the client needs to request a new next edge to
+consume.  For example, if a client has an open TIPS view but has not
+polled in a while, the client might request the next logical
+incremental URI; however, the server has compacted the updates graph, so it
+no longer exists.  Thus, the client <bcp14>MAY</bcp14> request a new next edge to
+consume based on its current version of the resource.</t>
+        <section anchor="request-1">
+          <name>Request</name>
+          <t>An ALTO client requests that the server provide a next edge recommendation for a
+given TIPS view by sending an HTTP POST request with the media type
+"application/alto-tipsparams+json". The URL of the request <bcp14>MUST</bcp14> have the following format:</t>
+          <sourcecode type=""><![CDATA[
+    <tips-view-path>/ug
+]]></sourcecode>
+          <t>and the "HOST" field <bcp14>MUST</bcp14> be "&lt;tips-view-host&gt;".</t>
+          <t>The POST body has the same format as the TIPSReq in <xref target="fig-open-req"/>. The
+"resource-id" field <bcp14>MUST</bcp14> be the same as the resource ID used to create the TIPS view,
+and the optional "input" field <bcp14>MUST NOT</bcp14> be present.</t>
+        </section>
+        <section anchor="response-1">
+          <name>Response</name>
+          <t>The response to a valid request <bcp14>MUST</bcp14> be a JSON merge patch to the object of the AddTIPSResponse type (defined in <xref target="open-resp"/>), denoted as media type
+"application/merge-patch+json". The "updates-graph-summary" field <bcp14>MUST</bcp14> be present
+in the response; hence, its parent field "tips-view-summary" <bcp14>MUST</bcp14> be present
+as well.</t>
+          <t>If the "tag" field is present in the request, the server <bcp14>MUST</bcp14> check if any
+version within the range [&lt;start-seq&gt;, &lt;end-seq&gt;] has the same tag value. If the
+version exists (e.g., denoted as &lt;tag-seq&gt;), the server <bcp14>MUST</bcp14> compute the paths from
+both &lt;tag-seq&gt; and 0 to the &lt;end-seq&gt; and choose the one with the minimal cost. The
+cost <bcp14>MAY</bcp14> be implementation specific (e.g., number of messages, accumulated data
+size, etc.). The first edge of the selected path <bcp14>MUST</bcp14> be returned as the
+	  recommended next edge.</t>
+
+          <t>If the "tag" field is not present, the interpretation   <bcp14>MUST</bcp14> be that the &lt;tag-seq&gt; is 0.</t>
+          <t>It is <bcp14>RECOMMENDED</bcp14> that the server use the following HTTP code to
+indicate errors, with the media type "application/alto-error+json",
+regarding new next edge requests.</t>
+          <dl spacing="normal">
+            <dt>404 (Not Found):</dt><dd>Indicates that the requested TIPS view does not exist or has been
+closed by the server.</dd>
+          </dl>
+        </section>
+        <section anchor="example">
+          <name>Example</name>
+          <t>In this section, we give an example of the new next edge recommendation service. Assume that a
+client already creates a TIPS view (as in <xref target="open-example"/>) whose updates graph
+is as shown in <xref target="fig-ug"/>. Now assume that the client already has tag 0881080,
+whose corresponding sequence number is 103, and sends the following new next
+edge recommendation request (authentication is omitted for simplicity):</t>
+          <sourcecode type=""><![CDATA[
+    POST /tips/2718281828/ug HTTP/1.1
+    HOST alto.example.com
+    Accept: application/merge-patch+json, application/alto-error+json
+    Content-Type: application/alto-tipsparams+json
+    Content-Length: 62
+
+    {
+      "resource-id": "my-routingcost-map",
+      "tag": "0881080"
+    }
+]]></sourcecode>
+          <t>According to <xref target="fig-ug"/>, there are three potential paths: 103 -&gt; 104 -&gt; 105 -&gt; 106,
+103 -&gt; 105 -&gt; 106, and 0 -&gt; 105 -&gt; 106. Assume that the server chooses the shortest
+update path by the accumulated data size and the best path is 103 -&gt; 105 -&gt; 106.
+Thus, the server responds with the following message:</t>
+          <sourcecode type=""><![CDATA[
+    HTTP/1.1 200 OK
+    Content-Type: application/merge-patch+json
+    Content-Length: 193
+
+    {
+      "tips-view-summary": {
+        "updates-graph-summary": {
+          "start-seq": 101,
+          "end-seq": 106,
+          "start-edge-rec": {
+            "seq-i": 103,
+            "seq-j": 105
+          }
+        }
+      }
+    }
+]]></sourcecode>
+        </section>
+      </section>
+    </section>
+    <section anchor="ops-considerations">
+      <name>Operation and Processing Considerations</name>
+      <t>TIPS has some common operational considerations as ALTO/SSE <xref target="RFC8895"/>,
+including:</t>
+      <ul spacing="normal">
+        <li>the server choosing update messages (<xref section="9.1" sectionFormat="of" target="RFC8895"/>);</li>
+        <li>the client processing update messages (<xref section="9.2" sectionFormat="of" target="RFC8895"/>);</li>
+        <li>the updates of filtered map services (<xref section="9.3" sectionFormat="of" target="RFC8895"/>); and</li>
+        <li>the updates of ordinal mode costs (<xref section="9.4" sectionFormat="of" target="RFC8895"/>).</li>
+      </ul>
+
+
+      <t>There are also some operational considerations specific to TIPS, which we discuss
+below.</t>
+      <section anchor="load-balancing">
+        <name>Considerations for Load Balancing</name>
+        <t>There are two levels of load balancing in TIPS: the first level is to balance
+the load of TIPS views for different clients and the second is to balance the
+load of incremental updates.</t>
+        <t>Load balancing of TIPS views can be achieved either at the application layer or
+at the infrastructure layer. For example, an ALTO server <bcp14>MAY</bcp14> set
+&lt;tips-view-host&gt; to different subdomains to distribute TIPS views or simply
+use the same host of the TIPS information resource and rely on load balancers to distribute
+	the load.</t>
+
+        <t>TIPS allows a client to make concurrent pulls of incremental updates for the
+same TIPS view, potentially through different HTTP connections. As a consequence,
+TIPS introduces additional complexities when the ALTO server balances the load by distributing the requests to a set of backend servers. For example, a request might be directed to the wrong backend server and
+get processed incorrectly if the following two conditions both hold:</t>
+        <ul spacing="normal">
+          <li>these backend servers are stateful (i.e., the TIPS view is created
+and stored only on a single server); and</li>
+          <li>the ALTO server is using Layer 4 load balancing (i.e., the
+requests are distributed based on the TCP 5-tuple).</li>
+        </ul>
+        <t>Thus, additional considerations are required to enable correct load
+balancing for TIPS, including:</t>
+        <dl spacing="normal">
+          <dt>Using a stateless architecture:</dt><dd>One solution is to follow the
+stateless computing pattern: states about the TIPS view are not
+maintained by the backend servers but are stored in a distributed
+database.  Thus, concurrent requests to the same TIPS view can be
+processed on arbitrary stateless backend servers, which all
+fetch data from the same database.</dd>
+          <dt>Configuring the load balancers properly:</dt><dd>In the case that the backend
+servers are stateful, the load balancers must be properly
+configured to guarantee that requests of the same TIPS view always
+arrive at the same server.  For example, an operator or a provider
+of an ALTO server <bcp14>MAY</bcp14> configure Layer 7 load balancers that
+distribute requests based on the tips-view-path component in the URI.</dd>
+        </dl>
+      </section>
+      <section anchor="cross-sched">
+        <name>Considerations for Cross-Resource Dependency Scheduling</name>
+        <t>Dependent ALTO resources result in cross-resource dependencies in
+TIPS.  Consider the following pair of resources, where my-cost-map
+(C) is dependent on my-network-map (N).  The updates graph for each
+resource is shown, along with links between the respective updates
+graphs to show dependency:</t>
+        <figure anchor="fig-cross">
+          <name>Example Dependency Model</name>
+          <artwork type="drawing" align="center"><![CDATA[
+                       +---+   +---+   +---+   +---+   +---+
+  my-network-map (N)   | 0 |-->|89 |-->|90 |-->|91 |-->|92 |
+                       +---+   +---+   +---+   +---+   +---+
+                                 |   \       \       \
+                                 |    \       \       \
+                       +---+   +---+   +---+   +---+   +---+
+  my-cost-map (C)      | 0 |-->|101|-->|102|-->|103|-->|104|
+                       +---+   +---+   +---+   +---+   +---+
+                        |_______________________|
+]]></artwork>
+        </figure>
+        <t>In <xref target="fig-cross"/>, the cost-map versions 101 and 102 (denoted as C101 and C102)
+are dependent on the network-map version 89 (denoted as N89). The cost-map
+version 103 (C103) is dependent on the network-map version 90 (N90), and so on.</t>
+        <t>Thus, the client must decide the order in which to receive and apply the
+updates. The order may affect how fast the client can build a consistent view
+and how long the client needs to buffer the update.</t>
+        <dl spacing="normal">
+          <dt>Example 1:</dt><dd>The client requests N89, N90, N91, C101, C102 in that
+order.  The client either gets no consistent view of the resources
+or has to buffer N90 and N91.</dd>
+          <dt>Example 2:</dt><dd>The client requests C101, C102, C103, N89.  The client
+either gets no consistent view or has to buffer C103.</dd>
+        </dl>
+
+
+        <t>To get consistent ALTO information, a client must process the updates following
+the guidelines specified in <xref section="9.2" sectionFormat="of" target="RFC8895"/>. If resources permit
+(i.e., sufficient updates can be buffered), an ALTO client can safely use long
+polling to fetch all the updates. This allows a client to build consistent views
+quickly as the updates are already stored in the buffer. Otherwise, it is
+            <bcp14>RECOMMENDED</bcp14> to request a full snapshot if the client does not have enough local resources to
+            buffer and process the incremental updates.</t>
+      </section>
+      <section anchor="shared-tips-view">
+        <name>Considerations for Managing Shared TIPS Views</name>
+        <t>From a client's point of view, it sees only one copy of the TIPS view
+for any resource.  However, on the server side, there are different
+implementation options, especially for common resources (e.g.,
+network maps or cost maps) that may be frequently queried by many
+clients.  Some potential options are listed below:</t>
+        <ul spacing="normal">
+          <li>An ALTO server creates one TIPS view of the common resource for
+each client.</li>
+<li>
+
+
+            <t>An ALTO server maintains one copy of the TIPS view for each common
+resource and all clients requesting the same resources use the
+same copy.  There are two ways to manage the storage for the
+shared copy:</t>
+            <ul spacing="normal">
+              <li>the ALTO server maintains the set of clients that have sent a polling
+request to the TIPS view and only removes the view from the storage when
+the set becomes empty and no client immediately issues a new edge request; or</li>
+              <li>the TIPS view is never removed from the storage.</li>
+            </ul>
+          </li>
+        </ul>
+        <t>Developers may choose different implementation options depending on
+criteria such as request frequency, available resources of the ALTO
+server, the ability to scale, and programming complexity.</t>
+      </section>
+      <section anchor="considerations-for-offering-shortcut-incremental-updates">
+        <name>Considerations for Offering Shortcut Incremental Updates</name>
+        <t>Besides the mandatory stepwise incremental updates (from i to i+1),
+an ALTO server <bcp14>MAY</bcp14> optionally offer shortcut incremental updates, or
+simple shortcuts, between two non-consecutive versions i and i+k (k &gt;
+1).  Such shortcuts offer alternative paths in the updates graph and
+can potentially speed up the transmission and processing of
+incremental updates, leading to faster synchronization of ALTO
+information, especially when the client has limited bandwidth and
+computation.  However, implementors of an ALTO server must be aware
+that:</t>
+
+
+        <ol spacing="normal" type="1"><li>optional shortcuts may increase the size of the updates graph, worst case scenario being the square of the number of updates (i.e.,
+when a shortcut is offered for each version to all future
+versions).</li>
+          <li>optional shortcuts require additional storage on the ALTO server.</li>
+          <li>optional shortcuts may reduce concurrency when the updates do not
+overlap (e.g., when the updates apply to different parts of an
+ALTO resource).  In such a case, the total size of the original
+updates is close to the size of the shortcut, but the original
+updates can be transmitted concurrently while the shortcut is
+transmitted in a single connection.</li>
+        </ol>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The security considerations of the base protocol (<xref
+      target="RFC7285" sectionFormat="of" section="15"/>) fully apply to this
+      extension.  For example, the same authenticity and integrity
+      considerations (<xref target="RFC7285" sectionFormat="of"
+      section="15.1"/>) still fully apply; the same considerations for the
+      privacy of ALTO users (<xref target="RFC7285" sectionFormat="of"
+      section="15.4"/>) also still fully apply. Additionally, operators of the
+      ALTO servers <bcp14>MUST</bcp14> follow the guidelines in <xref
+      target="RFC9325"/> to avoid new TLS vulnerabilities discovered after
+      <xref target="RFC7285"/> was published.</t>
+      <t>The additional services (the addition of update read service and update
+push service) provided by this extension extend the attack surface
+described in <xref target="RFC7285" sectionFormat="of" section="15.1.1"/>.  The following subsections discuss the
+additional risks and their remedies.</t>
+      <section anchor="tips-denial-of-service-attacks">
+        <name>TIPS: Denial-of-Service Attacks</name>
+        <t>Allowing TIPS views enables new classes of DoS attacks. In
+particular, for the TIPS server, one or multiple malicious ALTO clients might
+create an excessive number of TIPS views, to exhaust the server resource and/or
+to block normal users from accessing the service.</t>
+        <t>To avoid such attacks, the server <bcp14>MAY</bcp14> choose to limit the number of active
+views and reject new requests when that threshold is reached. TIPS allows
+predictive fetching and the server <bcp14>MAY</bcp14> also choose to limit the number of
+pending requests. If a new request exceeds the threshold, the server <bcp14>MAY</bcp14> log
+the event and return the HTTP status 429 (Too Many Requests).</t>
+        <t>It is important to note that the preceding approaches are not the only
+possibilities. For example, it might be possible for a TIPS server to use somewhat more
+clever logic involving TIPS view eviction policies, IP reputation,
+rate-limiting, and compartmentalization of the overall threshold into smaller
+thresholds that apply to subsets of potential clients. If service availability
+is a concern, ALTO clients <bcp14>MAY</bcp14> establish service level agreements with the ALTO
+server.</t>
+      </section>
+      <section anchor="alto-client-update-overloading-or-instability">
+        <name>ALTO Client: Update Overloading or Instability</name>
+        <t>The availability of continuous updates can also cause overload for an ALTO
+client, in particular, an ALTO client with limited processing capabilities. The
+current design does not include any flow control mechanisms for the client to
+reduce the update rates from the server. For example, TCP, HTTP/2, and QUIC
+provide stream and connection flow control data limits, which might help prevent
+the client from being overloaded. Under overloading, the client <bcp14>MAY</bcp14> choose to
+remove the information resources with high update rates.</t>
+        <t>Also, under overloading, the client might no longer be able to detect
+whether information is still fresh or has become stale.  In such a
+case, the client should be careful in how it uses the information to
+avoid stability or efficiency issues.</t>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>IANA has registered the following media types from the registry available at <xref target="IANA-Media-Type"/>:</t>
+
+      <ul spacing="normal">
+        <li>application/alto-tips+json: as described in <xref target="open-resp"/>;</li>
+        <li>application/alto-tipsparams+json: as described in <xref target="open-req"/>;</li>
+      </ul>
+
+      <section anchor="applicationalto-tipsjson-media-type">
+        <name>application/alto-tips+json Media Type</name>
+        <dl>
+          <dt>Type name:</dt>
+          <dd>application</dd>
+
+          <dt>Subtype name:</dt>
+          <dd>alto-tips+json</dd>
+
+          <dt>Required parameters:</dt>
+          <dd>N/A</dd>
+
+          <dt>Optional parameters:</dt>
+          <dd>N/A</dd>
+
+          <dt>Encoding considerations:</dt>
+          <dd>Encoding considerations are identical to those specified for the
+"application/json" media type. See <xref target="RFC8259"/>.</dd>
+
+          <dt>Security considerations:</dt>
+          <dd>See the Security Considerations section of RFC 9569.</dd>
+
+          <dt>Interoperability considerations:</dt>
+          <dd>N/A</dd>
+
+          <dt>Published specification:</dt>
+          <dd><xref target="open-resp"/> of RFC 9569.</dd>
+
+          <dt>Applications that use this media type:</dt>
+          <dd>ALTO servers and ALTO clients either stand alone or are embedded within other
+applications.</dd>
+
+          <dt>Fragment identifier considerations:</dt>
+          <dd>N/A</dd>
+
+          <dt>Additional information:</dt><dd>
+	  <t><br/></t>
+            <dl spacing="compact">
+              <dt>Deprecated alias names for this type:</dt>
+              <dd>N/A</dd>
+
+              <dt>Magic number(s):</dt>
+              <dd>N/A</dd>
+
+              <dt>File extension(s):</dt>
+              <dd>RFC 9569 uses the media type to refer to protocol messages; thus, it
+ does not require a file extension.</dd>
+
+              <dt>Macintosh file type code(s):</dt>
+              <dd>N/A</dd>
+            </dl>
+          </dd>
+          <dt>Person &amp; email address to contact for further information:</dt>
+          <dd><br/>See the Authors' Addresses section of RFC 9569.</dd>
+
+          <dt>Intended usage:</dt>
+          <dd>COMMON</dd>
+
+          <dt>Restrictions on usage:</dt>
+          <dd>N/A</dd>
+
+          <dt>Author:</dt>
+          <dd>See the Authors' Addresses section of RFC 9569.</dd>
+
+          <dt>Change controller:</dt>
+          <dd>Internet Engineering Task Force (iesg@ietf.org).</dd>
+
+        </dl>
+      </section>
+      <section anchor="applicationalto-tipsparamsjson-media-type">
+        <name>application/alto-tipsparams+json Media Type</name>
+        <dl>
+          <dt>Type name:</dt>
+          <dd>application</dd>
+
+          <dt>Subtype name:</dt>
+          <dd>alto-tipsparams+json</dd>
+
+          <dt>Required parameters:</dt>
+          <dd>N/A</dd>
+
+          <dt>Optional parameters:</dt>
+          <dd>N/A</dd>
+
+          <dt>Encoding considerations:</dt>
+          <dd>Encoding considerations are identical to those specified for the
+ "application/json" media type. See <xref target="RFC8259"/>.</dd>
+
+          <dt>Security considerations:</dt>
+          <dd>See the Security Considerations section of RFC 9569.</dd>
+
+          <dt>Interoperability considerations:</dt>
+          <dd>N/A</dd>
+
+          <dt>Published specification:</dt>
+          <dd><xref target="open-req"/> of RFC 9569.</dd>
+
+          <dt>Applications that use this media type:</dt>
+          <dd>ALTO servers and ALTO clients either stand alone or are embedded within other
+applications.</dd>
+
+          <dt>Fragment identifier considerations:</dt>
+          <dd>N/A</dd>
+
+
+	  <dt>Additional information:</dt><dd>
+	  <t><br/></t>
+	  <dl spacing="compact">
+              <dt>Deprecated alias names for this type:</dt>
+              <dd>N/A</dd>
+
+              <dt>Magic number(s):</dt>
+              <dd>N/A</dd>
+
+              <dt>File extension(s):</dt>
+              <dd>RFC 9569 uses the media type to refer to protocol messages; thus, it
+ does not require a file extension.</dd>
+
+              <dt>Macintosh file type code(s):</dt>
+              <dd>N/A</dd>
+            </dl>
+          </dd>
+
+          <dt>Person &amp; email address to contact for further information:<br/></dt>
+          <dd><br/>See the Authors' Addresses section of RFC 9569.</dd>
+
+          <dt>Intended usage:</dt>
+          <dd>COMMON</dd>
+
+          <dt>Restrictions on usage:</dt>
+          <dd>N/A</dd>
+
+          <dt>Author:</dt>
+          <dd>See the Authors' Addresses section of RFC 9569.</dd>
+
+          <dt>Change controller:</dt>
+          <dd>Internet Engineering Task Force (iesg@ietf.org).</dd>
+
+        </dl>
+      </section>
+    </section>
+  </middle>
+
+  <back>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7285.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8259.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8895.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9112.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9113.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9114.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9325.xml"/>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9562.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9205.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7617.xml"/>
+
+        <reference anchor="IANA-Media-Type" target="https://www.iana.org/assignments/media-types">
+          <front>
+            <title>Media Types</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+      </references>
+    </references>
+    <section anchor="sec-dep-model">
+      <name>A High-Level Deployment Model</name>
+      <t>Conceptually, the TIPS system consists of three types of resources:</t>
+      <dl spacing="normal">
+        <dt>(R1):</dt><dd>The TIPS frontend to create TIPS views.</dd>
+        <dt>(R2):</dt><dd>The TIPS view directory, which provides metadata (e.g., references) about the
+network resource data.</dd>
+        <dt>(R3):</dt><dd>The actual network resource data, encoded as complete ALTO network
+resources (e.g., a cost map or a network map) or incremental updates.</dd>
+      </dl>
+      <figure anchor="fig-service-model">
+        <name>Sample TIPS Deployment Model</name>
+        <artwork type="drawing" align="center"><![CDATA[	
+                      +------------------------------------------------+
+                      |                                                |
+ +------+             |R1: Frontend/Open  R2: Directory/Meta  R3: Data |
+ |      | "iget" base |     +-----+           +-----+         +-----+  |
+ |      | resource 1  |     |     |           |     |         |     |  |
+ |      |-------------|---->|     |           |     |         |     |  |
+ |      | incremental |     |     |           |     |-------->|     |  |
+ |      | transfer    |     |     |           |     |         |     |  |
+ |      | resource    |     |     |           |     |         |     |  |
+ |      |<------------|-----------------------|     |         |     |  |
+ |Client|             |     |     |           +-----+         +-----+  |
+ |      | "iget" base |     |     |                                    |
+ |      | resource 2  |     |     |           +-----+         +-----+  |
+ |      |-------------|---->|     |           |     |         |     |  |
+ |      | incremental |     |     |           |     |         |     |  |
+ |      | transfer    |     +-----+           |     | ------->|     |  |
+ |      | resource    |                       |     |         |     |  |
+ |      |<------------|-----------------------|     |         |     |  |
+ +------+             |                       +-----+         +-----+  |
+                      |                                                |
+                      +------------------------------------------------+
+]]></artwork>
+      </figure>
+      <t>Design Point: Component Resource Location</t>
+      <dl spacing="normal">
+        <dt>Design 1 (Single):</dt><dd>all the three resource types at the same single server (accessed via
+relative reference).</dd>
+        <dt>Design 2 (Flexible):</dt><dd>all three resource types can be at their own server (accessed via
+absolute reference).</dd>
+        <dt>Design 3 (Dir + Data):</dt><dd>R2 and R3 must remain together, though R1 might not be
+on the same server.</dd>
+      </dl>
+      <t>This document supports Designs 1 and 3. For Design 1, the ALTO server
+simply needs to always use the same host for the TIPS views. For Design 3, the
+ALTO server can set tips-view-host to a different server. Note that the
+deployment flexibility is at the logical level, as these services
+can be distinguished by different paths and potentially be routed to different
+physical servers by Layer 7 load balancing. See <xref target="load-balancing"/> for a
+discussion on load balancing considerations. Future documents could extend the
+protocol to support Design 2.</t>
+    </section>
+    <section anchor="sec-bcp-http">
+
+
+
+      <name>Conformance with "Building Protocols with HTTP" (RFC 9205) Best Current Practices</name>
+      <t>This specification adheres fully to <xref target="RFC9205"/> as further elaborated below:</t>
+      <ul spacing="normal">
+
+
+        <li><t>TIPS does not (as described in <xref section="3.1" sectionFormat="of" target="RFC9205"/>):</t>
+	<blockquote>...redefine, refine, or overlay the semantics of
+generic protocol elements such as methods, status codes, or
+	existing header fields.</blockquote>
+	<t>and instead focuses on</t>
+	<blockquote>...protocol elements
+	that are specific to [the TIPS] application -- namely, [its] HTTP
+	resources.</blockquote>
+	</li>
+        <li>There are no statically defined URI components (<xref section="3.2" sectionFormat="of" target="RFC9205"/>).</li>
+        <li>No minimum version of HTTP is specified by TIPS, which is
+recommended (in <xref section="4.1" sectionFormat="of" target="RFC9205"/>).</li>
+        <li><t>The TIPS design follows the advice (in <xref
+	section="4.1" sectionFormat="of" target="RFC9205"/>) that:</t>
+	<blockquote>When specifying examples of protocol interactions,
+	applications should document both the request and response messages
+	with complete header sections, preferably in HTTP/1.1 format...</blockquote>
+	</li>
+        <li>TIPS uses URI templates, which is recommended (in <xref section="4.2" sectionFormat="of" target="RFC9205"/>).</li>
+        <li><t>TIPS follows the pattern (in <xref section="4.4.1" sectionFormat="of" target="RFC9205"/>) that:</t>
+	  <blockquote>Generally, a client will begin interacting with a given
+	  application server by requesting an initial document that contains
+	  information about that particular deployment, potentially including
+	  links to other relevant resources.  Doing so ensures that the
+	  deployment is as flexible as possible (potentially spanning multiple
+	  servers), allows evolution, and also gives the application the
+	  opportunity to tailor the "discovery document" to the
+	  client.</blockquote>
+	</li>
+        <li>TIPS uses existing HTTP schemes (<xref section="4.4.2" sectionFormat="of" target="RFC9205"/>).</li>
+        <li>TIPS defines its errors "to use the most applicable status code"
+(<xref section="4.6" sectionFormat="of" target="RFC9205"/>).</li>
+        <li><t>TIPS does not (as in <xref section="4.11" sectionFormat="of"
+	target="RFC9205"/>):</t>
+	<blockquote>...make assumptions about the relationship between separate
+	requests on a single transport connection; doing so breaks many of the
+	assumptions of HTTP as a stateless protocol and will cause problems in
+	interoperability, security, operability, and
+	evolution.</blockquote>
+	<t>The only relationship between requests is that a
+	client has to first discover where a TIPS view of a resource will be
+	served, which is consistent with the URI discovery in <xref
+	section="4.4.1" sectionFormat="of" target="RFC9205"/>.</t>
+	</li>
+      </ul>
+    </section>
+    <section anchor="push">
+      <name>Push-Mode TIPS Using HTTP Server Push</name>
+      <t>TIPS allows ALTO clients to subscribe to incremental updates of an ALTO
+resource, and the specification in this document is based on the current best
+practice of building such a service using basic HTTP. Earlier versions of this
+document had investigated the possibility of enabling push-mode TIPS (i.e., by
+taking advantage of the server push feature in HTTP/2 and HTTP/3).</t>
+      <t>In the ideal case, push-mode TIPS can potentially improve performance (e.g.,
+latency) in more dynamic environments and use cases with wait-free message
+delivery. Using the built-in HTTP server push also results in minimal changes to the
+current protocol. While not adopted due to the lack of server push support and
+increased protocol complexity, push-mode TIPS remains a potential direction of
+protocol improvement.</t>
+    </section>
+    <section anchor="persistent-http-connections">
+      <name>Persistent HTTP Connections</name>
+      <t>Previous draft versions of this document use persistent HTTP connections to detect the
+liveness of clients. However, this design does not conform well with the best
+current practices of HTTP. For example, if an ALTO client is accessing a TIPS
+view over an HTTP proxy, the connection is not established directly between the
+ALTO client and the ALTO server, but between the ALTO client and the proxy and
+between the proxy and the ALTO server. Thus, using persistent connections might
+not correctly detect the right liveness state.</t>
+    </section>
+    <section numbered="false" anchor="acknowledgments">
+      <name>Acknowledgments</name>
+      <t>The authors of this document would like to thank <contact
+      fullname="Mark Nottingham"/> and <contact fullname="Spencer Dawkins"/>
+      for providing invaluable reviews of earlier draft versions of this document;
+      <contact fullname="Adrian Farrel"/>, <contact fullname="Qin Wu"/>, and
+      <contact fullname="Jordi Ros Giralt"/> for their continuous feedback;      <contact fullname="Russ White"/>, <contact fullname="Donald Eastlake 3rd"/>,
+      <contact fullname="Martin Thomson"/>, <contact fullname="Bernard
+      Aboba"/>, <contact fullname="Spencer Dawkins"/>, <contact
+      fullname="Linda Dunbar"/>, and <contact fullname="Sheng Jiang"/> for the
+      directorate reviews; <contact fullname="Martin Duke"/> for the area
+      director review; <contact fullname="Francesca Palombini"/>, <contact
+      fullname="Wesley Eddy"/>, <contact fullname="Roman Danyliw"/>, <contact
+      fullname="Murray Kucherawy"/>, and <contact fullname="Zaheduzzaman
+      Sarker"/> for the telechat and IESG reviews; and <contact
+      fullname="Mohamed Boucadair"/> for shepherding the document.</t>
+    </section>
+  </back>
+</rfc>

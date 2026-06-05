@@ -1,0 +1,248 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" 
+ipr="trust200902" 
+docName="draft-ietf-httpbis-alias-proxy-status-07" 
+submissionType="IETF"
+number="9532"
+updates=""
+obsoletes=""
+xml:lang="en"
+category="std" 
+consensus="true" 
+tocInclude="true" 
+sortRefs="true" 
+symRefs="true" 
+version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.18.2 -->
+  <front>  
+    <title abbrev="Next-Hop Aliases Proxy-Status Parameter">HTTP Proxy-Status Parameter for Next-Hop Aliases</title>
+    <seriesInfo name="RFC" value="9532"/>
+    <author initials="T." surname="Pauly" fullname="Tommy Pauly">
+      <organization>Apple, Inc.</organization>
+      <address>
+        <email>tpauly@apple.com</email>
+      </address>
+    </author>
+    <date month="January" year="2024"/>
+    <area>Applications and Real-Time</area>
+    <workgroup>httpbis</workgroup>
+
+    <keyword>proxy status</keyword>
+    <abstract><t>This document defines the <tt>next-hop-aliases</tt> HTTP
+    Proxy-Status Parameter. This parameter carries the list of aliases and
+    canonical names an intermediary received during DNS resolution as part of
+    establishing a connection to the next hop.</t>
+    </abstract>
+  </front>
+  <middle>
+
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>The Proxy-Status HTTP response field <xref target="RFC9209"/> allows intermediaries to convey
+information about how they handled the request in HTTP responses sent to clients.
+It defines a set of parameters that provide information, such as the name of the next
+hop.</t>
+      <t><xref target="RFC9209"/> defines a <tt>next-hop</tt> parameter, which can contain a hostname,
+IP address, or alias of the next hop. This parameter can contain only one such item,
+so it cannot be used to communicate a chain of aliases encountered during DNS resolution
+when connecting to the next hop.</t>
+      <t>Knowing the full chain of names that were used during DNS resolution via CNAME records
+<xref target="RFC1034"/> is particularly useful for clients of forward proxies, in which the
+client is requesting to connect to a specific target hostname using the CONNECT method
+<xref target="RFC9110"/> or UDP proxying <xref target="RFC9298"/>. CNAME records can be used to
+"cloak" hosts that perform tracking or malicious activity behind more innocuous hostnames,
+and clients such as web browsers use the chain of DNS names to influence behavior like cookie
+usage policies <xref target="RFC6265"/> or the blocking of malicious hosts.</t>
+      <t>This document allows clients to receive the CNAME chain of DNS names for the next hop
+by including the list of names in a new <tt>next-hop-aliases</tt> Proxy-Status parameter.</t>
+      <section anchor="requirements">
+        <name>Requirements</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section anchor="parameter">
+      <name>next-hop-aliases Parameter</name>
+      <t>The value of the <tt>next-hop-aliases</tt> parameter is a String <xref target="RFC8941"/> that contains
+one or more DNS names in a comma-separated list. The items in the list include all alias names and
+canonical names received in CNAME records <xref target="RFC1034"/> during the course of resolving the next hop's hostname using DNS and <bcp14>MAY</bcp14> include the original requested hostname itself. The names ought to appear in the order in which they were received in DNS, for the sake of consistency. If there are multiple CNAME records in the chain, the first name in the <tt>next-hop-aliases</tt> list would
+be the value in the CNAME record for the original hostname, and the final name in the
+      <tt>next-hop-aliases</tt> list would be the name that ultimately resolved to one or more addresses.</t>
+      <t>The list of DNS names in <tt>next-hop-aliases</tt> parameter uses a comma (",") as a separator between names.
+Note that if a comma is included in a name itself, the comma must be encoded as described in
+<xref target="encoding"/>.</t>
+      <t>For example, consider a proxy "proxy.example.net" that receives the following records when
+      performing DNS resolution for the next hop "host.example.com":</t>
+      
+      <sourcecode type=""><![CDATA[
+host.example.com.           CNAME   tracker.example.com.
+tracker.example.com.        CNAME   service1.example.com.
+service1.example.com.       AAAA    2001:db8::1
+]]></sourcecode>
+      <t>The proxy could include the following proxy status in its response:</t>
+      <sourcecode type="http-message"><![CDATA[
+Proxy-Status: proxy.example.net; next-hop="2001:db8::1";
+    next-hop-aliases="tracker.example.com,service1.example.com"
+]]></sourcecode>
+      <t>This indicates that "proxy.example.net", which used the IP address "2001:db8::1" as the next hop
+for this request, encountered the names "tracker.example.com" and "service1.example.com"
+in the DNS resolution chain. Note that while this example includes both the <tt>next-hop</tt> and
+<tt>next-hop-aliases</tt> parameters, <tt>next-hop-aliases</tt> can be included without including <tt>next-hop</tt>.</t>
+      <t>The proxy can also include the name of the next hop as the first item in the list. This is
+particularly useful for reverse proxies when clients would not otherwise know the name of the
+next hop, and the <tt>next-hop</tt> header is used to convey an IP address.</t>
+      <t>For example, consider a proxy "reverseproxy.example.net" that receives the following records
+when performing DNS resolution for the next hop "host.example.com":</t>
+      <sourcecode type=""><![CDATA[
+host2.example.com.          CNAME   service2.example.com.
+service2.example.com.       AAAA    2001:db8::2
+]]></sourcecode>
+      <t>The proxy could include the following proxy status in its response:</t>
+      <sourcecode type="http-message"><![CDATA[
+Proxy-Status: reverseproxy.example.net; next-hop="2001:db8::2";
+    next-hop-aliases="host2.example.com,service2.example.com"
+]]></sourcecode>
+      <t>The <tt>next-hop-aliases</tt> parameter only applies when DNS was used to resolve the next hop's name, and it
+does not apply in all situations. Clients can use the information in this parameter to determine how to use the connection established through the proxy, but they need to gracefully handle situations in which this parameter is not present.</t>
+      <t>The proxy <bcp14>MAY</bcp14> send the empty string ("") as the value of <tt>next-hop-aliases</tt> parameter to indicate that
+no CNAME records were encountered when resolving the next hop's name.</t>
+      <section anchor="encoding">
+        <name>Encoding Special Characters</name>
+        <t>DNS names commonly contain just alphanumeric characters and hyphens ("-"), although they
+are allowed to contain any character (<xref section="3.1" sectionFormat="comma" target="RFC1035"/>), including a comma. To
+prevent commas or other special characters in names leading to incorrect parsing,
+any characters that appear in names in this list that do not belong to the set of URI
+unreserved characters (<xref section="2.3" sectionFormat="comma" target="RFC3986"/>) <bcp14>MUST</bcp14> be percent-encoded as
+defined in <xref section="2.1" sectionFormat="comma" target="RFC3986"/>.</t>
+        <t>For example, consider the DNS name "comma,name.example.com". This name would be encoded
+within a <tt>next-hop-aliases</tt> parameter as follows:</t>
+        <sourcecode type="http-message"><![CDATA[
+Proxy-Status: proxy.example.net; next-hop="2001:db8::1";
+    next-hop-aliases="comma%2Cname.example.com,service1.example.com"
+]]></sourcecode>
+        <t>It is also possible for a DNS name to include a period character (".") within a label instead of as a label separator. In this case, the period character <bcp14>MUST</bcp14> first be escaped
+as "\.". Since the "\" character itself will be percent-encoded, the name
+"dot\.label.example.com" would be encoded within a <tt>next-hop-aliases</tt> parameter as follows:</t>
+        <sourcecode type="http-message"><![CDATA[
+Proxy-Status: proxy.example.net; next-hop="2001:db8::1";
+    next-hop-aliases="dot%5C.label.example.com,service1.example.com"
+]]></sourcecode>
+        <t>Upon parsing this name, "dot%5C.label" <bcp14>MUST</bcp14> be treated as a single label.</t>
+        <t>Similarly, the "\" character in a label <bcp14>MUST</bcp14> be escaped as "\\" and then percent-encoded. Other uses of "\" <bcp14>MUST NOT</bcp14> appear in the label after percent-decoding. For example, if there is a DNS name "backslash\name.example.com", it would first be escaped as "backslash\\name.example.com" and then percent-encoded as follows:</t>	
+        <sourcecode type="http-message"><![CDATA[
+Proxy-Status: proxy.example.net; next-hop="2001:db8::1";
+    next-hop-aliases="backslash%5C%5Cname.example.com,s1.example.com"
+]]></sourcecode>
+      </section>
+    </section>
+    <section anchor="implementation-considerations">
+      <name>Implementation Considerations</name>
+      <t>In order to include the <tt>next-hop-aliases</tt> parameter, a proxy needs to have access to the chain
+of alias names and canonical names received in CNAME records.</t>
+      <t>Implementations ought to note that the full chain of names might not be available in common DNS
+resolution APIs, such as <tt>getaddrinfo</tt> <xref target="POSIX"/>. <tt>getaddrinfo</tt> does have an option for <tt>AI_CANONNAME</tt>
+(<xref section="6.1" sectionFormat="comma" target="RFC3493"/>), but this will only return the last name in the chain
+(the canonical name), not the alias names.</t>
+      <t>An implementation <bcp14>MAY</bcp14> include incomplete information in the <tt>next-hop-aliases</tt> parameter to accommodate cases where it is unable to include the full chain, such as only including the canonical name if the implementation can only use <tt>getaddrinfo</tt> as described above.</t>
+    </section>
+    <section anchor="sec-considerations">
+      <name>Security Considerations</name>
+      <t>The <tt>next-hop-aliases</tt> parameter does not include any DNSSEC information or imply that DNSSEC was used.
+The information included in the parameter can only be trusted to be valid insofar as the client
+trusts the proxy to provide accurate information. This information is intended to be used as
+a hint and <bcp14>SHOULD NOT</bcp14> be used for making security decisions about the identity of a resource accessed
+through the proxy.</t>
+      <t>Inspecting CNAME chains can be used to detect cloaking of trackers or malicious hosts. However, the
+CNAME records could be omitted by a recursive or authoritative resolver that is trying to hide this form of cloaking.
+In particular, recursive or authoritative resolvers can omit these records for both clients directly performing DNS name
+resolution and proxies performing DNS name resolution on behalf of a client. A malicious proxy could
+also choose to not report these CNAME chains in order to hide the cloaking. In general, clients can
+trust information included (or not included) in the <tt>next-hop-aliases</tt> parameter to the degree
+that the proxy and any resolvers used by the proxy are trusted.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document registers the <tt>next-hop-aliases</tt> parameter
+in the "HTTP Proxy-Status Parameters" registry <eref target="https://www.iana.org/assignments/http-proxy-status" brackets="angle"/> as shown in <xref target="table_1"/>.</t>
+
+<table anchor="table_1"> 
+  <name>HTTP Proxy-Status Parameters Registry</name>
+  <thead>
+    <tr>
+      <th>Name</th>  
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>  
+    <tr>
+      <td>next&nbhy;hop&nbhy;aliases</td>
+      <td>A string containing one or more DNS aliases or canonical names used to establish a proxied connection to the next hop.</td>
+      <td>RFC 9532</td>
+    </tr>
+  </tbody>
+</table>
+    </section>
+  </middle>
+  <back>
+
+    <displayreference target="RFC9209" to="PROXY-STATUS"/>
+    <displayreference target="RFC1034" to="DNS"/>
+    <displayreference target="RFC9110" to="HTTP"/>
+    <displayreference target="RFC9298" to="CONNECT-UDP"/>
+    <displayreference target="RFC8941" to="STRUCTURED-FIELDS"/>
+    <displayreference target="RFC6265" to="COOKIES"/>
+
+    <references>
+
+      <name>References</name>
+      <references anchor="sec-normative-references">
+
+        <name>Normative References</name>
+
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9209.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1034.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9298.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8941.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+      </references>
+
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="POSIX" target="https://ieeexplore.ieee.org/document/8277153">
+          <front>
+            <title>IEEE Standard for Information Technology--Portable Operating System Interface (POSIX(TM)) Base Specifications, Issue 7</title>
+            <author>
+              <organization>IEEE</organization>
+            </author>
+            <date year="2018" month="January"/>
+          </front>
+	  <seriesInfo name="IEEE Std" value="1003.1-2017"/>
+	  <seriesInfo name="DOI" value="10.1109/IEEESTD.2018.8277153"/>
+        </reference>
+	
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6265.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3493.xml"/>
+      </references>
+    </references>
+  </back>
+</rfc>

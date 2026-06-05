@@ -1,0 +1,291 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-tls13-pkcs1-07" number="9963" updates="" obsoletes="" xml:lang="en" category="std" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <front>
+    <title abbrev="Legacy PKCS #1 Code Points for TLS 1.3">Legacy RSASSA-PKCS1-v1_5 Code Points for TLS 1.3</title>
+    <seriesInfo name="RFC" value="9963"/>
+    <author initials="D." surname="Benjamin" fullname="David Benjamin">
+      <organization>Google LLC</organization>
+      <address>
+        <email>davidben@google.com</email>
+      </address>
+    </author>
+    <author initials="A." surname="Popov" fullname="Andrei Popov">
+      <organization>Microsoft Corp.</organization>
+      <address>
+        <email>andreipo@microsoft.com</email>
+      </address>
+    </author>
+    <date year="2026" month="April"/>
+
+    <area>SEC</area>
+    <workgroup>tls</workgroup>
+
+
+    <abstract>
+<t>This document allocates code points for the use of RSASSA-PKCS1-v1_5 with
+client certificates in TLS 1.3. This removes an obstacle for some deployments
+to migrate to TLS 1.3.</t>
+    </abstract>
+  </front>
+  <middle>
+
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>TLS 1.3 <xref target="RFC8446"/> removed support for RSASSA-PKCS1-v1_5 <xref target="RFC8017"/> in
+CertificateVerify messages in favor of RSASSA-PSS. While RSASSA-PSS is a
+long-established signature algorithm, some legacy hardware cryptographic devices
+lack support for it. While uncommon in TLS servers, these devices are sometimes
+used by TLS clients for client certificates.</t>
+      <t>For example, Trusted Platform Modules (TPMs) are ubiquitous hardware
+cryptographic devices that are often used to protect TLS client certificate
+private keys. However, a large number of TPMs are unable to produce RSASSA-PSS
+signatures compatible with TLS 1.3. TPM specifications prior to 2.0 did not
+define RSASSA-PSS support (see Section 5.8.1 of <xref target="TPM12"/>). TPM 2.0
+includes RSASSA-PSS, but only those TPM 2.0 devices compatible with US FIPS
+186-4 can be relied upon to use the salt length matching the digest length, as
+required for compatibility with TLS 1.3 (see Appendix B.7 of <xref target="TPM2"/>).</t>
+      <t>TLS connections that rely on such devices cannot migrate to TLS 1.3. Staying on
+TLS 1.2 leaks the client certificate to network attackers
+<xref target="PRIVACY"/> and additionally prevents such
+deployments from protecting traffic against retroactive decryption by an
+attacker with a quantum computer <xref target="RFC9954"/>.</t>
+      <t>Additionally, TLS negotiates protocol versions before client certificates.
+Clients send ClientHellos without knowing whether the server will request to
+authenticate with legacy keys. Conversely, servers respond with a TLS
+version and CertificateRequest without knowing if the client will then
+respond with a legacy key. If the client and server, respectively, offer and
+negotiate TLS 1.3, the connection will fail due to the legacy key, when it
+previously succeeded at TLS 1.2.</t>
+      <t>To recover from this failure, one side must globally disable TLS 1.3 or the
+client must implement an external fallback. Disabling TLS 1.3 impacts
+connections that would otherwise be unaffected by this issue, while external
+fallbacks break TLS's security analysis and may introduce vulnerabilities
+<xref target="POODLE"/>.</t>
+      <t>This document allocates code points to use these legacy keys with client
+certificates in TLS 1.3. This reduces the pressure on implementations to select
+one of these problematic mitigations and unblocks TLS 1.3 deployment.</t>
+    </section>
+    <section anchor="conventions-and-definitions">
+      <name>Conventions and Definitions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>
+    <section anchor="pkcs1-v15-signaturescheme-types">
+      <name>PKCS #1 v1.5 SignatureScheme Types</name>
+      <t>The following SignatureScheme values are defined for use with TLS 1.3.</t>
+      <artwork><![CDATA[
+    enum {
+        rsa_pkcs1_sha256_legacy(0x0420),
+        rsa_pkcs1_sha384_legacy(0x0520),
+        rsa_pkcs1_sha512_legacy(0x0620),
+    } SignatureScheme;]]></artwork>
+
+      <t>The above code points indicate a signature algorithm using RSASSA-PKCS1-v1_5
+<xref target="RFC8017"/> with the corresponding hash algorithm as defined in
+<xref target="SHS"/>. They are only defined for signatures in
+the client CertificateVerify message and are not defined for use in other
+contexts. In particular, servers that intend to advertise support for
+RSASSA-PKCS1-v1_5 signatures in the certificates themselves should use the
+<tt>rsa_pkcs1_*</tt> constants defined in <xref target="RFC8446"/>.</t>
+      <t>Clients <bcp14>MUST NOT</bcp14> advertise these values in the <tt>signature_algorithms</tt> extension
+of the ClientHello. They <bcp14>MUST NOT</bcp14> accept these values in the server
+CertificateVerify message.</t>
+      <t>Servers that wish to support clients authenticating with legacy
+RSASSA-PKCS1-v1_5-only keys <bcp14>MAY</bcp14> send these values in the
+<tt>signature_algorithms</tt> extension of the CertificateRequest message and accept
+them in the client CertificateVerify message. Servers <bcp14>MUST NOT</bcp14> accept these code
+points if not offered in the CertificateRequest message.</t>
+
+<t>Clients with such legacy keys <bcp14>MAY</bcp14> negotiate the use of these signature
+algorithms if offered by the server.  Clients <bcp14>SHOULD NOT</bcp14> negotiate the use of these signature algorithms with
+keys that support RSASSA-PSS, though this may not be practical to determine in
+all applications. For example, attempting to test a key for support might
+result in a message to the user or have other side effects.</t>
+      <t>TLS implementations <bcp14>SHOULD</bcp14> disable these code points by default. See
+<xref target="security-considerations"/>.</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The considerations in <xref target="introduction"/> do not apply to server keys, so these new
+code points are forbidden for use with server certificates. RSASSA-PSS continues
+to be required for TLS 1.3 servers using RSA keys. This minimizes the impact to
+only those cases in which it is necessary to unblock deployment of TLS 1.3.</t>
+      <t>When implemented incorrectly, RSASSA-PKCS1-v1_5 admits signature
+forgeries <xref target="MFSA201473"/>. Implementations producing or verifying signatures
+with these algorithms <bcp14>MUST</bcp14> implement RSASSA-PKCS1-v1_5 as specified in <xref target="RFC8017" section="8.2"/>. In particular, clients <bcp14>MUST</bcp14> include the mandatory NULL
+parameter in the DigestInfo structure and produce a valid DER <xref target="X690"/>
+encoding. Servers <bcp14>MUST</bcp14> reject signatures which do not meet these requirements.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>IANA has created the following entries in the
+"TLS SignatureScheme" registry. The "Recommended" column
+has been set to "N", and the "Reference" column refers to this document.</t>
+      <table>
+        <thead>
+          <tr>
+            <th align="left">Value</th>
+            <th align="left">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">0x0420</td>
+            <td align="left">
+              <tt>rsa_pkcs1_sha256_legacy</tt></td>
+          </tr>
+          <tr>
+            <td align="left">0x0520</td>
+            <td align="left">
+              <tt>rsa_pkcs1_sha384_legacy</tt></td>
+          </tr>
+          <tr>
+            <td align="left">0x0620</td>
+            <td align="left">
+              <tt>rsa_pkcs1_sha512_legacy</tt></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </middle>
+  <back>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8017.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+
+        <reference anchor="X690" target="https://www.itu.int/rec/T-REC-X.690">
+          <front>
+            <title>Information technology - ASN.1 encoding rules: Specification of Basic Encoding Rules (BER), Canonical Encoding Rules (CER) and Distinguished Encoding Rules (DER)</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2021" month="February"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="X.690"/>
+          <seriesInfo name="ISO/IEC" value="8825-1:2021"/>
+        </reference>
+
+        <reference anchor="TPM12" target="https://trustedcomputinggroup.org/wp-content/uploads/TPM-Main-Part-2-TPM-Structures_v1.2_rev116_01032011.pdf">
+          <front>
+            <title>TPM Main, Part 2 - Structures of the TPM</title>
+            <author>
+              <organization>Trusted Computing Group</organization>
+            </author>
+            <date year="2011" month="March" day="01"/>
+          </front>
+          <refcontent>Level 2, Version 1.2, Revision 116</refcontent>
+        </reference>
+        <reference anchor="TPM2" target="https://trustedcomputinggroup.org/wp-content/uploads/TCG_TPM2_r1p59_Part1_Architecture_pub.pdf">
+          <front>
+            <title>Trusted Platform Module Library, Part 1: Architecture</title>
+            <author>
+              <organization>Trusted Computing Group</organization>
+            </author>
+            <date year="2019" month="November" day="08"/>
+          </front>
+          <refcontent>Family 2.0, Level 00, Revision 01.59</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+        <reference anchor="SHS" target="https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.180-4.pdf">
+          <front>
+            <title>Secure Hash Standard</title>
+            <author>
+              <organization abbrev="NIST">National Institute of Standards and Technology</organization>
+            </author>
+            <date month="August" year="2015"/>
+          </front>
+          <seriesInfo name="NIST FIPS" value="180-4"/>
+          <seriesInfo name="DOI" value="10.6028/NIST.FIPS.180-4"/>
+        </reference>
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="MFSA201473" target="https://www.mozilla.org/en-US/security/advisories/mfsa2014-73/">
+          <front>
+            <title>Mozilla Foundation Security Advisory 2014-73: RSA Signature Forgery in NSS</title>
+            <author initials="A." surname="Delignat-Lavaud" fullname="Antoine Delignat-Lavaud">
+              <organization/>
+            </author>
+            <date year="2014" month="September" day="24"/>
+          </front>
+        </reference>
+        <reference anchor="POODLE" target="https://security.googleblog.com/2014/10/this-poodle-bites-exploiting-ssl-30.html">
+          <front>
+            <title>This POODLE bites: exploiting the SSL 3.0 fallback</title>
+            <author initials="B." surname="Moeller" fullname="Bodo Moeller">
+              <organization/>
+            </author>
+            <date year="2014" month="October" day="14"/>
+          </front>
+          <refcontent>Google Security Blog</refcontent>
+        </reference>
+        <reference anchor="PRIVACY">
+          <front>
+            <title>Push away your privacy: Precise user tracking based on TLS client certificate authentication</title>
+            <author fullname="Matthias Wachs" initials="M." surname="Wachs">
+              <organization/>
+            </author>
+            <author fullname="Quirin Scheitle" initials="Q." surname="Scheitle">
+              <organization/>
+            </author>
+            <author fullname="Georg Carle" initials="G." surname="Carle">
+              <organization/>
+            </author>
+            <date month="June" year="2017"/>
+          </front>
+          <refcontent>2017 Network Traffic Measurement and Analysis Conference (TMA). pp. 1-9</refcontent>
+          <seriesInfo name="DOI" value="10.23919/tma.2017.8002897"/>
+        </reference>
+
+   <reference anchor="RFC9954" target="https://www.rfc-editor.org/info/rfc9954">
+
+     <front>
+       <title>Hybrid Key Exchange in TLS 1.3</title>
+
+       <author initials="D." surname="Stebila" fullname="Douglas Stebila">
+         <organization />
+       </author>
+       <author initials="S." surname="Fluhrer" fullname="Scott Fluhrer">
+         <organization />
+       </author>
+       <author initials="S." surname="Gueron" fullname="Shay Gueron">
+         <organization />
+       </author>
+
+       <date month="April" year="2026" />
+     </front>
+     <seriesInfo name="RFC" value="9954" />
+     <seriesInfo name="DOI" value="10.17487/RFC9954"/>
+
+   </reference>
+
+      </references>
+    </references>
+
+    <section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t>Thanks to <contact fullname="Rifaat Shekh-Yusef"/>, <contact fullname="Martin Thomson"/>, and <contact fullname="Paul Wouters"/> for providing feedback on this document.</t>
+    </section>
+  </back>
+
+  </rfc>

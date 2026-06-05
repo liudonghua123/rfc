@@ -1,0 +1,383 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-sidrops-cms-signing-time-07" number="9589" updates="6488" obsoletes="" ipr="trust200902" submissionType="IETF" consensus="true" sortRefs="true" symRefs="true" tocInclude="true" tocDepth="3" version="3" xml:lang="en" >
+
+  <front>
+    <title abbrev="RPKI CMS Signing-Time">On the Use of the Cryptographic Message Syntax (CMS) Signing-Time Attribute in Resource Public Key Infrastructure (RPKI) Signed Objects</title>
+    <seriesInfo name="RFC" value="9589"/>
+    <author fullname="Job Snijders" initials="J." surname="Snijders">
+      <organization>Fastly</organization>
+      <address>
+        <postal>
+          <postalLine>Amsterdam</postalLine>
+          <postalLine>The Netherlands</postalLine>
+        </postal>
+        <email>job@fastly.com</email>
+      </address>
+    </author>
+    <author fullname="Tom Harrison" initials="T." surname="Harrison">
+      <organization abbrev="APNIC">Asia Pacific Network Information Centre</organization>
+      <address>
+        <postal>
+          <street>6 Cordelia St</street>
+          <city>South Brisbane</city>
+          <code>4101</code>
+          <country>Australia</country>
+          <region>QLD</region>
+        </postal>
+        <email>tomh@apnic.net</email>
+      </address>
+    </author>
+    <date month="May" year="2024"/>
+
+    <area>OPS</area>
+    <workgroup>SIDROPS</workgroup>
+
+    <keyword>CMS</keyword>
+    <keyword>signing-time</keyword>
+
+    <abstract>
+      <t>
+      In the Resource Public Key Infrastructure (RPKI), Signed Objects are defined as Cryptographic Message Syntax (CMS) protected content types.
+      A Signed Object contains a signing-time attribute, representing the purported time at which the object was signed by its issuer.
+      RPKI repositories are accessible using the rsync and RPKI Repository Delta protocols, allowing Relying Parties (RPs) to synchronize a local copy of the RPKI repository used for validation with the remote repositories.
+      This document describes how the CMS signing-time attribute can be used to avoid needless retransfers of data when switching between different synchronization protocols.
+      This document updates RFC 6488 by mandating the presence of the CMS signing-time attribute and disallowing the use of the binary-signing-time attribute.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>
+      In the Resource Public Key Infrastructure (RPKI) <xref target="RFC6480"/>, Signed Objects are defined as Cryptographic Message Syntax (CMS) <xref target="RFC5652"/> <xref target="RFC6268"/> protected content types by way of a standard template <xref target="RFC6488"/>.
+      That template includes an optional CMS signing-time attribute, representing the time at which the object was signed by its issuer.
+      At the time when the standard template was defined, rsync was the only distribution mechanism for RPKI repositories.
+      </t>
+      <t>
+      Since the publication of the standard template, a new, additional protocol for distribution of RPKI repositories has been developed: the RPKI Repository Delta Protocol (RRDP) <xref target="RFC8182"/>.
+      While RPKI repository operators must provide rsync service, RRDP is typically deployed alongside it as well, and is preferred by default by most Relying Party (RP) implementations.
+      However, RP implementations also support fallback to rsync in the event of problems with the RRDP service.
+      As deployment experience with RRDP has increased, the usefulness of optimizing switchovers by RPs from one mechanism to the other has become apparent.
+      </t>
+      <t>
+      This document describes how Repository Operators <xref target="RFC6481"/> and RPs can use the CMS signing-time attribute to minimize the burden of switching over from RRDP to rsync.
+      Additionally, this document updates <xref target="RFC6488"/> by mandating the presence of the CMS signing-time attribute and disallowing the use of the binary-signing-time attribute.
+      </t>
+      <section>
+      <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+	</t>
+    </section>
+    </section>
+    <section>
+      <name>Optimized Switchover from RRDP to rsync</name>
+      <t>
+      To avoid needless retransfers of unchanged files in consecutive rsync synchronizations, <xref target="I-D.timbru-sidrops-publication-server-bcp"/> recommends the use of so-called 'deterministic' (normalized) timestamps for files.
+      When the content of a file is unchanged, Repository Operators <bcp14>SHOULD</bcp14> ensure that the last modification timestamp of the file remains unchanged as well.
+      </t>
+      <t>
+      This document advances the aforementioned concept by describing a synchronization strategy through which needless transfers are also avoided upon first use of rsync, by leveraging data previously fetched via RRDP.
+      </t>
+      <t>
+      At the time of writing, all commonly used RP implementations will first attempt synchronization via RRDP, as described in <xref target="I-D.ietf-sidrops-prefer-rrdp"/>.
+      If synchronization via RRDP fails for some reason (e.g., malformed XML, expired TLS certificate, HTTP connection timeout), the RP will attempt to synchronize via rsync instead.
+      </t>
+      <t>
+      In the rsync synchronization protocol, a file's last modification timestamp ('mod-time' from here on) and file size are used to determine whether the general-purpose rsync synchronization algorithm needs to be executed for the file.
+      This is the default mode for both the original rsync implementation <xref target="rsync"/> and the OpenBSD implementation <xref target="openrsync"/>.
+      If the sender's copy of the file and the receiver's copy of the file both have the same mod-time and file size, the files are assumed to contain the same content, and they will be omitted from the list of files to be transferred.
+      Ensuring consistency with respect to mod-time for both senders and receivers helps to reduce the burden of rsync synchronization in terms of network bandwidth, disk I/O operations, and CPU usage.
+      </t>
+      <t>
+      In order to reduce the burden of the rsync synchronization (following an RRDP failure), Repository Operators and RPs <bcp14>SHOULD</bcp14> adhere to the following guidelines.
+      </t>
+      <section>
+        <name>Guidance for Repository Operators</name>
+        <t>
+        When serializing RPKI Signed Objects to a filesystem hierarchy for publication via rsync, the mod-time of the file containing the Signed Object <bcp14>SHOULD</bcp14> be set to the value of the CMS signing-time attribute contained within the Signed Object.
+        </t>
+      </section>
+      <section anchor="rpguidance">
+        <name>Guidance for Relying Parties</name>
+        <t>
+        When serializing RPKI Signed Objects retrieved via RRDP to a filesystem hierarchy, the mod-time of the file containing the Signed Object <bcp14>SHOULD</bcp14> be set to the value of the CMS signing-time attribute contained within the Signed Object.
+        </t>
+<t>
+        If an RP uses RRDP to synthesize a filesystem hierarchy for the repository, then synchronizing to the corresponding directory directly is an option.
+        Alternatively, the RP can synchronize to a new (empty) directory using the <tt>--compare-dest=DIR</tt> rsync feature, in order to avoid retrieving files that are already available by way of the synthesized filesystem hierarchy stemming from previous RRDP fetches.
+        The <tt>DIR</tt> component is to be substituted with the name of the directory containing previously fetched and validated RPKI data (in its original DER-encoded form, to ensure the file size parameter matches).
+        </t>
+        <t>
+        From the <xref target="rsync"/> man page for <tt>--compare-dest=DIR</tt>:
+        </t>
+	<!-- DNE -->
+	<blockquote>
+            <t>
+            This option instructs rsync to use <tt>DIR</tt> on the destination machine as an additional hierarchy to compare destination files against doing transfers (if the files are missing in the destination directory).
+            If a file is found in <tt>DIR</tt> that is identical to the sender's file, the file will NOT be transferred to the destination directory.
+            This is useful for creating a sparse backup of just files that have changed from an earlier backup.
+            </t>
+	  </blockquote>
+	  <!-- End of DNE -->
+        <t>
+        From the <xref target="openrsync"/> man page for <tt>--compare-dest=directory</tt>:
+        </t>
+	<!-- DNE -->
+	<blockquote>
+          <t>
+            Use <tt>directory</tt> as an alternate base directory to compare files against on the destination machine.
+            If file in <tt>directory</tt> is found and identical to the sender's file, the file will not be transferred.
+          </t>
+	</blockquote>
+      <!-- End of DNE -->
+      </section>
+    </section>
+    <section>
+      <name>Presence of the CMS Signing-Time Attribute in Public Repositories</name>
+      <t>
+      Analyzing the <xref target="rpkiviews"/> archives containing millions of RPKI Signed Objects discovered via the five Regional Internet Registry (RIR) Trust Anchors (TAs) from 6 June 2022 to 29 January 2024, each Signed Object contained a CMS signing-time attribute.
+      </t>
+      <t>
+      The above means that all of the commonly used TAs and their subordinate Certification Authorities (CAs) produce Signed Objects that contain a CMS signing-time attribute.
+      This means that making the CMS signing-time attribute mandatory would not cause any existing commonly used TA or CA to become non-compliant.
+      </t>
+      <t>
+      As of 29 January 2024, for 83.8% of Signed Objects, the CMS signing-time timestamp matches the file's mod-time observed via rsync.
+      This means that it is already the case that RPs would see a significant reduction in the amount of processing required in rsync if they adopted the strategy outlined in <xref target="rpguidance"/>.
+      </t>
+      <t>
+      In the above-mentioned period of time, no Signed Objects were discovered with a CMS binary-signing-time <xref target="RFC6019"/> attribute in the specified repositories.
+      Therefore, disallowing the use of the CMS binary-signing-time attribute would not cause any existing commonly used TA or CA to become non-compliant.
+      </t>
+    </section>
+    <section>
+      <name>Updates to RFC 6488</name>
+      <t>
+      This section updates <xref target="RFC6488"/> to make the CMS signing-time attribute mandatory and to disallow the presence of the CMS binary-signing-time attribute.
+      </t>
+<ul spacing="normal">
+<li>
+      <t>
+      In Section <xref target="RFC6488" section="2.1.6.4" sectionFormat="bare"/>, this paragraph is replaced as follows.</t>
+<t>OLD</t>
+<blockquote>
+  <t>
+    The signedAttrs element <bcp14>MUST</bcp14> be present and <bcp14>MUST</bcp14> include the content-
+    type and message-digest attributes <xref target="RFC5652"/>.  The signer <bcp14>MAY</bcp14> also
+    include the signing-time attribute <xref target="RFC5652"/>, the binary-signing-time
+    attribute <xref target="RFC6019"/>, or both attributes.  Other signed attributes
+    <bcp14>MUST NOT</bcp14> be included.
+  </t>
+</blockquote>
+
+<t>NEW</t>
+<blockquote>
+  <t>
+    The signedAttrs element <bcp14>MUST</bcp14> be present and <bcp14>MUST</bcp14> include the content-type, message-digest, and signing-time attributes <xref target="RFC5652"/>.
+    Other signed attributes <bcp14>MUST NOT</bcp14> be included.
+  </t>
+</blockquote>
+</li>
+<li>
+<t>
+In Section <xref target="RFC6488" section="2.1.6.4.3" sectionFormat="bare"/>, the first sentence is replaced as follows.</t>
+<t>OLD</t>
+<blockquote>
+  <t>
+    The signing-time attribute <bcp14>MAY</bcp14> be present.
+  </t>
+</blockquote>
+<t>NEW</t>
+<blockquote>
+  <t>
+    The signing-time attribute <bcp14>MUST</bcp14> be present.
+  </t>
+</blockquote>
+</li>
+<li>
+<t>
+  In Section <xref target="RFC6488" section="2.1.6.4.3" sectionFormat="bare"/>, the sentence "Note that the presence or absence of the signing-time attribute <bcp14>MUST NOT</bcp14> affect the validity of the signed object (as specified in Section 3)." is removed.
+      </t>
+</li>
+<li>
+      <t>
+      Section <xref target="RFC6488" section="2.1.6.4.4" sectionFormat="bare"/> is removed in its entirety.
+      </t>
+</li>
+<li>
+      <t>
+      In Section <xref target="RFC6488" section="3" sectionFormat="bare"/>, item 1.f is replaced as follows.
+      </t>
+      <t>OLD</t>
+      <blockquote>
+<ol type="a" start="6">
+	<li>
+          The signedAttrs field in the SignerInfo object is present and
+          contains both the content-type attribute (OID
+          1.2.840.113549.1.9.3) and the message-digest attribute (OID
+          1.2.840.113549.1.9.4).
+	</li>
+</ol>
+      </blockquote>
+      <t>NEW</t>
+      <blockquote>
+	<ol type="a" start="6">
+	  <li>
+      	    The signedAttrs field in the SignerInfo object is present and contains the content-type attribute (OID 1.2.840.113549.1.9.3), the message-digest attribute (OID 1.2.840.113549.1.9.4), and the signing-time attribute (1.2.840.113549.1.9.5).
+          </li>
+	</ol>
+      </blockquote>
+</li>
+<li>
+      <t>
+      In Section <xref target="RFC6488" section="3" sectionFormat="bare"/>, item 1.g is replaced as follows.</t>
+      <t>OLD</t>
+      <blockquote>
+	<ol type="a" start="7">   
+	  <li>The signedAttrs field in the SignerInfo object does not
+          contain any attributes other than the following four: the
+          content-type attribute (OID 1.2.840.113549.1.9.3), the
+          message-digest attribute (OID 1.2.840.113549.1.9.4), the
+          signing-time attribute (OID 1.2.840.113549.1.9.5), and the
+          binary-signing-time attribute (OID 1.2.840.113549.1.9.16.2.46).  Note that the signing-time and
+          binary-signing-time attributes <bcp14>MAY</bcp14> be present, but they are
+          not required.
+	  </li>
+	</ol>
+      </blockquote>
+      <t>NEW</t>
+<blockquote>
+	<ol type="a" start="7">   
+	  <li>
+	  The signedAttrs field in the SignerInfo object does not contain any attributes other than the following three: the content-type attribute (OID 1.2.840.113549.1.9.3), the message-digest attribute (OID 1.2.840.113549.1.9.4), and the signing-time attribute (OID 1.2.840.113549.1.9.5).
+          </li>
+	</ol>
+</blockquote>
+</li>
+<li>
+      <t>
+      In Section <xref target="RFC6488" section="9" sectionFormat="bare">Informative References</xref>, <xref target="RFC6019"/> is removed from the list.
+      </t>
+</li>
+</ul>
+    </section>
+    <section>
+      <name>Security Considerations</name>
+      <t>
+      No requirement is imposed concerning the correctness of the signing time attribute.
+      It does not provide reliable information on the time the signature was produced and it bears no relevance for seamless switchover between RRDP and rsync.
+      </t>
+      <t>
+   Although the Security Considerations in <xref target="RFC6019"/> mandate that the
+   signing-time and binary-signing-time attributes (if both present) <bcp14>MUST</bcp14>
+   provide the same date and time, there is still a chance that an object will
+   have values for these attributes that do not represent the same date and
+   time.  Restricting the RPKI Signed Object profile to a single field for
+   storing the signing time removes any potential for ambiguity.
+      </t>
+    </section>
+    <section>
+      <name>IANA Considerations</name>
+      <t>
+      This document has no IANA actions.
+      </t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="I-D.timbru-sidrops-publication-server-bcp" to="RPKI-PUB-SERV"/>
+    <displayreference target="I-D.ietf-sidrops-prefer-rrdp" to="RPKI-REP-REQS"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8182.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5652.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6268.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6480.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6481.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6488.xml"/>
+
+        <reference anchor="rsync" target="https://rsync.samba.org/">
+          <front>
+            <title>rsync</title>
+	    <author />
+            <date year="2024"/>
+          </front>
+        </reference>
+
+        <reference anchor="openrsync" target="https://www.openrsync.org/">
+          <front>
+            <title>openrsync</title>
+	    <author />
+            <date year="2023"/>
+          </front>
+        </reference>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6019.xml"/>
+
+<!-- [I-D.timbru-sidrops-publication-server-bcp] IESG state: I-D Exists as of 04/29/24-->
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.timbru-sidrops-publication-server-bcp.xml"/>
+
+<!-- [I-D.ietf-sidrops-prefer-rrdp] Long form in order to fix initials of G. Michaelson-->
+
+<reference anchor="I-D.ietf-sidrops-prefer-rrdp" target="https://datatracker.ietf.org/doc/html/draft-ietf-sidrops-prefer-rrdp-02">
+  <front>
+    <title>Resource Public Key Infrastructure (RPKI) Repository Requirements</title>
+    <author fullname="Tim Bruijnzeels" initials="T." surname="Bruijnzeels">
+      <organization>NLnet Labs</organization>
+    </author>
+    <author fullname="Randy Bush" initials="R." surname="Bush">
+      <organization>Internet Initiative Japan &amp; Arrcus, Inc.</organization>
+    </author>
+    <author fullname="George G. Michaelson" initials="G." surname="Michaelson">
+      <organization>APNIC</organization>
+    </author>
+    <date day="23" month="December" year="2022"/>
+  </front>
+  <seriesInfo name="Internet-Draft" value="draft-ietf-sidrops-prefer-rrdp-02"/>
+</reference>
+
+        <reference anchor="rpkiviews" target="https://www.rpkiviews.org/">
+          <front>
+            <title>rpkiviews</title>
+            <author />
+          </front>
+        </reference>
+
+      </references>
+    </references>
+
+    <section numbered="false">
+      <name>Acknowledgements</name>
+      <t>
+      The authors would like to thank <contact fullname="Ties de Kock"/>,
+      <contact fullname="Niels Bakker"/>, <contact fullname="Mikael
+      Abrahamsson"/>, <contact fullname="Russ Housley"/>, <contact
+      fullname="Zaheduzzaman Sarker"/>, <contact fullname="Éric Vyncke"/>,
+      <contact fullname="Mahesh Jethanandani"/>, and <contact fullname="Roman
+      Danyliw"/>, for their helpful review of this document.  </t> </section>
+  </back>
+</rfc>

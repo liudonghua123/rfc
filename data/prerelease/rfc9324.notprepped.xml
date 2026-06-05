@@ -1,0 +1,335 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-sidrops-rov-no-rr-08" number="9324" ipr="trust200902" updates="8481" obsoletes="" sortRefs="true" symRefs="true" tocInclude="true" tocDepth="3" xml:lang="en" version="3">
+
+  <front>
+    <title abbrev="RPKI-Based Policy without Route Refresh">Policy Based on the Resource Public Key Infrastructure (RPKI) without Route Refresh</title>
+    <seriesInfo name="RFC" value="9324"/>
+    <author fullname="Randy Bush" initials="R." surname="Bush">
+      <organization>IIJ Research Lab &amp; Arrcus, Inc.</organization>
+      <address>
+        <postal>
+          <street>1856 SW Edgewood Dr</street>
+          <city>Portland</city>
+          <region>OR</region>
+          <code>97210</code>
+          <country>United States of America</country>
+        </postal>
+        <email>randy@psg.com</email>
+      </address>
+    </author>
+    <author fullname="Keyur Patel" initials="K." surname="Patel">
+      <organization>Arrcus, Inc.</organization>
+      <address>
+        <postal>
+          <street>2077 Gateway Place, Suite #400</street>
+          <city>San Jose</city>
+          <region>CA</region>
+          <code>95119</code>
+          <country>United States of America</country>
+        </postal>
+        <email>keyur@arrcus.com</email>
+      </address>
+    </author>
+    <author fullname="Philip Smith" initials="P." surname="Smith">
+      <organization>PFS Internet Development Pty Ltd</organization>
+      <address>
+        <postal>
+          <street>PO Box 1908</street>
+          <city>Milton</city>
+          <region>QLD</region>
+          <code>4064</code>
+          <country>Australia</country>
+        </postal>
+        <email>pfsinoz@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Mark Tinka" initials="M." surname="Tinka">
+      <organization>SEACOM</organization>
+      <address>
+        <postal>
+	  <extaddr>Building 7, Design Quarter District</extaddr>
+          <street>Leslie Avenue, Magaliessig</street>
+          <city>Fourways, Gauteng</city>
+          <code>2196</code>
+          <country>South Africa</country>
+        </postal>
+        <email>mark@tinka.africa</email>
+      </address>
+    </author>
+    <date year="2022" month="December" />
+
+    <area>ops</area>
+    <workgroup>sidrops</workgroup>
+
+    <abstract>
+      <t>
+      A BGP speaker performing policy based on the Resource Public Key Infrastructure (RPKI) should not issue route
+      refresh to its neighbors because it has received new RPKI data.
+      This document updates RFC 8481 by describing how
+      to avoid doing so by either keeping a full Adj-RIB-In or saving
+      paths dropped due to ROV (Route Origin Validation) so they may be
+      reevaluated with respect to new RPKI data.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+
+      <t>
+      Memory constraints in early BGP speakers caused classic BGP
+      implementations <xref target="RFC4271"/> to not keep a full Adj-RIB-In
+      (<xref target="RFC4271" sectionFormat="of" section="1.1"/>). When doing
+      RPKI-based Route Origin Validation (ROV) <xref target="RFC6811"/>
+      <xref target="RFC8481"/> and similar RPKI-based policy, if such a BGP
+      speaker receives new RPKI data, it might not have kept paths previously
+      marked as Invalid, etc.  Such an implementation must then request a
+      route refresh <xref target="RFC2918"/> <xref target="RFC7313"/> from its
+      neighbors to recover the paths that might be covered by these new RPKI
+      data.  This will be perceived as rude by those neighbors as it passes a
+      serious resource burden on to them.  This document recommends
+      implementations keep and mark paths affected by RPKI-based policy, so
+      route refresh is no longer needed.
+      </t>
+      <section>
+      <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>
+    </section>
+    <section anchor="related">
+      <name>Related Work</name>
+<t>
+    It is assumed that the reader understands BGP <xref target="RFC4271"/>,
+    route refresh <xref target="RFC7313"/>, 
+    the RPKI <xref target="RFC6480"/>,
+    Route Origin Authorizations (ROAs) <xref target="RFC6482"/>, 
+    the Resource Public Key Infrastructure (RPKI) to Router Protocol <xref target="I-D.ietf-sidrops-8210bis"/>,
+    RPKI-Based Prefix Validation <xref target="RFC6811"/>, 
+    and Origin Validation Clarifications <xref target="RFC8481"/>.
+</t>
+<t> Note that the term "RPKI-based Route Origin Validation" in this document
+means the same as the term "Prefix Origin Validation" used in <xref
+target="RFC6811"/>.
+</t>
+    </section>
+    <section anchor="experience">
+      <name>ROV Experience</name>
+<t>
+      As Route Origin Validation dropping Invalids has deployed, some
+      BGP speaker implementations have been found that, when receiving new
+      RPKI data (Validated ROA Payloads (VRPs) <xref target="I-D.ietf-sidrops-8210bis"/>),
+      issue a BGP route refresh <xref target="RFC7313"/> to all sending
+      BGP peers so that they can reevaluate the received paths against the
+      new data.
+      </t>
+      <t>
+      In actual deployment, this has been found to be very destructive,
+      transferring a serious resource burden to the unsuspecting peers.
+      In reaction, RPKI-based Route Origin Validation (ROV) has been
+      turned off.  There have been actual de-peerings.
+      </t>
+      <t>
+      As RPKI registration and ROA creation have steadily increased,
+      this problem has increased, not just proportionally, but on the
+      order of the in-degree of ROV implementing BGP speakers.  As Autonomous System Provider Authorization (ASPA)
+      <xref target="I-D.ietf-sidrops-aspa-verification"/> becomes
+      used, the problem will increase.
+      </t>
+      <t>
+      Other mechanisms, such as automated policy provisioning, which
+      have flux rates similar to ROV (i.e., on the order of minutes),
+      could very well cause similar problems.
+      </t>
+      <t>
+      Therefore, this document updates <xref target="RFC8481"/> by
+      describing how to avoid this problem.
+      </t>
+    </section>
+    <section anchor="rib">
+      <name>Keeping Partial Adj-RIB-In Data</name>
+      <t>
+      If new RPKI data arrive that cause operator policy to invalidate
+      the best route and the BGP speaker did not keep the dropped
+      routes, then the BGP speaker would issue a route refresh, which this feature
+      aims to prevent.
+      </t>
+      <t>
+      A route that is dropped by operator policy due to ROV is, by
+      nature, considered ineligible to compete for the best route and <bcp14>MUST</bcp14>
+      be kept in the Adj-RIB-In for potential future evaluation.
+      </t>
+      <t>
+      Ameliorating the route refresh problem by keeping a full
+      Adj-RIB-In can be a problem for resource-constrained BGP speakers.
+      In reality, only some data need be retained.  If an implementation
+      chooses not to retain the full Adj-RIB-In, it <bcp14>MUST</bcp14> retain at least
+      routes dropped due to ROV for potential future evaluation.
+      </t>
+      <t>
+      As storing these routes could cause problems in resource-constrained
+      devices, there <bcp14>MUST</bcp14> be a global operation, CLI, YANG, or
+      other mechanism that allows the operator to enable this feature and
+      store the dropped routes.  Such an operator control <bcp14>MUST
+      NOT</bcp14> be per peer, as this could cause inconsistent behavior.
+      </t>
+      <t>
+      As a side note, policy that may drop routes due to RPKI-based
+      checks such as ROV (and ASPA, BGPsec <xref target="RFC8205"/>,
+      etc., in the future) <bcp14>MUST</bcp14> be run and the dropped routes saved per
+      this section, before non-RPKI policies are run, as the latter may
+      change path attributes.
+      </t>
+    </section>
+    <section anchor="ops">
+      <name>Operational Recommendations</name>
+      <t>
+      Operators deploying ROV and/or other RPKI-based policies should
+      ensure that the BGP speaker implementation is not causing
+      route refresh requests to neighbors.
+      </t>
+      <t>
+      BGP speakers <bcp14>MUST</bcp14> either keep the full Adj-RIB-In or implement the
+      specification in <xref target="rib"/>.  Conformance to this
+      behavior is an additional, mandatory capability for BGP speakers
+      performing ROV.
+      </t>
+      <t>
+      If the BGP speaker does not implement these recommendations, the
+      operator should enable the vendor's control to keep the full
+      Adj-RIB-In, sometimes referred to as "soft reconfiguration
+      inbound".  The operator should then measure to ensure that there
+      are no unnecessary route refresh requests sent to neighbors.
+      </t>
+      <t>
+      If the BGP speaker's equipment has insufficient resources to
+      support either of the two proposed options (keeping a full
+      AdjRibIn or at least the dropped routes), the equipment <bcp14>SHOULD</bcp14>
+      either be replaced with capable equipment or <bcp14>SHOULD NOT</bcp14> be used
+      for ROV.
+      </t>
+      <t>
+      The configuration setting in <xref target="rib"/> should only be
+      used in very well-known and controlled circumstances where the
+      scaling issues are well understood and anticipated.
+      </t>
+      <t>
+      Operators using the specification in <xref target="rib"/> should
+      be aware that a misconfigured neighbor might erroneously send a
+      massive number of paths, thus consuming a lot of memory.  Hence,
+      pre-policy filtering such as described in <xref target="I-D.sas-idr-maxprefix-inbound"/> could be used to reduce
+      this exposure.
+      </t>
+      <t>
+      If route refresh has been issued toward more than one peer, the
+      order of receipt of the refresh data can cause churn in both best
+      route selection and outbound signaling.
+      </t>
+      <t>
+      Internet Exchange Points (IXPs) that provide route servers <xref target="RFC7947"/> should be aware that some members
+      could be causing an undue route refresh load on the route servers
+      and take appropriate administrative and/or technical measures.
+      IXPs using BGP speakers as route servers should ensure that they
+      are not generating excessive route refresh requests.
+      </t>
+    </section>
+    <section anchor="Security">
+      <name>Security Considerations</name>
+      <t>
+      This document describes a denial of service that Route Origin
+      Validation or other RPKI policy may place on a BGP neighbor and
+      describes how it may be ameliorated.
+      </t>
+      <t>
+     Otherwise, this document adds no additional security considerations
+     to those already described by the referenced documents.
+      </t>
+    </section>
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <t>
+      This document has no IANA actions.
+      </t>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="I-D.ietf-sidrops-8210bis" to="RPKI-ROUTER-PROT-v2"/>
+<displayreference target="I-D.ietf-sidrops-aspa-verification" to="AS_PATH-VER"/>
+<displayreference target="I-D.sas-idr-maxprefix-inbound" to="MAXPREFIX-INBOUND"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2918.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4271.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6811.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7313.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8481.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6480.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6482.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7947.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8205.xml"/>
+
+<!-- [I-D.ietf-sidrops-8210bis] in MISSREF state as of 09/22/22 -->
+
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-sidrops-8210bis.xml"/>
+
+<!-- [I-D.ietf-sidrops-aspa-verification] IESG state I-D Exists. xi:include missing editor role --> 
+
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-sidrops-aspa-verification.xml"/>
+
+
+<!-- [I-D.sas-idr-maxprefix-inbound] IESG state	Expired  -->
+
+	<reference anchor="I-D.sas-idr-maxprefix-inbound" target="https://datatracker.ietf.org/doc/html/draft-sas-idr-maxprefix-inbound-04">
+	  <front>
+	    <title>BGP Maximum Prefix Limits Inbound</title>
+	    <author initials="M." surname="Aelmans" fullname="Melchior Aelmans">
+	      <organization>Juniper Networks</organization>
+	    </author>
+	    <author initials="M." surname="Stucchi" fullname="Massimiliano Stucchi">
+	      <organization>Independent</organization>
+	    </author>
+	    <author initials="J." surname="Snijders" fullname="Job Snijders">
+	      <organization>Fastly</organization>
+	    </author>
+	    <date month="January" day="19" year="2022"/>
+	  </front>
+	  <seriesInfo name="Internet-Draft" value="draft-sas-idr-maxprefix-inbound-04"/>
+	</reference>
+      </references> 
+</references>
+
+    <section anchor="acks" numbered="false">
+      <name>Acknowledgements</name>
+      <t>
+      The authors wish to thank <contact fullname="Alvaro Retana"/>, <contact
+      fullname="Ben Maddison"/>, <contact fullname="Derek Yeung"/>, <contact
+      fullname="John Heasley"/>, <contact fullname="John Scudder"/>, <contact
+      fullname="Matthias Waehlisch"/>, <contact fullname="Nick Hilliard"/>,
+      <contact fullname="Saku Ytti"/>, and <contact fullname="Ties de Kock"/>.
+      </t>
+    </section>
+
+ </back> 
+</rfc>

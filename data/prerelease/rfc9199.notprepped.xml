@@ -1,0 +1,973 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-moura-dnsop-authoritative-recommendations-11" number="9199" submissionType="independent" category="info" obsoletes="" updates="" xml:lang="en" tocInclude="true" sortRefs="true" symRefs="true"
+version="3">
+
+  <front>
+    <title abbrev="Considerations for Large Auth DNS Ops">Considerations for Large Authoritative DNS Server Operators</title>
+    <seriesInfo name="RFC" value="9199"/>
+    <author initials="G." surname="Moura" fullname="Giovane C. M. Moura">
+      <organization>SIDN Labs/TU Delft</organization>
+      <address>
+        <postal>
+          <street>Meander 501</street>
+          <city>Arnhem</city>
+          <code>6825 MD</code>
+          <country>Netherlands</country>
+        </postal>
+        <phone>+31 26 352 5500</phone>
+        <email>giovane.moura@sidn.nl</email>
+      </address>
+    </author>
+    <author initials="W." surname="Hardaker" fullname="Wes Hardaker">
+      <organization>USC/Information Sciences Institute</organization>
+      <address>
+        <postal>
+          <street>PO Box 382</street>
+          <city>Davis</city>
+	  <region>CA</region>
+          <code>95617-0382</code>
+          <country>United States of America</country>
+        </postal>
+        <phone>+1 (530) 404-0099</phone>
+        <email>ietf@hardakers.net</email>
+      </address>
+    </author>
+    <author initials="J." surname="Heidemann" fullname="John Heidemann">
+      <organization>USC/Information Sciences Institute</organization>
+      <address>
+        <postal>
+          <street>4676 Admiralty Way</street>
+          <city>Marina Del Rey</city>
+	  <region>CA</region>
+          <code>90292-6695</code>
+          <country>United States of America</country>
+        </postal>
+        <phone>+1 (310) 448-8708</phone>
+        <email>johnh@isi.edu</email>
+      </address>
+    </author>
+    <author initials="M." surname="Davids" fullname="Marco Davids">
+      <organization>SIDN Labs</organization>
+      <address>
+        <postal>
+          <street>Meander 501</street>
+          <city>Arnhem</city>
+          <code>6825 MD</code>
+          <country>Netherlands</country>
+        </postal>
+        <phone>+31 26 352 5500</phone>
+        <email>marco.davids@sidn.nl</email>
+      </address>
+    </author>
+    <date year="2022" month="March"/>
+    <area>Internet</area>
+    <workgroup></workgroup>
+
+<keyword>Routing</keyword>
+<keyword>DNS</keyword>
+<keyword>Anycast</keyword>
+<keyword>Domain</keyword>
+<keyword>Name</keyword>
+<keyword>System</keyword>
+<keyword>BGP</keyword>
+
+    <abstract>
+      <t>Recent research work has explored the deployment characteristics and
+configuration of the Domain Name System (DNS).  This document
+summarizes the conclusions from these research efforts and offers
+specific, tangible considerations or advice to authoritative DNS
+server operators.  Authoritative server operators may wish to  follow
+these considerations to improve their DNS services.</t>
+      <t>It is possible that the results presented in this document could be
+applicable in a wider context than just the DNS protocol,
+as some of the results may generically apply to
+any stateless/short-duration anycasted service.</t>
+      <t>This document is not an IETF consensus document: it is published for
+informational purposes.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>This document summarizes recent research that explored the
+deployed DNS configurations and offers derived, specific, tangible
+advice to DNS authoritative server operators (referred to as "DNS operators"
+hereafter). The considerations (<xref target="considerations" format="none">C1-C6</xref>) presented in this document are
+backed by peer-reviewed research, which used wide-scale Internet
+measurements to draw their conclusions. This document summarizes the
+research results and describes the resulting key engineering options.
+In each section, readers are pointed to the pertinent publications where
+additional details are presented.</t>
+      <t>These considerations are designed for operators of "large"
+authoritative DNS servers, which, in this context, are servers with a significant global user population, like top-level domain (TLD) operators, run by either a single operator or
+multiple operators.  Typically, these networks are deployed on wide
+anycast networks <xref target="RFC1546" format="default"/> <xref target="AnyBest" format="default"/>.
+These considerations may not be
+appropriate for smaller domains, such as those used by an organization
+with users in one unicast network or in a single city or region, where
+operational goals such as uniform, global low latency are less
+required.</t>
+      <t>It is possible that the results presented in this document could be
+applicable in a wider context than just the DNS protocol, as some of
+the results may generically apply to any stateless/short-duration
+anycasted service. Because the conclusions of the reviewed studies
+don't measure smaller networks, the wording in this document
+concentrates solely on discussing large-scale DNS authoritative services.</t>
+      <t>This document is not an IETF consensus document: it is published for
+informational purposes.</t>
+    </section>
+    <section anchor="background" numbered="true" toc="default">
+      <name>Background</name>
+      <t>The DNS has two main types of DNS servers: authoritative servers and
+recursive resolvers, shown by a representational deployment model in
+<xref target="recuath" format="default"/>.  An authoritative server (shown as AT1-AT4 in
+<xref target="recuath" format="default"/>) knows the content of a DNS zone and is responsible for
+answering queries about that zone.  It runs using local (possibly
+automatically updated) copies of the zone and does not need to query
+other servers <xref target="RFC2181" format="default"/> in order to answer requests. A recursive
+resolver (Re1-Re3) is a server that iteratively queries authoritative
+and other servers to answer queries received from client requests
+<xref target="RFC1034" format="default"/>. A client typically employs a software library called a "stub
+resolver" ("stub" in <xref target="recuath" format="default"/>) to issue its query to the upstream
+recursive resolvers <xref target="RFC1034" format="default"/>.</t>
+      <figure anchor="recuath">
+        <name>Relationship between Recursive Resolvers (Re) and Authoritative Name Servers (ATn)</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+        +-----+  +-----+  +-----+  +-----+
+        | AT1 |  | AT2 |  | AT3 |  | AT4 |
+        +-----+  +-----+  +-----+  +-----+
+          ^         ^        ^        ^
+          |         |        |        |
+          |      +-----+     |        |
+          +------| Re1 |----+|        |
+          |      +-----+              |
+          |         ^                 |
+          |         |                 |
+          |      +----+   +----+      |
+          +------|Re2 |   |Re3 |------+
+                 +----+   +----+
+                   ^          ^
+                   |          |
+                   | +------+ |
+                   +-| stub |-+
+                     +------+
+]]></artwork>
+      </figure>
+      <t>DNS queries issued by a client contribute to a user's perceived latency and affect the user experience <xref target="Singla2014" format="default"/> depending
+on how long it takes for responses to be returned.  The DNS system has
+been subject to repeated Denial-of-Service (DoS) attacks (for example,
+in November 2015 <xref target="Moura16b" format="default"/>) in order to specifically degrade the user
+experience.</t>
+      <t>To reduce latency and improve resiliency against DoS attacks, the DNS
+uses several types of service replication. Replication at the
+authoritative server level can be achieved with the following:
+      </t>   
+      <ol spacing="normal" type="i">
+<li> the deployment of
+multiple servers for the same zone <xref target="RFC1035" format="default"/> (AT1-AT4 in <xref target="recuath" format="default"/>);
+</li>
+<li> the use of IP anycast
+<xref target="RFC1546" format="default"/> <xref target="RFC4786" format="default"/> <xref target="RFC7094" format="default"/> that allows the same IP address to
+be announced from multiple locations (each of referred to as an
+"anycast instance" <xref target="RFC8499" format="default"/>); and
+</li>
+<li> the use of load balancers to
+support multiple servers inside a single (potentially anycasted)
+instance. As a consequence, there are many possible ways an
+authoritative DNS provider can engineer its production authoritative
+server network with multiple viable choices, and there is not necessarily a single
+optimal design.</li>
+</ol>
+    </section>
+    <section anchor="considerations" numbered="true" toc="default">
+      <name>Considerations</name>
+      <t>In the next sections, we cover the specific considerations (<xref target="considerations" format="none">C1-C6</xref>) for
+conclusions drawn within academic papers about large authoritative
+DNS server operators.  These considerations are conclusions reached
+from academic work that authoritative server operators may wish to
+consider in order to improve their DNS service.  Each consideration
+offers different improvements that may impact service latency,
+routing, anycast deployment, and defensive strategies, for example.</t>
+      <section anchor="c1" numbered="true" toc="default">
+        <name>C1: Deploy Anycast in Every Authoritative Server to Enhance Distribution and Latency</name>
+        <section anchor="research-background" numbered="true" toc="default">
+          <name>Research Background</name>
+          <t>Authoritative DNS server operators announce their service using NS
+records <xref target="RFC1034" format="default"/>. Different authoritative servers for a given zone
+should return the same content; typically, they stay synchronized using
+DNS zone transfers (authoritative transfer (AXFR) <xref target="RFC5936" format="default"/> and incremental zone transfer (IXFR) <xref target="RFC1995" format="default"/>), coordinating
+the zone data they all return to their clients.</t>
+          <t>As discussed above, the DNS heavily relies upon replication to support
+high reliability, ensure capacity, and reduce latency <xref target="Moura16b" format="default"/>.
+The DNS has two complementary mechanisms for service replication:
+name server replication (multiple NS records) and anycast (multiple
+physical locations).  Name server replication is strongly recommended
+for all zones (multiple NS records), and IP anycast is used by many
+larger zones such as the DNS root <xref target="AnyFRoot" format="default"/>, most top-level
+domains <xref target="Moura16b" format="default"/>, and many large commercial enterprises, governments,
+and other organizations.</t>
+          <t>Most DNS operators strive to reduce service latency for users, which
+is greatly affected by both of these replication techniques.  However,
+because operators only have control over their authoritative servers
+and not over the client's recursive resolvers, it is difficult to
+ensure that recursives will be served by the closest authoritative
+server. Server selection is ultimately up to the recursive resolver's
+software implementation, and different vendors and even different
+releases employ different criteria to choose the authoritative servers
+	  with which to communicate.</t>
+          <t>Understanding how recursive resolvers choose authoritative servers is
+a key step in improving the effectiveness of authoritative server
+deployments. To measure and evaluate server deployments,
+<xref target="Mueller17b" format="default"/> describes the deployment of seven unicast authoritative name servers in
+different global locations and then queried them from more than 9000
+Reseaux IP Europeens (RIPE) authoritative server operators and their respective recursive
+resolvers.</t>
+          <t>It was found in <xref target="Mueller17b" format="default"/> that recursive resolvers in the wild query all
+available authoritative servers, regardless of the observed
+latency. But the distribution of queries tends to be skewed towards
+authoritatives with lower latency: the lower the latency between a
+recursive resolver and an authoritative server, the more often the
+recursive will send queries to that server. These results were
+obtained by aggregating results from all of the vantage points, and
+they were not specific to any vendor or version.</t>
+          <t>The authors believe this behavior is a consequence of combining the
+two main criteria employed by resolvers when selecting authoritative
+servers: resolvers regularly check all listed authoritative servers in
+an NS set to determine which is closer (the least latent), and when one
+isn't available, it selects one of the alternatives.</t>
+        </section>
+        <section anchor="resulting-considerations" numbered="true" toc="default">
+          <name>Resulting Considerations</name>
+          <t>For an authoritative DNS operator, this result means that the latency
+of all authoritative servers (NS records) matter, so they all must be
+similarly capable -- all available authoritatives will be queried by
+most recursive resolvers. Unicasted services, unfortunately, cannot
+deliver good latency worldwide (a unicast authoritative server in
+Europe will always have high latency to resolvers in California and
+Australia, for example, given its geographical
+distance).</t>
+          <t><xref target="Mueller17b" format="default"/> recommends that DNS operators deploy equally
+strong IP anycast instances for every authoritative server (i.e., for
+each NS record).  Each large authoritative DNS server provider should
+phase out its usage of unicast and deploy a number of well-engineered anycast instances with good peering strategies so they can provide
+good latency to their global clients. 
+          </t>
+          <t>As a case study, the ".nl" TLD zone was originally served on seven
+authoritative servers with a mixed unicast/anycast setup.  In early
+2018, .nl moved to a setup with 4 anycast authoritative
+servers. 
+          </t>
+          <t>The contribution of <xref target="Mueller17b" format="default"/> to DNS service engineering shows that
+because unicast cannot deliver good latency worldwide, anycast needs
+to be used to provide a low-latency service worldwide.</t>
+        </section>
+      </section>
+      <section anchor="c2" numbered="true" toc="default">
+        <name>C2: Optimizing Routing is More Important than Location Count and Diversity</name>
+        <section anchor="research-background-1" numbered="true" toc="default">
+          <name>Research Background</name>
+          <t>When selecting an anycast DNS provider or setting up an anycast
+service, choosing the best number of anycast instances <xref target="RFC4786" format="default"/> <xref target="RFC7094" format="default"/>  to
+deploy is a challenging problem. Selecting the right quantity and set of global locations that should send BGP announcements is tricky.  Intuitively, one
+could naively think that more instances are better and that simply
+	  "more" will always lead to shorter response times.</t>
+	  
+          <t>This is not necessarily true, however. In fact, proper route engineering can matter more than the total number of locations, as found in <xref target="Schmidt17a" format="default"/>. To study the relationship between the number of
+anycast instances and the associated service performance, the authors measured the round-trip time (RTT) latency of four DNS root servers. The root DNS servers are implemented by 12 separate
+organizations serving the DNS root zone at 13 different IPv4/IPv6
+address pairs.</t>
+          <t>The results documented in <xref target="Schmidt17a" format="default"/> measured the performance of
+the {c,f,k,l}.root-servers.net (referred to as "C", "F", "K", and "L" hereafter)
+servers from more than 7,900 RIPE Atlas probes. RIPE Atlas is an
+Internet measurement platform with more than 12,000 global vantage
+points called "Atlas probes", and it is used regularly by both
+researchers and operators <xref target="RipeAtlas15a" format="default"/> <xref target="RipeAtlas19a" format="default"/>.</t>
+          <t>In <xref target="Schmidt17a" format="default"/>, the authors found that the C server, a smaller anycast deployment
+consisting of only 8 instances, provided very similar overall
+performance in comparison to the much larger deployments of K and L,
+with 33 and 144 instances, respectively. The median RTTs for the C, K, and L
+root servers were all between 30-32 ms.</t>
+
+<t>Because RIPE Atlas is known to have better coverage in Europe than
+other regions, the authors specifically analyzed the results per
+region and per country (Figure 5 in <xref target="Schmidt17a" format="default"/>) and show that
+known Atlas bias toward Europe does not change the conclusion that
+properly selected anycast locations are more important to latency than
+the number of sites.</t>
+        </section>
+        <section anchor="resulting-considerations-1" numbered="true" toc="default">
+          <name>Resulting Considerations</name>
+          <t>The important conclusion from <xref target="Schmidt17a" format="default"/> is that when engineering
+anycast services for performance, factors other than just the number
+of instances (such as local routing connectivity) must be considered.
+Specifically, optimizing routing policies is more important than
+simply adding new instances.  The authors showed that 12 instances can
+provide reasonable latency, assuming they are globally distributed and
+have good local interconnectivity. However, additional instances can
+still be useful for other reasons, such as when handling
+DoS attacks <xref target="Moura16b" format="default"/>.</t>
+        </section>
+      </section>
+      <section anchor="c3" numbered="true" toc="default">
+        <name>C3: Collect Anycast Catchment Maps to Improve Design</name>
+        <section anchor="research-background-2" numbered="true" toc="default">
+          <name>Research Background</name>
+
+          <t>An anycast DNS service may be deployed from anywhere and from several
+locations to hundreds of locations (for example, l.root-servers.net
+has over 150 anycast instances at the time this was written). Anycast
+leverages Internet routing to distribute incoming queries to a
+service's nearest distributed anycast locations measured by the number of routing hops.  However, queries are usually not evenly distributed across all anycast locations, as
+found in the case of L-Root when analyzed using Hedgehog <xref target="IcannHedgehog" format="default"/>.</t>
+          <t>Adding locations to or removing locations from a deployed anycast
+network changes the load distribution across all of its
+locations. When a new location is announced by BGP, locations may
+receive more or less traffic than it was engineered for, leading to
+suboptimal service performance or even stressing some locations while
+leaving others underutilized.  Operators constantly face this scenario
+ when expanding an anycast service. Operators cannot easily
+directly estimate future query distributions based on proposed anycast
+	  network engineering decisions.</t>
+	  
+          <t>To address this need and estimate the query loads of an anycast service undergoing changes (in particular expanding), <xref target="Vries17b" format="default"/> describes the development of a new technique enabling operators to carry out active
+measurements using an open-source tool called Verfploeter (available
+at <xref target="VerfSrc" format="default"/>).  The results allow the creation of detailed anycast
+maps and catchment estimates.  By running Verfploeter combined with a
+published IPv4 "hit list", the DNS can precisely calculate which remote
+prefixes will be matched to each anycast instance in a network.  At
+the time of this writing, Verfploeter still does not support IPv6 as
+the IPv4 hit lists used are generated via frequent large-scale ICMP
+echo scans, which is not possible using IPv6.</t>
+          <t>As proof of concept, <xref target="Vries17b" format="default"/> documents how Verfploeter was used to predict both the catchment and query load distribution for a new anycast instance deployed for b.root-servers.net.  Using two
+anycast test instances in Miami (MIA) and Los Angeles (LAX), an ICMP
+echo query was sent from an IP anycast address to each IPv4 /24
+	  network routing block on the Internet.</t>
+
+          <t>The ICMP echo responses were recorded at both sites and analyzed and
+overlaid onto a graphical world map, resulting in an Internet-scale
+catchment map.  To calculate expected load once the production network
+was enabled, the quantity of traffic received by b.root-servers.net's
+single site at LAX was recorded based on a single day's traffic
+(2017-04-12, "day in the life" (DITL) datasets <xref target="Ditl17" format="default"/>).  In <xref target="Vries17b" format="default"/>, it was predicted that
+81.6% of the traffic load would remain at the LAX site. This Verfploeter estimate
+turned out to be very accurate; the actual measured
+	  traffic volume when production service at MIA was enabled was 81.4%.</t>
+	  
+          <t>Verfploeter can also be used to estimate traffic shifts based on other
+BGP route engineering techniques (for example, Autonomous System (AS) path prepending or
+BGP community use) in advance of operational deployment. This was studied in <xref target="Vries17b" format="default"/> using prepending with 1-3 hops at each instance, and
+the results were compared against real operational changes to validate the
+accuracy of the techniques.</t>
+        </section>
+        <section anchor="resulting-considerations-2" numbered="true" toc="default">
+          <name>Resulting Considerations</name>
+          <t>An important operational takeaway <xref target="Vries17b" format="default"/> provides is how DNS operators can make informed engineering choices when changing DNS
+anycast network deployments by using Verfploeter in advance.
+Operators can identify suboptimal routing situations in advance with
+significantly better coverage rather than using other active measurement
+platforms such as RIPE Atlas.  To date, Verfploeter has been deployed
+on an operational testbed (anycast testbed) <xref target="AnyTest" format="default"/> on a large
+unnamed operator and is run daily at b.root-servers.net <xref target="Vries17b" format="default"/>.</t>
+          <t>Operators should use active measurement techniques like Verfploeter in
+advance of potential anycast network changes to accurately measure the
+benefits and potential issues ahead of time.</t>
+        </section>
+      </section>
+      <section anchor="c4" numbered="true" toc="default">
+        <name>C4: Employ Two Strategies When under Stress</name>
+        <section anchor="research-background-3" numbered="true" toc="default">
+          <name>Research Background</name>
+          <t>DDoS attacks are becoming bigger, cheaper, and more frequent
+<xref target="Moura16b" format="default"/>. The most powerful recorded DDoS attack against DNS
+servers to date reached 1.2 Tbps by using Internet of Things (IoT) devices
+<xref target="Perlroth16" format="default"/>.
+How should a DNS operator engineer its anycast
+authoritative DNS server to react to such a DDoS attack?  <xref target="Moura16b" format="default"/>
+investigates this question using empirical observations grounded with
+	  theoretical option evaluations.</t>
+	  
+          <t>An authoritative DNS server deployed using anycast will have many
+server instances distributed over many networks. Ultimately, the
+relationship between the DNS provider's network and a client's ISP
+will determine which anycast instance will answer queries for a given
+client, given that the BGP protocol maps clients to specific
+anycast instances using routing information. As a
+consequence, when an anycast authoritative server is under attack, the
+load that each anycast instance receives is likely to be unevenly
+distributed (a function of the source of the attacks); thus, some
+instances may be more overloaded than others, which is what was
+observed when analyzing the root DNS events of November 2015
+<xref target="Moura16b" format="default"/>. Given the fact that different instances may have
+different capacities (bandwidth, CPU, etc.), making a decision about how
+	  to react to stress becomes even more difficult.</t>
+
+          <t>In practice, when an anycast instance is overloaded with incoming traffic,
+operators have two options:</t>
+<ul spacing="normal">
+
+            <li>They can withdraw its routes, pre-prepend its AS route to some or
+all of its neighbors, perform other traffic-shifting tricks (such as
+reducing route announcement propagation using BGP
+communities <xref target="RFC1997" format="default"/>), or communicate with its upstream
+network providers to apply filtering (potentially using FlowSpec <xref target="RFC8955" format="default"/> or the DDoS Open Threat Signaling (DOTS) protocol <xref target="RFC8811"
+format="default"/> <xref target="RFC9132" format="default"/> <xref target="RFC8783" format="default"/>). These techniques shift both legitimate and attack traffic to other anycast instances (with hopefully greater capacity) or block traffic
+entirely.</li>
+            <li>Alternatively, operators can become degraded absorbers by
+continuing to operate, knowing dropping incoming legitimate requests
+due to queue overflow. However, this approach will also absorb
+attack traffic directed toward its catchment, hopefully protecting
+the other anycast instances.</li>
+          </ul>
+          <t>
+	    <xref target="Moura16b" format="default"/> describes seeing both of these behaviors deployed in practice when studying instance reachability and RTTs in the DNS
+root events.  When withdraw strategies were deployed, the stress of
+increased query loads were displaced from one instance to multiple
+other sites.  In other observed events, one site was left to absorb
+the brunt of an attack, leaving the other sites to remain relatively
+less affected.</t>
+        </section>
+        <section anchor="resulting-considerations-3" numbered="true" toc="default">
+          <name>Resulting Considerations</name>
+          <t>Operators should consider having both an anycast site withdraw strategy
+and an absorption strategy ready to be used before a network overload
+occurs.  Operators should be able to deploy one or both of these
+strategies rapidly.  Ideally, these should be encoded into operating
+playbooks with defined site measurement guidelines for which strategy
+to employ based on measured data from past events.</t>
+          <t><xref target="Moura16b" format="default"/> speculates that careful, explicit, and automated
+management policies may provide stronger defenses to overload
+events. DNS operators should be ready to employ both common
+filtering approaches and other routing load-balancing techniques
+(such as withdrawing routes, prepending Autonomous Systems (ASes), adding communities, or isolating instances),
+where the best choice depends on the specifics of the attack.</t>
+          <t>Note that this consideration refers to the operation of just one
+anycast service point, i.e., just one anycasted IP address block
+covering one NS record. However, DNS zones with multiple authoritative
+anycast servers may also expect loads to shift from one anycasted
+server to another, as resolvers switch from one authoritative service
+point to another when attempting to resolve a name <xref target="Mueller17b" format="default"/>.</t>
+        </section>
+      </section>
+      <section anchor="c5" numbered="true" toc="default">
+        <name>C5: Consider Longer Time-to-Live Values Whenever Possible</name>
+        <section anchor="research-background-4" numbered="true" toc="default">
+          <name>Research Background</name>
+          <t>Caching is the cornerstone of good DNS performance and reliability. A
+50 ms response to a new DNS query may be considered fast, but a response of less
+than 1 ms to a cached entry is far faster. In <xref target="Moura18b" format="default"/>, it was
+shown that caching also protects users from short outages and even
+	  significant DDoS attacks.</t>
+
+          <t>Time-to-live (TTL) values <xref target="RFC1034" format="default"/> <xref target="RFC1035" format="default"/> for DNS records directly
+control cache durations and affect latency, resilience, and the role
+of DNS in Content Delivery Network (CDN) server selection. Some early work modeled caches as a
+function of their TTLs <xref target="Jung03a" format="default"/>, and recent work has examined cache
+interactions with DNS <xref target="Moura18b" format="default"/>, but until <xref target="Moura19b" format="default"/>, no research
+had provided considerations about the benefits of various TTL value
+choices. To study this, Moura et al.&nbsp;<xref target="Moura19b" format="default"/> carried out a
+measurement study investigating TTL choices and their impact on user
+experiences in the wild.  They performed this study independent of
+specific resolvers (and their caching architectures), vendors, or
+setups.</t>
+          <t>First, they identified several reasons why operators and zone owners may
+want to choose longer or shorter TTLs:</t>
+          <ul spacing="normal">
+            <li>Longer TTLs, as discussed, lead to a longer cache life, resulting
+	    in faster responses. In <xref target="Moura19b" format="default"/>, this was measured this in the wild, and it
+showed that by increasing the TTL for the .uy TLD from 5 minutes
+(300 s) to 1 day (86,400 s), the latency measured from 15,000 Atlas
+vantage points changed significantly: the median RTT decreased
+from 28.7 ms to 8 ms, and the 75th percentile decreased from 183 ms to 21 ms.</li>
+            <li>Longer caching times also result in lower DNS traffic:
+authoritative servers will experience less traffic with extended
+TTLs, as repeated queries are answered by resolver caches.</li>
+            <li>Longer caching consequently results in a lower overall cost if
+the DNS is metered: some providers that offer DNS as a Service charge a per-query
+	    (metered) cost (often in addition to a fixed monthly cost).</li>
+
+            <li>Longer caching is more robust to DDoS attacks on DNS
+infrastructure. DNS caching was also measured in  <xref target="Moura18b" format="default"/>, and it  showed that the effects of a DDoS on DNS can be greatly reduced, provided
+that the caches last longer than the attack.</li>
+            <li>Shorter caching, however, supports deployments that may require
+rapid operational changes: an easy way to transition from an old
+server to a new one is to simply change the DNS records.  Since
+there is no method to remotely remove cached DNS records, the TTL
+duration represents a necessary transition delay to fully shift
+from one server to another.  Thus, low TTLs allow for more rapid
+transitions.  However, when deployments are planned in advance
+(that is, longer than the TTL), it is possible to lower the TTLs
+just before a major operational change and raise them again
+afterward.</li>
+            <li>Shorter caching can also help with a DNS-based response to DDoS
+attacks. Specifically, some DDoS-scrubbing services use the DNS to
+redirect traffic during an attack. Since DDoS attacks arrive
+unannounced, DNS-based traffic redirection requires that the TTL be
+kept quite low at all times to allow operators to suddenly have
+their zone served by a DDoS-scrubbing service.</li>
+            <li>Shorter caching helps DNS-based load balancing. Many large
+services are known to rotate traffic among their servers using
+DNS-based load balancing. Each arriving DNS request provides an
+opportunity to adjust the service load by rotating IP address records
+(A and AAAA) to the lowest unused server.  Shorter TTLs may be
+desired in these architectures to react more quickly to traffic
+dynamics.  Many recursive resolvers, however, have minimum caching
+times of tens of seconds, placing a limit on this form of agility.</li>
+          </ul>
+        </section>
+        <section anchor="resulting-considerations-4" numbered="true" toc="default">
+          <name>Resulting Considerations</name>
+          <t>Given these considerations, the proper choice for a TTL depends in
+part on multiple external factors -- no single recommendation is
+appropriate for all scenarios. Organizations must weigh these
+trade-offs and find a good balance for their situation. Still, some
+guidelines can be reached when choosing TTLs:</t>
+<ul spacing="normal">
+
+<li>For general DNS zone owners, <xref target="Moura19b" format="default"/> recommends a longer TTL
+of at least one hour and ideally 4, 8, or 24 hours. Assuming
+planned maintenance can be scheduled at least a day in advance, long
+TTLs have little cost and may even literally provide cost savings.</li>
+            <li>For TLD and other public registration
+operators (for example, most ccTLDs and .com, .net, and .org) that host
+many delegations (NS records, DS records, and "glue" records),
+<xref target="Moura19b" format="default"/> demonstrates that most resolvers will use the TTL
+values provided by the child delegations while some others
+will choose the TTL provided by the parent's copy of the
+record. As such, <xref target="Moura19b" format="default"/> recommends longer TTLs (at least an
+hour or more) for registry operators as well for child NS and
+other records.</li>
+            <li>Users of DNS-based load balancing or DDoS-prevention services may
+require shorter TTLs: TTLs may even need to be as short as 5
+minutes, although 15 minutes may provide sufficient agility for
+many operators. There is always a tussle between using shorter TTLs
+that provide more agility and using longer TTLs that include all the benefits listed above.</li>
+            <li>Regarding the use of A/AAAA and NS records, the TTLs for A/AAAA records should
+be shorter than or equal to the TTL for the corresponding NS records
+for in-bailiwick authoritative DNS servers, since <xref target="Moura19b" format="default"/>
+finds that once an NS record expires, their associated A/AAAA will
+also be requeried when glue is required to be sent by the
+parents.  For out-of-bailiwick servers, A, AAAA, and NS records are
+usually all cached independently, so different TTLs can be used
+effectively if desired. In either case, short A and AAAA records
+may still be desired if DDoS mitigation services are required.</li>
+          </ul>
+        </section>
+      </section>
+      <section anchor="c6" numbered="true" toc="default">
+        <name>C6: Consider the Difference in Parent and Children's TTL Values</name>
+        <section anchor="research-background-5" numbered="true" toc="default">
+          <name>Research Background</name>
+
+          <t>Multiple record types exist or are related between the parent of a
+zone and the child.  At a minimum, NS records are supposed to be
+identical in the parent (but often are not), as are corresponding IP
+addresses in "glue" A/AAAA records that must exist for in-bailiwick
+authoritative servers.  Additionally, if DNSSEC <xref target="RFC4033" format="default"/>
+            <xref target="RFC4034" format="default"/> <xref target="RFC4035" format="default"/> <xref target="RFC4509" format="default"/> is deployed for a zone, the
+parent's DS record must cryptographically refer to a child's DNSKEY
+record.</t>
+          <t>Because some information exists in both the parent and a child, it is
+possible for the TTL values to differ between the parent's copy and
+the child's.  <xref target="Moura19b" format="default"/> examines resolver behaviors when these
+values differed in the wild, as they frequently do -- often, parent zones
+have de facto TTL values that a child has no control over.  For
+example, NS records for TLDs in the root zone are all set to 2 days
+(48 hours), but some TLDs have lower values within their published
+records (the TTLs for .cl's NS records from their authoritative
+servers is 1 hour).  <xref target="Moura19b" format="default"/> also examines the differences in the
+TTLs between the NS records and the corresponding A/AAAA records for
+the addresses of a name server.  RIPE Atlas nodes are used to determine
+what resolvers in the wild do with different information and whether
+the parent's TTL is used for cache lifetimes ("parent-centric") or
+the child's ("child-centric").</t>
+          <t><xref target="Moura19b" format="default"/> found that roughly 90% of resolvers follow the child's
+view of the TTL, while 10% appear parent-centric.  Additionally, it
+found that resolvers behave differently for cache lifetimes for
+in-bailiwick vs. out-of-bailiwick NS/A/AAAA TTL combinations.
+Specifically, when NS TTLs are shorter than the corresponding address
+records, most resolvers will requery for A/AAAA records for the
+in-bailiwick resolvers and switch to new address records even if the
+cache indicates the original A/AAAA records could be kept longer.  On
+the other hand, the inverse is true for out-of-bailiwick resolvers: if
+the NS record expires first, resolvers will honor the original cache
+time of the name server's address.</t>
+        </section>
+        <section anchor="resulting-considerations-5" numbered="true" toc="default">
+          <name>Resulting Considerations</name>
+          <t>The important conclusion from this study is that operators cannot
+depend on their published TTL values alone -- the parent's values are
+also used for timing cache entries in the wild.  Operators that are
+planning on infrastructure changes should assume that an older
+infrastructure must be left on and operational for at least the
+maximum of both the parent and child's TTLs.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="security-considerations" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document discusses applying measured research results to
+operational deployments.  Most of the considerations affect mostly
+operational practice, though a few do have security-related impacts.</t>
+      <t>Specifically, <xref target="c4" format="none">C4</xref> discusses a couple of strategies to employ when a
+service is under stress from DDoS attacks and offers operators
+additional guidance when handling excess traffic.</t>
+      <t>Similarly, <xref target="c5" format="none">C5</xref> identifies the trade-offs with respect to the
+operational and security benefits of using longer TTL values.</t>
+</section>
+    <section anchor="privacy-considerations" numbered="true" toc="default">
+      <name>Privacy Considerations</name>
+
+<t>This document does not add any new, practical privacy issues, aside
+from possible benefits in deploying longer TTLs as suggested in <xref target="c5" format="none">C5</xref>.
+Longer TTLs may help preserve a user's privacy by reducing the number
+of requests that get transmitted in both client-to-resolver and
+resolver-to-authoritative cases.</t>
+    </section>
+    <section anchor="iana-considerations" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.
+      </t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2181.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.1034.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7094.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.1546.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.1995.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5936.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4786.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.1997.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8499.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8783.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8955.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9132.xml"/>
+	
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4033.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4034.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4035.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4509.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8811.xml"/>
+
+        <reference anchor="Moura16b" target="https://www.isi.edu/~johnh/PAPERS/Moura16b.pdf">
+          <front>
+            <title>Anycast vs. DDoS: Evaluating the November 2015 Root DNS Event</title>
+            <author initials="G.C.M." surname="Moura" fullname="Giovane C. M. Moura">
+              <organization/>
+            </author>
+            <author initials="R. de O." surname="Schmidt" fullname="Ricardo de O. Schmidt">
+              <organization/>
+            </author>
+            <author initials="J." surname="Heidemann" fullname="John Heidemann">
+              <organization/>
+            </author>
+	    <author initials="W." surname="de Vries" fullname="Wouter de Vries">
+              <organization/>
+            </author>
+            <author initials="M." surname="Müller" fullname="Moritz Müller">
+              <organization/>
+            </author>
+            <author initials="L." surname="Wei" fullname="Lan Wei">
+              <organization/>
+            </author>
+            <author initials="C." surname="Hesselman" fullname="Cristian Hesselman">
+              <organization/>
+            </author>
+            <date year="2016" month="November"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/2987443.2987446"/>
+	<refcontent>ACM 2016 Internet Measurement Conference</refcontent>
+        </reference>
+
+        <reference anchor="Schmidt17a" target="https://www.isi.edu/%7ejohnh/PAPERS/Schmidt17a.pdf">
+          <front>
+            <title>Anycast Latency: How Many Sites Are Enough?</title>
+            <author initials="R. de O." surname="Schmidt" fullname="Ricardo de O. Schmidt">
+              <organization/>
+            </author>
+            <author initials="J." surname="Heidemann" fullname="John Heidemann">
+              <organization/>
+            </author>
+            <author initials="J." surname="Kuipers" fullname="Jan Harm Kuipers">
+              <organization/>
+            </author>
+            <date year="2017" month="March"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1007/978-3-319-54328-4_14"/>
+          <refcontent>PAM 2017 Passive and Active Measurement Conference</refcontent>
+        </reference>
+
+        <reference anchor="Moura18b" target="https://www.isi.edu/~johnh/PAPERS/Moura18b.pdf">
+          <front>
+            <title>When the Dike Breaks: Dissecting DNS Defenses During DDoS</title>
+            <author initials="G.C.M." surname="Moura" fullname="Giovane C. M. Moura">
+              <organization/>
+            </author>
+            <author initials="J." surname="Heidemann" fullname="John Heidemann">
+              <organization/>
+            </author>
+            <author initials="M." surname="Müller" fullname="Moritz Müller">
+              <organization/>
+            </author>
+            <author initials="R. de O." surname="Schmidt" fullname="Ricardo de O. Schmidt">
+              <organization/>
+            </author>
+            <author initials="M." surname="Davids" fullname="Marco Davids">
+              <organization/>
+            </author>
+            <date year="2018" month="October"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/3278532.3278534"/>
+	  <refcontent>ACM 2018 Internet Measurement Conference</refcontent>
+        </reference>
+
+        <reference anchor="Singla2014" target="http://speedierweb.web.engr.illinois.edu/cspeed/papers/hotnets14.pdf">
+          <front>
+            <title>The Internet at the Speed of Light</title>
+            <author initials="A." surname="Singla" fullname="Ankit Singla">
+              <organization/>
+            </author>
+            <author initials="B." surname="Chandrasekaran" fullname="Balakrishnan Chandrasekaran">
+              <organization/>
+            </author>
+            <author initials="P." surname="Godfrey" fullname="P. Brighten Godfrey">
+              <organization/>
+            </author>
+            <author initials="B." surname="Maggs" fullname="Bruce Maggs">
+              <organization/>
+            </author>
+            <date year="2014" month="October"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1145/2670518.2673876"/>
+          <refcontent>13th ACM Workshop on Hot Topics in Networks</refcontent>
+        </reference>
+
+
+        <reference anchor="Vries17b" target="https://www.isi.edu/%7ejohnh/PAPERS/Vries17b.pdf">
+          <front>
+            <title>Broad and Load-Aware Anycast Mapping with Verfploeter</title>
+            <author initials="W." surname="de Vries" fullname="Wouter de Vries">
+              <organization/>
+            </author>
+            <author initials="R. de O." surname="Schmidt" fullname="Ricardo de O. Schmidt">
+              <organization/>
+            </author>
+            <author initials="W." surname="Hardaker" fullname="Wes Hardaker">
+              <organization/>
+            </author>
+            <author initials="J." surname="Heidemann" fullname="John Heidemann">
+              <organization/>
+            </author>
+            <author initials="P-T" surname="de Boer" fullname="Pieter-Tjerk de Boer">
+              <organization/>
+            </author>
+            <author initials="A." surname="Pras" fullname="Aiko Pras">
+              <organization/>
+            </author>
+            <date year="2017" month="November"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/3131365.3131371"/>
+	  <refcontent>ACM 2017 Internet Measurement Conference</refcontent>
+        </reference>
+
+        <reference anchor="Jung03a" target="http://www.ieee-infocom.org/2003/papers/11_01.PDF">
+          <front>
+            <title>Modeling TTL-based Internet Caches</title>
+            <author initials="J." surname="Jung" fullname="Jaeyeon Jung">
+              <organization/>
+            </author>
+            <author initials="A." surname="Berger" fullname="Arthur W. Berger">
+              <organization/>
+            </author>
+            <author initials="H." surname="Balakrishnan" fullname="Hari Balakrishnan">
+              <organization/>
+            </author>
+            <date year="2003" month="July"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1109/INFCOM.2003.1208693"/>
+	 <refcontent>ACM 2003 IEEE INFOCOM</refcontent>
+        </reference>
+
+        <reference anchor="RipeAtlas15a" target="http://ipj.dreamhosters.com/wp-content/uploads/issues/2015/ipj18-3.pdf">
+          <front>
+            <title>RIPE Atlas: A Global Internet Measurement Network</title>
+            <author>
+              <organization>RIPE Network Coordination Centre (RIPE NCC)</organization>
+            </author>
+            <date year="2015" month="October"/>
+          </front>
+        </reference>
+
+        <reference anchor="RipeAtlas19a" target="https://atlas.ripe.net">
+          <front>
+            <title>RIPE Atlas</title>
+            <author><organization>RIPE Network Coordination Centre (RIPE NCC)</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+
+        <reference anchor="Mueller17b" target="https://www.isi.edu/%7ejohnh/PAPERS/Mueller17b.pdf">
+          <front>
+            <title>Recursives in the Wild: Engineering Authoritative DNS Servers</title>
+            <author initials="M." surname="Müller" fullname="Moritz Müller">
+              <organization/>
+            </author>
+            <author initials="G.C.M." surname="Moura" fullname="Giovane C. M. Moura">
+              <organization/>
+            </author>
+            <author initials="R. de O." surname="Schmidt" fullname="Ricardo de O. Schmidt">
+              <organization/>
+            </author>
+            <author initials="J." surname="Heidemann" fullname="John Heidemann">
+              <organization/>
+            </author>
+            <date year="2017" month="November"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/3131365.3131366"/>
+	  <refcontent>ACM 2017 Internet Measurement Conference</refcontent>
+        </reference>
+
+        <reference anchor="Moura19b" target="https://www.isi.edu/~hardaker/papers/2019-10-cache-me-ttls.pdf">
+          <front>
+            <title>Cache Me If You Can: Effects of DNS Time-to-Live</title>
+            <author initials="G.C.M." surname="Moura" fullname="Giovane C. M. Moura">
+              <organization/>
+            </author>
+            <author initials="W." surname="Hardaker" fullname="Wes Hardaker">
+              <organization/>
+            </author>
+            <author initials="J." surname="Heidemann" fullname="John Heidemann">
+              <organization/>
+            </author>
+            <author initials="R. de O." surname="Schmidt" fullname="Ricardo de O. Schmidt">
+              <organization/>
+            </author>
+            <date month="October" year="2019"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/3355369.3355568"/>
+	  <refcontent>ACM 2019 Internet Measurement Conference</refcontent>
+        </reference>
+
+        <reference anchor="IcannHedgehog" target="https://github.com/dns-stats/hedgehog">
+          <front>
+            <title>hedgehog</title>
+            <author><organization></organization>
+            </author>
+            <date year="2021" month="May"/>
+          </front>
+	 <refcontent>commit b136eb0</refcontent>
+        </reference>
+
+
+        <reference anchor="Ditl17" target="https://www.dns-oarc.net/oarc/data/ditl/2017">
+          <front>
+            <title>2017 DITL Data</title>
+            <author><organization>DNS-OARC</organization>
+            </author>
+            <date year="2017" month="April"/>
+          </front>
+        </reference>
+
+        <reference anchor="Perlroth16" target="https://www.nytimes.com/2016/10/22/business/internet-problems-attack.html">
+          <front>
+            <title>Hackers Used New Weapons to Disrupt Major Websites Across U.S.</title>
+            <author initials="N." surname="Perlroth" fullname="Nicole Perlroth">
+              <organization/>
+            </author>
+            <date year="2016" month="October"/>
+          </front>
+        </reference>
+
+        <reference anchor="VerfSrc" target="https://github.com/Woutifier/verfploeter">
+          <front>
+            <title>Verfploeter Source Code</title>
+            <author>
+              <organization/>
+            </author>
+            <date year="2019" month="May"/>
+          </front>
+	  <refcontent>commit f4792dc</refcontent>
+        </reference>
+
+        <reference anchor="AnyTest" target="http://www.anycast-testbed.com/">
+          <front>
+            <title>Tangled Anycast Testbed</title>
+            <author><organization>Tangled</organization></author>
+            <date/>
+          </front>
+        </reference>
+
+        <reference anchor="AnyBest" target="https://meetings.icann.org/en/marrakech55/schedule/mon-tech/presentation-dns-service-provision-07mar16-en.pdf">
+          <front>
+            <title>Best Practices in DNS Service-Provision Architecture</title>
+            <author initials="B." surname="Woodcock" fullname="Bill Woodcock">
+              <organization/>
+            </author>
+            <date year="2016" month="March"/>
+          </front>
+	   <seriesInfo name="Version" value="1.2"/>
+        </reference>
+
+        <reference anchor="AnyFRoot" target="https://archive.nanog.org/meetings/nanog27/presentations/suzanne.pdf">
+          <front>
+            <title>Anycasting f.root-servers.net</title>
+            <author initials="S." surname="Woolf" fullname="Suzanne Woolf">
+              <organization/>
+            </author>
+            <date year="2003" month="January"/>
+          </front>
+        </reference>
+      </references>
+</references>
+
+    <section anchor="acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>We would like to thank the reviewers of this document who offered
+valuable suggestions as well as comments at the IETF DNSOP
+session (IETF 104): <contact fullname="Duane Wessels"/>, <contact fullname="Joe Abley"/>, <contact fullname="Toema Gavrichenkov"/>,
+<contact fullname="John Levine"/>, <contact fullname="Michael StJohns"/>, <contact fullname="Kristof Tuyteleers"/>, <contact fullname="Stefan Ubbink"/>, <contact fullname="Klaus
+Darilion"/>, and <contact fullname="Samir Jafferali"/>.</t>
+
+      <t>Additionally, we would like thank those acknowledged in the papers
+this document summarizes for helping produce the results: RIPE NCC and
+DNS OARC for their tools and datasets used in this research, as well
+as the funding agencies sponsoring the individual research.</t>
+    </section>
+
+ <section anchor="contributors" numbered="false" toc="default">
+      <name>Contributors</name>
+ <t>This document is a summary of the main considerations of six research
+      papers written by the authors and the following people who contributed substantially to the content and should be considered coauthors; this document would not
+have been possible without their hard work:</t>
+      <ul spacing="normal">
+        <li><t><contact fullname="Ricardo de O. Schmidt"/></t></li>
+        <li><t><contact fullname="Wouter B. de Vries"/></t></li>
+        <li><t><contact fullname="Moritz Mueller"/></t></li>
+        <li><t><contact fullname="Lan Wei"/></t></li>
+        <li><t><contact fullname="Cristian Hesselman"/></t></li>
+        <li><t><contact fullname="Jan Harm Kuipers"/></t></li>
+        <li><t><contact fullname="Pieter-Tjerk de Boer"/></t></li>
+        <li><t><contact fullname="Aiko Pras"/></t></li>
+      </ul>
+ </section>
+    
+  </back>
+
+</rfc>

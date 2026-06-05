@@ -1,0 +1,556 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-benecke-cfbl-address-header-13" number="9477" submissionType="independent" category="exp" tocInclude="true" sortRefs="true" symRefs="true" updates="" obsoletes="" xml:lang="en" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.17.1 -->
+  <front>
+    <title abbrev="CFBL Address Header">Complaint Feedback Loop Address Header</title>
+    <seriesInfo name="RFC" value="9477"/>
+    <author initials="J." surname="Benecke" fullname="Jan-Philipp Benecke">
+      <organization>CleverReach GmbH &amp; Co. KG</organization>
+      <address>
+        <postal>
+          <street>Schafjueckenweg 2</street>
+          <city>Rastede</city>
+          <code>26180</code>
+          <country>Germany</country>
+        </postal>
+        <phone>+49 4402 97390-16</phone>
+        <email>jpb@cleverreach.com</email>
+      </address>
+    </author>
+    <date year="2023" month="September"/>
+
+<keyword>example</keyword>
+
+    <abstract>
+      <t>This document describes a method that allows a Message Originator to specify a Complaint Feedback Loop (CFBL) address as a message header field.
+It also defines the rules for processing and forwarding such a complaint.
+The motivation for this arises out of the absence of a standardized and automated way to provide Mailbox Providers with an address for a CFBL.
+Currently, providing and maintaining such an address is a manual and time-consuming process for Message Originators and Mailbox Providers.</t>
+      <t>The mechanism specified in this document is being published as an experiment to gather feedback and gauge the interest of implementers and deployers. This document is produced through the Independent RFC Stream
+and was not subject to the IETF's approval process.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction-and-motivation">
+      <name>Introduction and Motivation</name>
+      <t>This memo extends the CFBL recommendations described in <xref target="RFC6449"/> with an automated way to provide the necessary information by the Message Originator to Mailbox Providers.
+The reader should be familiar with the terminology and concepts in that document. Terms beginning with capital letters used in this memo are described in that document.</t>
+      <t>As described in <xref target="RFC6449"/>, the registration for such a CFBL needs to be done manually by a human at any Mailbox Provider that provides a CFBL.
+The key underpinning of <xref target="RFC6449"/> is that access to the CFBL is a privilege and Mailbox Providers are not prepared to send feedback to anyone they cannot reasonably believe are legitimate.
+However, manual registration and management can be quite time-consuming if there are new feedback loops rising up or if the Message Originator wants to add new IP addresses, DomainKeys Identified Mail (DKIM) domains, or change their complaint address.
+In addition, a manual process is not well suited or feasible for smaller Mailbox Providers.</t>
+      <t>Here, we propose that Message Originators add a header field without the need to manually register with each Feedback Provider and willing Mailbox Providers can use it to send the Feedback Messages to the specified complaint address.
+This simplification or extension of a manual registration and verification process would be another advantage for the Mailbox Providers.</t>
+      <t>A new message header field, rather than a new DNS record, was chosen to easily distinguish between multiple Message Originators without requiring user or administrator intervention.
+For example, if a company uses multiple systems, each system can set this header field on its own without requiring users or administrators to make any changes to their DNS.
+No additional DNS lookup is required of the Mailbox Provider side to obtain the complaint address.</t>
+<t>The proposed mechanism is capable of being operated in compliance with data privacy laws, e.g., the EU's General Data Protection Regulation (GDPR) or the California Consumer Privacy Act (CCPA).
+As described in <xref target="data-privacy"/>, a Feedback Message may contain personal data. This document describes a way to omit this personal data when sending the Feedback Message and only send back a header field.</t>
+      <t>Nevertheless, the described mechanism below potentially permits a kind of person-in-the-middle attack between the domain owner and the recipient.
+A bad actor can generate forged reports to be "from" a domain name the bad actor is attacking and send these reports to the CFBL address.
+These fake messages can result in a number of actions, such as blocking accounts or deactivating recipient addresses.
+This potential harm and others are described with potential countermeasures in <xref target="security-considerations"/>.</t>
+      <t>In summary, this document has the following objectives:</t>
+      <ul spacing="normal">
+        <li>Allow Message Originators to signal that a complaint address exists without requiring manual registration with all providers.</li>
+        <li>Allow Mailbox Providers to obtain a complaint address without developing their own manual registration process.</li>
+        <li>Have the ability to provide a complaint address to smaller Mailbox Providers who do not have a feedback loop in place</li>
+        <li>Provide a data privacy safe option for a CFBL.</li>
+      </ul>
+      <section anchor="scope-of-this-experiment">
+        <name>Scope of this Experiment</name>
+        <t>The CFBL-Address header field and the CFBL-Feedback-ID header field comprise an experiment. 
+Participation in this experiment consists of adding the CFBL-Address header field on the Message Originator side or by using the CFBL-Address header field to send Feedback Messages to the provided address on the Mailbox Provider side.
+Feedback on the results of this experiment can be emailed to the author, raised as an issue at <eref brackets="angle" target="https://github.com/jpbede/rfc-cfbl-address-header/"></eref>, or can be emailed to the IETF cfbl mailing list (cfbl@ietf.org).</t>
+        <t>The goal of this experiment is to answer the following questions based on real-world deployments:</t>
+        <ul spacing="normal">
+          <li>Is there interest among Message Originators and Mailbox Providers?</li>
+          <li>If the Mailbox Provider adds this capability, will it be used by the Message Originators?</li>
+          <li>If the Message Originator adds this capability, will it be used by the Mailbox Providers?</li>
+          <li>Does the presence of the CFBL-Address and CFBL-Feedback-ID header fields introduce additional security issues?</li>
+          <li>What additional security measures/checks need to be performed at the Mailbox Provider before a Feedback Message is sent?</li>
+          <li>What additional security measures/checks need to be performed at the Message Originator after a Feedback Message is received?</li>
+        </ul>
+        <t>This experiment will be considered successful if the CFBL-Address header field is used by a leading Mailbox Provider and by at least two Message Originators within the next two years. It will also be considered a success if these parties successfully use the address specified in the header field to exchange Feedback Messages.</t>
+        <t>If this experiment is successful and these header fields prove to be valuable and popular, the header fields may be taken to the IETF for
+further discussion and revision.</t>
+      </section>
+      <section anchor="how-cfbl-differs-from-one-click-unsubscribe">
+        <name>How CFBL Differs from One-Click-Unsubscribe</name>
+        <t>For good reasons, the One-Click-Unsubscribe <xref target="RFC8058"/> signaling already exists and may have several interests in common with this document.
+However, this header field requires the List-Unsubscribe header field. The purpose of this header field is to provide the link to unsubscribe from a list.
+For this reason, this header field is only used by operators of broadcast marketing lists or mailing lists and not in normal email traffic.</t>
+      </section>
+    </section>
+    <section anchor="definitions">
+      <name>Conventions Used in This Document</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <t>In this document, "CFBL" is the abbreviation for "Complaint Feedback Loop" and will hereafter be used.</t>
+      <t>Syntax descriptions use ABNF <xref target="RFC5234"/> <xref target="RFC7405"/>.</t>
+    </section>
+    <section anchor="requirements">
+      <name>Requirements</name>
+      <section anchor="received-message">
+        <name>Received Message</name>
+        <t>This section describes the requirements that must be met for the following: a received message, the message that is sent from the Message Originator to the Mailbox Provider, and a report that is to be sent later.</t>
+        <section anchor="strict">
+          <name>Strict</name>
+          <t>If the domain in the RFC5322.From and the domain in the CFBL-Address header fields are identical, this domain <bcp14>MUST</bcp14> be matched by a valid
+<xref target="RFC6376"/> signature. In this case, the DKIM "d=" parameter and the RFC5322.From field have identical domains.
+This signature <bcp14>MUST</bcp14> meet the requirements described in <xref target="received-message-dkim-signature"/>.</t>
+
+          <t>The following example meets this case:</t>
+          <artwork><![CDATA[
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: receiver@example.org
+Subject: Super awesome deals for you
+CFBL-Address: fbl@example.com; report=arf
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+        </section>
+        <section anchor="relaxed">
+          <name>Relaxed</name>
+          <t>If the domain in CFBL-Address header field is a child domain of RFC5322.From, the RFC5322.From domain <bcp14>MUST</bcp14> be matched by a valid <xref target="RFC6376"/> signature. 
+In this case, the DKIM "d=" parameter and the RFC5322.From domain have an identical (Example 1) or parent (Example 2) domain.
+This signature <bcp14>MUST</bcp14> meet the requirements described in <xref target="received-message-dkim-signature"/>.</t>
+          <t>Example 1:</t>
+          <artwork><![CDATA[
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@mailer.example.com>
+To: receiver@example.org
+Subject: Super awesome deals for you
+CFBL-Address: fbl@mailer.example.com; report=arf
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com;
+      h=Content-Type:Subject:From:To:Message-ID:
+      CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+          <t>Example 2:</t>
+          <artwork><![CDATA[
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: receiver@example.org
+Subject: Super awesome deals for you
+CFBL-Address: fbl@mailer.example.com; report=arf
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com;
+      h=Content-Type:Subject:From:To:Message-ID:
+      CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+        </section>
+        <section anchor="third-party-address">
+          <name>Third Party Address</name>
+          <t>If the domain in RFC5322.From differs from the domain in the CFBL-Address header field, an additional valid <xref target="RFC6376"/> signature <bcp14>MUST</bcp14> be added that matches the domain in the CFBL-Address header field.
+The other existing valid <xref target="RFC6376"/> signature <bcp14>MUST</bcp14> match the domain in the RFC5322.From header field. 
+This double DKIM signature ensures that both the domain owner of the RFC5322.From domain and the domain owner of the CFBL-Address domain agree on who should receive the Feedback Messages.
+Both signatures <bcp14>MUST</bcp14> meet the requirements described in <xref target="received-message-dkim-signature"/>.</t>
+          <t>The following example meets this case:</t>
+          <artwork><![CDATA[
+Return-Path: <sender@saas-mailer.example>
+From: Awesome Newsletter <newsletter@example.com>
+To: receiver@example.org
+Subject: Super awesome deals for you
+CFBL-Address: fbl@saas-mailer.example; report=arf
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=saas-mailer.example; s=system;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+       
+This is a super awesome newsletter.
+]]></artwork>
+          <t>An Email Service Provider may accept pre-signed messages from its Message Authors, making it impossible for it to apply the double signature described above; 
+in this case, the double signature <bcp14>MUST</bcp14> be omitted and the Email Service Provider <bcp14>MUST</bcp14> sign with its domain.
+Therefore, the pre-signed message <bcp14>MUST NOT</bcp14> include "CFBL-Address" and "CFBL-Feedback-ID" in its "h=" tag.</t>
+          <t>This way, the Email Service Provider has the possibility to accept the pre-signed messages and can inject their own CFBL-Address.</t>
+          <t>The following example meets this case:</t>
+          <artwork><![CDATA[
+Return-Path: <newsletter@example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: receiver@example.org
+Subject: Super awesome deals for you
+CFBL-Address: fbl@saas-mailer.example; report=arf
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID;
+DKIM-Signature: v=1; a=rsa-sha256; d=saas-mailer.example; s=system;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+        </section>
+        <section anchor="received-message-dkim-signature">
+          <name>DKIM Signature</name>
+          <t>When present, CFBL-Address and CFBL-Feedback-ID header fields <bcp14>MUST</bcp14> be included in the "h=" tag of the aforementioned valid DKIM signature.</t>
+          <t>If the domain is not matched by a valid DKIM signature or the header field is not covered by the "h=" tag, the Mailbox Provider <bcp14>SHALL NOT</bcp14> send a report message.</t>
+        </section>
+      </section>
+      <section anchor="multiple-cfbl-address-header-fields">
+        <name>Multiple CFBL-Address Header Fields</name>
+        <t>A Message can contain multiple CFBL-Address header fields.
+These multiple header fields <bcp14>MUST</bcp14> be treated as a list of addresses, each of which should receive a report.</t>
+      </section>
+      <section anchor="cfbl-feedback-id-header-field">
+        <name>CFBL-Feedback-ID Header Field</name>
+        <t>The Message Originator <bcp14>MAY</bcp14> include a CFBL-Feedback-ID header field in its messages for various reasons, e.g., their feedback loop processing system can't do anything with the Message-ID header field.</t>
+        <t>It is <bcp14>RECOMMENDED</bcp14> that the header field include a hard-to-forge protection component, such as an <xref target="RFC2104"/> using a secret key, instead of a plaintext string.</t>
+      </section>
+      <section anchor="receiving-report-address">
+        <name>Receiving Report Address</name>
+        <t>The receiving report address provided in the CFBL-Address header field <bcp14>MUST</bcp14> accept <xref target="RFC5965"/> reports.</t>
+<t>It is <bcp14>OPTIONAL</bcp14> for the Message Originator to request a <xref target="XARF"/> report,                 
+   as described in <xref target="xarf-report"/>.</t>
+      </section>
+      <section anchor="complaint-report">
+        <name>Feedback Message</name>
+        <t>The Feedback Message (sent by Mailbox Provider to the address provided in the CFBL-Address header field) <bcp14>MUST</bcp14> have a valid <xref target="RFC6376"/> signature.
+This signature <bcp14>MUST</bcp14> match the RFC5322.From domain of the Feedback Message.</t>
+        <t>If the message does not have the required valid <xref target="RFC6376"/> signature, the Message Originator <bcp14>SHALL NOT</bcp14> process this Feedback Message.</t>
+        <t>The Feedback Message <bcp14>MUST</bcp14> be an <xref target="RFC5965"/> or <xref target="XARF"/> report.
+If the Message Originator requests it (described in <xref target="xarf-report"/>) and it is technically possible for the Mailbox Provider to do so, the Feedback Message <bcp14>MUST</bcp14> be a <xref target="XARF"/> report. Otherwise, the Feedback Message <bcp14>MUST</bcp14> be an <xref target="RFC5965"/> report.</t>
+        <t>The third MIME part of the <xref target="RFC5965"/> or the "Samples" section of the <xref target="XARF"/> report <bcp14>MUST</bcp14> contain the Message-ID <xref target="RFC5322"/> of the received message.
+If present, the CFBL-Feedback-ID header field of the received message <bcp14>MUST</bcp14> be added to the third MIME part of the <xref target="RFC5965"/> or to the "Samples" section of the <xref target="XARF"/> report.</t>
+        <t>The Mailbox Provider <bcp14>MAY</bcp14> omit or redact all further header fields and/or body to comply with any data regulation laws as described in <xref target="RFC6590"/>.</t>
+        <section anchor="xarf-report">
+          <name>XARF Report</name>
+          <t>A Message Originator wishing to receive a <xref target="XARF"/> report <bcp14>MUST</bcp14> append "report=xarf" to the CFBL-Address header field (<xref target="cfbl-address-header-field"/>).
+The report parameter is separated from the report address by a ";".</t>
+          <t>The resulting header field would appear as shown below.</t>
+          <artwork><![CDATA[
+CFBL-Address: fbl@example.com; report=xarf
+]]></artwork>
+        </section>
+      </section>
+    </section>
+    <section anchor="implementation">
+      <name>Implementation</name>
+      <section anchor="message-originator">
+        <name>Message Originator</name>
+        <t>A Message Originator who wishes to use this new mechanism to receive Feedback Messages <bcp14>MUST</bcp14> include a CFBL-Address header field in their messages.</t>
+        <t>It is <bcp14>RECOMMENDED</bcp14> that these Feedback Messages be processed automatically. Each Message Originator must decide for themselves what action to take after receiving a Feedback Message.</t>
+        <t>The Message Originator <bcp14>MUST</bcp14> take action to address the described requirements in <xref target="requirements"/>.</t>
+      </section>
+      <section anchor="mailbox-provider">
+        <name>Mailbox Provider</name>
+        <t>A Mailbox Provider who wants to collect user actions that indicate the message was not wanted and to send a Feedback Message to the Message Originator <bcp14>MAY</bcp14> query the CFBL-Address header field and forward the report to the provided CFBL address.</t>
+        <t>The Mailbox Provider <bcp14>MUST</bcp14> validate the DKIM requirements of the received message described in <xref target="received-message"/> and 
+<bcp14>MUST</bcp14> take action to address the requirements described in <xref target="complaint-report"/> when sending Feedback Messages.</t>
+      </section>
+    </section>
+    <section anchor="header-field-syntax">
+      <name>Header Field Syntax</name>
+      <section anchor="cfbl-address-header-field">
+        <name>CFBL-Address</name>
+        <t>The following ABNF imports the rules for fields, CFWS, CRLF, and addr-spec from <xref target="RFC5322"/>.
+Implementations of the CFBL-Address header field <bcp14>MUST</bcp14> comply with <xref target="RFC6532"/>.</t>
+        <sourcecode type="abnf"><![CDATA[
+fields =/ cfbl-address
+
+cfbl-address = "CFBL-Address:" CFWS addr-spec
+               [";" CFWS report-format] CRLF
+
+report-format = %s"report=" (%s"arf" / %s"xarf")
+]]></sourcecode>
+      </section>
+      <section anchor="cfbl-feedback-id">
+        <name>CFBL-Feedback-ID</name>
+        <t>The following ABNF imports the rules for fields, WSP, CRLF, and atext from <xref target="RFC5322"/>.</t>
+        <sourcecode type="abnf"><![CDATA[
+fields =/ cfbl-feedback-id
+
+cfbl-feedback-id = "CFBL-Feedback-ID:" CFWS fid CRLF
+
+fid = 1*(atext / ":" / CFWS)
+]]></sourcecode>
+        <t>Empty space is ignored in the fid value and <bcp14>MUST</bcp14> be ignored when reassembling the original feedback-id.<br/>
+In particular, the Message Originator can safely insert CFWS in the fid value in arbitrary places to conform to line length limits when adding the header field.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This section discusses possible security issues of a CFBL-Address header field and their solutions.</t>
+      <section anchor="attacks-on-the-feedback-loop-address">
+        <name>Attacks on the Feedback Loop Address</name>
+        <t>Like any other email address, a CFBL address can be an attack vector for malicious messages.
+For example, CFBL addresses can be flooded with spam.
+This is an existing problem with any existing email address and is not created by this document.</t>
+      </section>
+      <section anchor="automatic-suspension-of-an-account">
+        <name>Automatic Suspension of an Account</name>
+        <t>Receiving a Feedback Message regarding a Message Author can cause the Message Author to be unreachable if an automatic account suspension occurs too quickly. For example, someone sends an invitation to their friends, and someone else marks this message as spam for some reason.</t>
+        <t>If automatic account suspension is too fast, the Message Author's account will be blocked and the Message Author will not be able to access their emails 
+or send further messages, depending on the account suspension the Message Originator has chosen.</t>
+        <t>Message Originators must take appropriate measures to prevent account suspensions that happen too fast.
+Therefore, Message Originators have -- mostly proprietary -- ways to assess the trustworthiness of an account.
+For example, Message Originators may take into account the age of the account and/or any previous account suspension before suspending an account.</t>
+      </section>
+      <section anchor="enumeration-attacks-provoking-unsubscription">
+        <name>Enumeration Attacks / Provoking Unsubscription</name>
+        <t>A malicious person may send a series of spoofed Abuse Reporting Format (ARF) messages to known CFBL addresses and attempt to guess a Message-ID / CFBL-Feedback-ID or any other identifiers.
+The malicious person may attempt to mass unsubscribe/suspend if such an automated system is in place.
+
+This is also an existing problem with the current feedback loop implementation and/or One-Click Unsubscription <xref target="RFC8058"/>.</t>
+<t>The Message Originator must take appropriate measures. For example, the CFBL-Feedback-ID header field (if used) can use a hard-to-forge component, such as an <xref target="RFC2104"/> with a secret key, instead of a          
+plaintext string, to make an enumeration attack impossible.</t>
+      </section>
+      <section anchor="data-privacy">
+        <name>Data Privacy</name>
+        <t>The provision of such a header field itself does not pose a data privacy issue.
+The resulting ARF/XARF report sent by the Mailbox Provider to the Message Originator may violate a data privacy law because it may contain personal data.</t>
+        <t>This document already addresses some parts of this problem and
+        describes a way to send a Feedback Message that keeps data privacy
+        safe.  As described in <xref target="complaint-report"/>, the Mailbox
+        Provider can omit the entire body and/or header field and send only
+        the required fields.  As recommended in <xref target="RFC6590"/>, the
+        Mailbox Provider can also redact the data in question.  Nevertheless,
+        each Mailbox Provider must consider for itself whether this
+        implementation is acceptable and complies with existing data privacy
+        laws in their country.</t>
+        <t>As described in Sections <xref target="complaint-report" format="counter"/> and <xref target="cfbl-feedback-id-header-field" format="counter"/>, it is also strongly <bcp14>RECOMMENDED</bcp14> that the Message-ID and CFBL-Feedback-ID (if used) contain a component that is difficult to forge, such as an <xref target="RFC2104"/> that uses a secret key, rather than a plaintext string.
+See <xref target="hmac-example"/> for an example.</t>
+      </section>
+      <section anchor="abusing-for-validity-and-existence-queries">
+        <name>Abusing for Validity and Existence Queries</name>
+        <t>This mechanism could be abused to determine the validity and existence of an email address, exhibiting another potential data privacy issue.
+If the Mailbox Provider has an automatic process to generate a Feedback Message for a received message, it may not be doing the mailbox owner any favors.
+As the Mailbox Provider generates an automatic Feedback Message for the received message, the Mailbox Provider proves to the Message Originator that this mailbox exists for sure because it is based on a manual action of the mailbox owner.</t>
+        <t>The receiving Mailbox Provider must take appropriate measures. One possible countermeasure could be pre-existing reputation data (usually proprietary data), for example.
+Using this data, the Mailbox Provider can assess the trustworthiness of a Message Originator and decide whether to send a Feedback Message based on this information.</t>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="cfbl-address">
+        <name>CFBL-Address</name>
+        <t>IANA has registered a new header field, per <xref target="RFC3864"/>, in the "Provisional Message Header Field Names" registry:</t>
+<dl>
+<dt>Header Field Name:</dt><dd>CFBL-Address</dd>
+<dt>Protocol:</dt><dd>mail</dd>
+<dt>Status:</dt><dd></dd>
+<dt>Author/Change controller:</dt><dd>Jan-Philipp Benecke &lt;jpb@cleverreach.com&gt;</dd>
+<dt>Reference:</dt><dd>RFC 9477</dd>
+</dl>
+      </section>
+      <section anchor="cfbl-feedback-id-1">
+        <name>CFBL-Feedback-ID</name>
+        <t>IANA has registered a new header field, per <xref target="RFC3864"/>, in the "Provisional Message Header Field Names" registry:</t>
+<dl>
+<dt>Header Field Name:</dt><dd>CFBL-Feedback-ID</dd>
+<dt>Protocol:</dt><dd>mail</dd>
+<dt>Status:</dt><dd></dd>
+<dt>Author/Change controller:</dt><dd>Jan-Philipp Benecke &lt;jpb@cleverreach.com&gt;</dd>
+<dt>Reference:</dt><dd>RFC 9477</dd>
+</dl>
+      </section>
+    </section>
+    <section anchor="examples">
+      <name>Examples</name>
+      <t>For simplicity, the DKIM header field has been shortened, and some tags have been omitted.</t>
+      <section anchor="simple">
+        <name>Simple</name>
+        <t>Email about the report will be generated:</t>
+        <artwork><![CDATA[
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: me@example.net
+Subject: Super awesome deals for you
+CFBL-Address: fbl@example.com; report=arf
+CFBL-Feedback-ID: 111:222:333:4444
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+        <t>Resulting ARF report:</t>
+        <artwork><![CDATA[
+------=_Part_240060962_1083385345.1592993161900
+Content-Type: message/feedback-report
+Content-Transfer-Encoding: 7bit
+
+Feedback-Type: abuse
+User-Agent: FBL/0.1
+Version: 0.1
+Original-Mail-From: sender@mailer.example.com
+Arrival-Date: Tue, 23 Jun 2020 06:31:38 GMT
+Reported-Domain: example.com
+Source-IP: 192.0.2.1
+
+------=_Part_240060962_1083385345.1592993161900
+Content-Type: text/rfc822; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: me@example.net
+Subject: Super awesome deals for you
+CFBL-Address: fbl@example.com; report=arf
+CFBL-Feedback-ID: 111:222:333:4444
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+------=_Part_240060962_1083385345.1592993161900--
+]]></artwork>
+      </section>
+      <section anchor="data-privacy-safe-report">
+        <name>Data Privacy Safe Report</name>
+        <t>Email about the report will be generated:</t>
+        <artwork><![CDATA[
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: me@example.net
+Subject: Super awesome deals for you
+CFBL-Address: fbl@example.com; report=arf
+CFBL-Feedback-ID: 111:222:333:4444
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+        <t>Resulting ARF report that only contains the CFBL-Feedback-ID:</t>
+        <artwork><![CDATA[
+------=_Part_240060962_1083385345.1592993161900
+Content-Type: message/feedback-report
+Content-Transfer-Encoding: 7bit
+
+Feedback-Type: abuse
+User-Agent: FBL/0.1
+Version: 0.1
+Original-Mail-From: sender@mailer.example.com
+Arrival-Date: Tue, 23 Jun 2020 06:31:38 GMT
+Reported-Domain: example.com
+Source-IP: 2001:DB8::25
+
+------=_Part_240060962_1083385345.1592993161900
+Content-Type: text/rfc822-headers; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+CFBL-Feedback-ID: 111:222:333:4444
+------=_Part_240060962_1083385345.1592993161900--
+]]></artwork>
+      </section>
+      <section anchor="hmac-example">
+        <name>Data Privacy Safe Report with HMAC</name>
+        <t>Email about the report will be generated:</t>
+        <artwork><![CDATA[
+Return-Path: <sender@mailer.example.com>
+From: Awesome Newsletter <newsletter@example.com>
+To: me@example.net
+Subject: Super awesome deals for you
+CFBL-Address: fbl@example.com; report=arf
+CFBL-Feedback-ID: 3789e1ae1938aa2f0dfdfa48b20d8f8bc6c21ac34fc5023d
+       63f9e64a43dfedc0
+Message-ID: <a37e51bf-3050-2aab-1234-543a0828d14a@mailer.example.com>
+Content-Type: text/plain; charset=utf-8
+DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=news;
+       h=Subject:From:To:Message-ID:CFBL-Feedback-ID:CFBL-Address;
+
+This is a super awesome newsletter.
+]]></artwork>
+        <t>Resulting ARF report that only contains the CFBL-Feedback-ID:</t>
+        <artwork><![CDATA[
+------=_Part_240060962_1083385345.1592993161900
+Content-Type: message/feedback-report
+Content-Transfer-Encoding: 7bit
+
+Feedback-Type: abuse
+User-Agent: FBL/0.1
+Version: 0.1
+Original-Mail-From: sender@mailer.example.com
+Arrival-Date: Tue, 23 Jun 2020 06:31:38 GMT
+Reported-Domain: example.com
+Source-IP: 2001:DB8::25
+
+------=_Part_240060962_1083385345.1592993161900
+Content-Type: text/rfc822-headers; charset=UTF-8
+Content-Transfer-Encoding: 7bit
+
+CFBL-Feedback-ID: 3789e1ae1938aa2f0dfdfa48b20d8f8bc6c21ac34fc5023d
+       63f9e64a43dfedc0
+------=_Part_240060962_1083385345.1592993161900--
+]]></artwork>
+      </section>
+    </section>
+  </middle>
+  <back>
+<displayreference target="RFC6376" to="DKIM"/>
+<displayreference target="RFC5965" to="ARF"/>
+<displayreference target="RFC2104" to="HMAC"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+        <reference anchor="XARF" target="https://github.com/abusix/xarf">
+          <front>
+            <title>XARF - eXtended Abuse Reporting Format</title>
+	  <author/>
+            <date month="March" year="2023"/>
+          </front>
+	  <refcontent>commit cc1a6e6</refcontent>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6449.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7405.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5322.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6376.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5965.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6532.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8058.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2104.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6590.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3864.xml"/>
+      </references>
+    </references>
+    <section anchor="acknowledgments" numbered="false">
+      <name>Acknowledgments</name>
+      <t>Technical and editorial reviews were provided by the colleagues at
+      CleverReach, the colleagues at Certified Senders Alliance and eco.de;
+      <contact fullname="Arne Allisat"/>, <contact fullname="Tobias Herkula"/>
+      and <contact fullname="Levent Ulucan"/> (1&amp;1 Mail &amp; Media); and
+      <contact fullname="Sven Krohlas"/> (BFK Edv-consulting).</t>
+    </section>
+  </back>
+</rfc>

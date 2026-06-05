@@ -1,0 +1,495 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" 
+category="exp" 
+docName="draft-irtf-icnrg-ccnx-timetlv-05" 
+number="9510"
+ipr="trust200902" 
+updates="8609" 
+obsoletes="" 
+submissionType="IRTF"
+consensus="true"  
+xml:lang="en" 
+tocInclude="true" 
+tocDepth="4" 
+symRefs="true" 
+sortRefs="true" 
+version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.18.2 -->
+
+  <!-- ***** FRONT MATTER ***** -->
+<front>
+    <title abbrev="TimeTLV for CCNx">
+    Alternative Delta Time Encoding for Content-Centric Networking (CCNx) Using Compact Floating-Point Arithmetic
+    </title>
+
+   <seriesInfo name="RFC" value="9510"/>
+    <author fullname="Cenk Gündoğan" initials="C." surname="Gündoğan">
+      <organization abbrev="Huawei">Huawei Technologies Duesseldorf GmbH</organization>
+      <address>
+        <postal>
+          <street>Riesstrasse 25</street>
+          <city>Munich</city>
+          <code>D-80992</code>
+          <country>Germany</country>
+        </postal>
+        <email>cenk.gundogan@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Thomas C. Schmidt" initials="TC." surname="Schmidt">
+      <organization abbrev="HAW Hamburg">HAW Hamburg</organization>
+      <address>
+        <postal>
+          <street>Berliner Tor 7</street>
+          <city>Hamburg</city>
+          <code>D-20099</code>
+          <country>Germany</country>
+        </postal>
+        <email>t.schmidt@haw-hamburg.de</email>
+        <uri>http://inet.haw-hamburg.de/members/schmidt</uri>
+      </address>
+    </author>
+    <author fullname="Dave Oran" initials="D." surname="Oran">
+      <organization>Network Systems Research and Design</organization>
+      <address>
+        <postal>
+          <street>4 Shady Hill Square</street>
+          <city>Cambridge</city>
+          <region>MA</region>
+          <code>02138</code>
+          <country>United States of America</country>
+        </postal>
+        <phone/>
+        <email>daveoran@orandom.net</email>
+        </address>
+    </author>
+    <author fullname="Matthias Wählisch" initials="M." surname="Wählisch">
+      <organization abbrev="TU Dresden">TUD Dresden University of Technology</organization>
+      <address>
+        <postal>
+          <street>Helmholtzstr. 10</street>
+          <city>Dresden</city>
+          <code>D-01069</code>
+          <country>Germany</country>
+        </postal>
+        <email>m.waehlisch@tu-dresden.de</email>
+      </address>
+    </author>
+    <date year="2024" month="February"/>
+
+    <workgroup>Information-Centric Networking</workgroup>
+
+    <keyword>CCNx</keyword>
+    <keyword>constrained networks</keyword>
+    <keyword>compressed delta time</keyword>
+    <keyword>IoT</keyword>
+
+    <abstract>
+      <t>Content-Centric Networking (CCNx) utilizes delta time for a number of functions. When using CCNx in environments with constrained nodes or bandwidth-constrained networks, it is valuable to have a compressed representation of delta time. In order to do so, either accuracy or dynamic range has to be sacrificed. Since the current uses of delta time do not require both simultaneously, one can consider a logarithmic encoding. This document updates RFC 8609 ("CCNx messages in TLV Format") to specify this alternative encoding.</t>
+      <t>This document is a product of the IRTF Information-Centric
+      Networking Research Group (ICNRG).</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>CCNx is well suited for Internet of Things (IoT) applications <xref target="RFC7927" format="default"/>.
+Low-Power Wireless Personal Area Network (LoWPAN) adaptation layers (e.g., <xref target="RFC9139" format="default"/>) confirm the advantages of a space-efficient packet encoding for low-power and lossy networks.
+CCNx utilizes absolute and delta time values for a number of functions.
+When using CCNx in resource-constrained environments, it is valuable to have a compact representation of time values.  However, any compact time representation has to sacrifice accuracy or dynamic range. For some time uses, this is relatively straightforward to achieve; for other uses, it is not.
+As a result of experiments in bandwidth-constrained IEEE 802.15.4 deployments <xref target="ICNLOWPAN" format="default"/>, this document discusses the various cases of time values, proposes a compact encoding for delta times, and updates <xref target="RFC8609" format="default"/> to utilize this encoding format in CCNx messages.</t>
+      <t>This document has received fruitful reviews by the members of the research
+group (see the Acknowledgments section).  It is the consensus of ICNRG that this
+document should be published in the IRTF Stream of the RFC series. This document
+does not constitute an IETF standard.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+      <t>This document uses the terminology of <xref target="RFC8569" format="default"/> and <xref target="RFC8609" format="default"/> for CCNx entities.</t>
+      <t>The following terms are used in the document and defined as follows:
+      </t>
+      <dl newline="false" spacing="normal" indent="14">
+        <dt>byte:</dt>
+        <dd>synonym for octet</dd>
+        <dt>time value:</dt>
+        <dd>a time offset measured in seconds</dd>
+        <dt>time code:</dt>
+        <dd>an 8-bit encoded time value as defined in <xref target="RFC5497" format="default"/></dd>
+      </dl>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Usage of Time Values in CCNx</name>
+      <section anchor="relativeTime" numbered="true" toc="default">
+        <name>Relative Time in CCNx</name>
+        <t>CCNx, as currently specified in <xref target="RFC8569" format="default"/>, utilizes delta time for only the lifetime of an Interest message (see Sections <xref target="RFC8569" section="2.1" sectionFormat="bare"/>, <xref target="RFC8569" section="2.2" sectionFormat="bare"/>, <xref target="RFC8569" section="2.4.2" sectionFormat="bare"/>, and <xref target="RFC8569" section="10.3" sectionFormat="bare"/> of <xref target="RFC8569" format="default"/>). It is a hop-by-hop header value, and is currently encoded via the T_INTLIFE TLV as a 64-bit integer (<xref target="RFC8609" sectionFormat="of" section="3.4.1" />). While formally an optional TLV, every Interest message is expected to carry the Interest Lifetime TLV in all but some corner cases; hence, having compact encoding is particularly valuable to keep Interest messages short.</t>
+
+        <t>Since the current uses of delta time do not require both accuracy and dynamic range simultaneously, one can consider a logarithmic encoding such as that specified in <xref target="IEEE.754.2019" format="default"/> and as outlined in <xref target="sec.timetlv" format="default"/>. This document updates CCNx messages in TLV format <xref target="RFC8609" format="default"/> to permit this alternative encoding for selected time values.
+</t>
+      </section>
+      <section anchor="absoluteTime" numbered="true" toc="default">
+        <name>Absolute Time in CCNx</name>
+        <t>CCNx, as currently specified in <xref target="RFC8569" format="default"/>, utilizes absolute time for various important functions. Each of these absolute time usages poses a different challenge for a compact representation. These are discussed in the following subsections.</t>
+        <section toc="exclude" numbered="true">
+          <name>Signature Time and Expiry Time</name>
+          <t>Signature Time is the time the signature of a Content Object was generated (see Sections <xref target="RFC8569" sectionFormat="bare" section="8.2"/>-<xref target="RFC8569" sectionFormat="bare" section="8.4"/> of <xref target="RFC8569"/>).
+  Expiry Time indicates the time after which a Content Object is considered expired (<xref target="RFC8569" sectionFormat="of" section="4"/>).
+  Both values are content message TLVs and represent absolute timestamps in milliseconds since the POSIX epoch.
+  They are currently encoded via the T_SIGTIME and T_EXPIRY TLVs as 64-bit unsigned integers (see Sections <xref target="RFC8609" sectionFormat="bare" section="3.6.4.1.4.5"/> and <xref target="RFC8609" sectionFormat="bare" section="3.6.2.2.2"/> of <xref target="RFC8609"/>, respectively).</t>
+          <t>Both time values could be in the past or in the future, potentially by a large delta.
+  They are also included in the security envelope of the message.
+  Therefore, it seems there is no practical way to define an alternative compact encoding that preserves its semantics and security properties; therefore, this approach is not considered further.</t>
+        </section>
+        <section toc="exclude" numbered="true">
+          <name>Recommended Cache Time</name>
+          <t>Recommended Cache Time (RCT) for a Content Object (<xref target="RFC8569" sectionFormat="of" section="4" />) is a hop-by-hop header stating the expiration time for a cached Content Object in milliseconds since the POSIX epoch. It is currently encoded via the T_CACHETIME TLV as a 64-bit unsigned integer (see <xref target="RFC8609" sectionFormat="of" section="3.4.2"/>).</t>
+          <t>A Recommended Cache Time could be far in the future, but it cannot be in the past and is likely to be a reasonably short offset from the current time.
+  Therefore, this document allows the Recommended Cache Time to be interpreted as a relative time value rather than an absolute time, because the semantics associated with an absolute time value do not seem to be critical to the utility of this value.
+  This document therefore updates the Recommended Cache Time with the following rule set:
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>Use absolute time as per <xref target="RFC8609" format="default"/></t>
+            </li>
+            <li>
+              <t>Use relative time, if the compact time representation is used (see Sections <xref target="sec.timetlv" format="counter"/> and <xref target="sec.integration" format="counter"/>)</t>
+            </li>
+          </ul>
+
+          <t>If relative time is used, the time offset recorded in a message will typically not account for residence times on lower layers (e.g., for processing, queuing) and link delays for every hop. Thus,
+the Recommended Cache Time cannot be as accurate as when absolute time is used.
+  This document targets low-power networks, where delay bounds are rather loose or do not exist.
+  An accumulated error due to transmission delays in the range of milliseconds and seconds for the Recommended Cache Time is still tolerable in these networks and does not impact the protocol performance.
+</t>
+          <t>Networks with tight latency bounds use dedicated hardware, optimized software routines, and traffic engineering to reduce latency variations.
+  Time offsets can then be corrected on every hop to yield exact cache times.
+          </t>
+        </section>
+      </section>
+    </section>
+    <section anchor="sec.timetlv" numbered="true" toc="default">
+      <name>A Compact Time Representation with Logarithmic Range</name>
+      <t>
+    This document uses the compact time representation described in "Information-Centric Networking (ICN) Adaptation to Low-Power Wireless Personal Area Networks (LoWPANs)" (see <xref target="RFC9139" sectionFormat="of" section="7" />) that was inspired by <xref target="RFC5497" format="default"/> and <xref target="IEEE.754.2019" format="default"/>.
+    Its logarithmic encoding supports a representation ranging from milliseconds to years.
+    <xref target="fig.time-value" format="default"/> depicts the logarithmic nature of this time representation.
+      </t>
+      <figure anchor="fig.time-value">
+        <name>A logarithmic range representation allows for higher precision in the smaller time ranges and still supports large time deltas.</name>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+|| |  |   |    |     |      |       |        |         |          |
++-----------------------------------------------------------------+
+milliseconds                                                  years
+]]></artwork>
+      </figure>
+
+      <t>
+    Time codes encode exponent and mantissa values in a single byte. In contrast to the representation in <xref target="IEEE.754.2019" format="default"/>, time codes only encode non-negative numbers and hence do not include a separate bit to indicate integer signedness.
+    <xref target="fig.time-code" format="default"/> shows the configuration of a time code: an exponent width of 5 bits, and a mantissa width of 3 bits.
+      </t>
+      <figure anchor="fig.time-code">
+        <name>A time code with exponent and mantissa to encode a logarithmic range time representation.</name>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+<---          one byte wide          --->
++----+----+----+----+----+----+----+----+
+|      exponent (b)      | mantissa (a) |
++----+----+----+----+----+----+----+----+
+  0    1    2    3    4    5    6    7
+]]></artwork>
+      </figure>
+      <t>
+    The base unit for time values is seconds. A time value is calculated using the following formula (adopted from <xref target="RFC5497" format="default"/> and <xref target="RFC9139" format="default"/>),
+    where (a) represents the mantissa, (b) the exponent, and (C) a constant factor set to <tt>C := 1/32</tt>.
+      </t>
+      <dl newline="false" spacing="normal">
+        <dt>Subnormal (b == 0):</dt>
+        <dd> (0 + a/8) * 2 * C
+      </dd>
+        <dt>Normalized (b &gt; 0):</dt>
+        <dd> (1 + a/8) * 2^b * C
+      </dd>
+      </dl>
+      <t>
+    The subnormal form provides a gradual underflow between zero and the smallest normalized number.
+    Eight time values exist in the subnormal range [0s,~0.0546875s] with a step size of ~0.0078125s between each time value.
+    This configuration also encodes the following convenient numbers in seconds: [1, 2, 4, 8, 16, 32, 64, ...].
+    <xref target="sec.testvectors" format="default"/> includes test vectors to illustrate the logarithmic range.
+      </t>
+
+      <t>
+    An example algorithm to encode a time value into the corresponding exponent and mantissa is given as pseudocode in <xref target="fig.algo" format="default"/>.
+    Not all time values can be represented by a time code.
+    For these instances, a time code is produced that represents a time value closest to and smaller than the initial time value input.
+      </t>
+      <figure anchor="fig.algo">
+
+        <name>Algorithm in pseudocode.</name>
+        <sourcecode type="pseudocode"><![CDATA[
+ input: float v    // time value
+output:   int a, b // mantissa, exponent of time code
+
+(a, b) encode (v):
+
+    if (v == 0)
+        return (0, 0)
+
+    if (v < 2 * C)                              // subnormal
+        a = floor (v * 4 / C)                   // round down
+        return (a, 0)
+    else                                        // normalized
+        if (v > (1 + 7/8) * 2^31 * C)           // check bounds
+            return (7, 31)                      // return maximum
+        else
+            b = floor (log2(v / C))             // round down
+            a = floor ((v / (2^b * C) - 1) * 8) // round down
+            return (a, b)
+]]></sourcecode>
+      </figure>
+      <t>
+    For example, no specific time code for <tt>0.063</tt> exists. However, this algorithm maps to the closest valid time code that is smaller than <tt>0.063</tt>, i.e., exponent <tt>1</tt> and mantissa <tt>0</tt> (the same as for time value <tt>0.0625</tt>).
+      </t>
+    </section>
+    <section anchor="sec.integration" numbered="true" toc="default">
+      <name>Protocol Integration of the Compact Time Representation</name>
+      <t>A straightforward way to accommodate the compact time approach is to use a 1-byte length field to indicate this alternative encoding while retaining the existing TLV registry entries.
+    This approach has backward compatibility problems, but it is still considered for the following reasons:
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>Both CCNx RFCs (<xref target="RFC8569" format="default"/> and <xref target="RFC8609" format="default"/>) are Experimental and not Standards Track; hence, expectations for forward and backward compatibility are not as stringent. "Flag day" upgrades of deployed CCNx networks, while inconvenient, are still feasible.</t>
+        </li>
+        <li>
+          <t>The major use case for these compressed encodings are smaller-scale IoT and/or sensor networks where the population of consumers, producers, and forwarders is reasonably small.</t>
+        </li>
+        <li>
+          <t>Since the current TLVs have hop-by-hop semantics, they are not covered by any signed hash and hence may be freely re-encoded by any forwarder. That means a forwarder supporting the new encoding can translate freely between the two encodings.</t>
+        </li>
+        <li>
+          <t>The alternative of assigning new TLV registry values does not substantially mitigate the interoperability problems anyway.</t>
+        </li>
+      </ul>
+      <section anchor="sec.integration.intlife" numbered="true" toc="default">
+        <name>Interest Lifetime</name>
+        <t>The Interest Lifetime definition in <xref target="RFC8609" format="default"/> allows for a variable-length lifetime representation, where a length of <tt>1</tt> encodes the linear range [0,255] in milliseconds.
+    This document changes the definition to always encode 1-byte Interest Lifetime values in the compact time value representation (see <xref target="def-intlifetime" format="default"/>).
+    For any other length, Interest Lifetimes are encoded as described in <xref target="RFC8609" section="3.4.1"/>.
+        </t>
+
+        <figure anchor="def-intlifetime">
+          <name>Changes to the definition of the Interest Lifetime TLV.</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|           T_INTLIFE           |           Length = 1          |
++---------------+---------------+---------------+---------------+
+| COMPACT_TIME  |
++---------------+
+]]></artwork>
+        </figure>
+      </section>
+      <section anchor="sec.integration.recctime" numbered="true" toc="default">
+        <name>Recommended Cache Time</name>
+        <t>The Recommended Cache Time definition in <xref target="RFC8609" format="default"/> specifies an absolute time representation that is of a length fixed to 8 bytes.
+    This document changes the definition to always encode 1-byte Recommended Cache Time values in the compact relative time value representation (see <xref target="def-recctime" format="default"/>).
+    For any other length, Recommended Cache Times are encoded as described in <xref target="RFC8609" section="3.4.2"/>.
+        </t>
+        <figure anchor="def-recctime">
+          <name>Changes to the definition of the Recommended Cache Time TLV.</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|          T_CACHETIME          |           Length = 1          |
++---------------+---------------+---------------+---------------+
+| COMPACT_TIME  |
++---------------+
+]]></artwork>
+        </figure>
+        <t>The packet processing is adapted to calculate an absolute time from the relative time code based on the absolute reception time.
+  On transmission, a new relative time code is calculated based on the current system time.</t>
+      </section>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document makes no semantic changes to <xref target="RFC8569" format="default"/>, nor to any of the security properties of the message encodings described in <xref target="RFC8609" format="default"/>; hence, it has the same security considerations as those two documents.
+        Careful consideration is needed for networks that deploy forwarders with support (updated forwarder) and without support (legacy forwarder) for this compact time representation:
+      </t>
+      <dl newline="false" spacing="normal">
+        <dt>Interest Lifetime:</dt>
+        <dd>
+          A legacy forwarder
+          interprets a time code as an Interest Lifetime between 0 and
+          255 milliseconds. This may lead to a degradation of network
+          performance, since Pending Interest Table (PIT) entries timeout
+          quicker than expected.
+          An updated forwarder interprets short lifetimes set by a legacy forwarder as time codes, thus configuring timeouts of up to 4 years.
+          This leads to an inefficient occupation of state space.
+          </dd>
+        <dt>Recommended Cache Time:</dt>
+        <dd>
+            A legacy forwarder
+            considers a Recommended Cache Time with length 1 as a
+            structural or syntactical error and it <bcp14>SHOULD</bcp14> discard the packet (<xref target="RFC8569" sectionFormat="of" section="10.3.9"/>).
+            Otherwise, a legacy forwarder interprets time codes as absolute
+            time values far in the past, which impacts cache utilization.
+          </dd>
+      </dl>
+    </section>
+  </middle>
+
+<back>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8569.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8609.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5497.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7927.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9139.xml"/>
+
+
+        <reference anchor="IEEE.754.2019" target="https://standards.ieee.org/content/ieee-standards/en/standard/754-2019.html">
+          <front>
+            <title>Standard for Floating-Point Arithmetic</title>
+            <author>
+	      <organization>IEEE
+	      </organization>
+	    </author>
+            <date month="June" year="2019"/>
+          </front>
+         <seriesInfo name="IEEE Std" value="754-2019"/>
+          <seriesInfo name="DOI" value="10.1109/IEEESTD.2019.8766229"/>
+        </reference>
+
+        <reference anchor="ICNLOWPAN" target="https://doi.org/10.1016/j.comcom.2020.10.002"> 
+          <front>
+            <title>Designing a LoWPAN convergence layer for the Information Centric Internet of Things</title>
+            <author initials="C." surname="Gündoğan">
+              <organization>HAW Hamburg</organization>
+            </author>
+            <author initials="P." surname="Kietzmann">
+              <organization>HAW Hamburg</organization>
+            </author>
+            <author initials="T." surname="Schmidt">
+              <organization>HAW Hamburg</organization>
+            </author>
+            <author initials="M." surname="Wählisch">
+              <organization>FU Berlin</organization>
+            </author>
+            <date month="December" year="2020"/>
+          </front>
+          <refcontent>Computer Communications, Vol. 164, No. 1, p. 114-123, Elsevier</refcontent>
+        </reference>
+
+      </references>
+    </references>
+
+    <section anchor="sec.testvectors" numbered="true" toc="default">
+      <name>Test Vectors</name>
+      <t>
+        The test vectors in <xref target="tab.testvectors" format="default"/> show sample time codes and their corresponding time values according to the algorithm outlined in <xref target="sec.timetlv" format="default"/>.
+      </t>
+      <table anchor="tab.testvectors" align="center">
+        <name>Test Vectors</name>
+        <thead>
+          <tr>
+            <th align="center">Time Code</th>
+            <th align="right">Time Value (seconds)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="center">0x00</td>
+            <td align="right">0.0000000</td>
+          </tr>
+          <tr>
+            <td align="center">0x01</td>
+            <td align="right">0.0078125</td>
+          </tr>
+          <tr>
+            <td align="center">0x04</td>
+            <td align="right">0.0312500</td>
+          </tr>
+          <tr>
+            <td align="center">0x08</td>
+            <td align="right">0.0625000</td>
+          </tr>
+          <tr>
+            <td align="center">0x15</td>
+            <td align="right">0.2031250</td>
+          </tr>
+          <tr>
+            <td align="center">0x28</td>
+            <td align="right">1.0000000</td>
+          </tr>
+          <tr>
+            <td align="center">0x30</td>
+            <td align="right">2.0000000</td>
+          </tr>
+          <tr>
+            <td align="center">0xF8</td>
+            <td align="right">67108864.0000000</td>
+          </tr>
+          <tr>
+            <td align="center">0xFF</td>
+            <td align="right">125829120.0000000</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section anchor="sec.tvapprox" numbered="true" toc="default">
+      <name>Efficient Time Value Approximation</name>
+      <t>
+        A forwarder frequently converts compact time into milliseconds to compare Interest Lifetimes and the duration of cache entries.
+        On many architectures, multiplication and division perform slower than addition, subtraction, and bit shifts.
+        The following equations approximate the formulas in <xref target="sec.timetlv" format="default"/>, and scale from seconds into the milliseconds range by applying a factor of 2^10 instead of 10^3.
+        This results in an error of 2.4%.
+
+      </t>
+      <dl newline="false" spacing="normal" indent="10">
+        <dt>b == 0:</dt>
+        <dd>2^10 * a * 2^-3 * 2^1 * 2^-5<br/>= a &lt;&lt; 3
+          </dd>
+        <dt>b &gt; 0:</dt>
+        <dd>(2^10 + a * 2^-3 * 2^10) * 2^b * 2^-5<br/>= (1 &lt;&lt; 5 + a &lt;&lt; 2) &lt;&lt; b
+          </dd>
+      </dl>
+    </section>
+    <section numbered="false" toc="default" anchor="ack">
+      <name>Acknowledgments</name>
+      <t>We would like to thank the active members of ICNRG for their constructive thoughts.
+      In particular, we thank <contact fullname="Marc Mosko"/> and <contact fullname="Ken Calvert"/> for their valuable feedback on the encoding scheme and protocol integration.
+      Special thanks also go to <contact fullname="Carsten Bormann"/> for his constructive in-depth comments during the IRSG review.</t>
+    </section>
+
+</back>
+</rfc>

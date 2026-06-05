@@ -1,0 +1,708 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-add-ddr-10" number="9462" submissionType="IETF" category="std" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" updates="" obsoletes="" xml:lang="en" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.13.1 -->
+  <front>
+    <title abbrev="DDR">Discovery of Designated Resolvers</title>
+    <seriesInfo name="RFC" value="9462"/>
+    <author initials="T." surname="Pauly" fullname="Tommy Pauly">
+      <organization>Apple Inc.</organization>
+      <address>
+        <postal>
+          <street>One Apple Park Way</street>
+          <city>Cupertino</city>
+	  <region>California</region>
+          <code>95014</code>
+          <country>United States of America</country>
+        </postal>
+        <email>tpauly@apple.com</email>
+      </address>
+    </author>
+    <author initials="E." surname="Kinnear" fullname="Eric Kinnear">
+      <organization>Apple Inc.</organization>
+      <address>
+        <postal>
+          <street>One Apple Park Way</street>
+          <city>Cupertino</city>
+	  <region>California</region>
+          <code>95014</code>
+          <country>United States of America</country>
+        </postal>
+        <email>ekinnear@apple.com</email>
+      </address>
+    </author>
+    <author initials="C. A." surname="Wood" fullname="Christopher A. Wood">
+      <organization>Cloudflare</organization>
+      <address>
+        <postal>
+          <street>101 Townsend St</street>
+          <city>San Francisco</city>
+	  <region>California</region>
+          <code>94107</code>
+          <country>United States of America</country>
+        </postal>
+        <email>caw@heapingbits.net</email>
+      </address>
+    </author>
+    <author initials="P." surname="McManus" fullname="Patrick McManus">
+      <organization>Fastly</organization>
+      <address>
+        <email>mcmanus@ducksong.com</email>
+      </address>
+    </author>
+    <author initials="T." surname="Jensen" fullname="Tommy Jensen">
+      <organization>Microsoft</organization>
+      <address>
+        <email>tojens@microsoft.com</email>
+      </address>
+    </author>
+    <date year="2023" month="November"/>
+    <area>int</area>
+    <workgroup>add</workgroup>
+
+<keyword>DNS</keyword>
+<keyword>DoH</keyword>
+<keyword>DoT</keyword>
+<keyword>DoQ</keyword>
+
+    <abstract>
+      <t>This document defines Discovery of Designated Resolvers (DDR), a
+set of mechanisms for DNS clients to use DNS records to discover a resolver's encrypted
+DNS configuration. An Encrypted DNS Resolver discovered in this manner is referred
+to as a "Designated Resolver". These mechanisms can be used to move from unencrypted
+DNS to encrypted DNS when only the IP address of a resolver is known. These mechanisms are
+designed to be limited to cases where Unencrypted DNS Resolvers and their Designated
+Resolvers are operated by the same entity or cooperating entities. It can also be used
+to discover support for encrypted DNS protocols when the name of an Encrypted DNS Resolver is known.
+</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>When DNS clients wish to use encrypted DNS protocols such as DNS over TLS (DoT)
+<xref target="RFC7858"/>, DNS over QUIC (DoQ) <xref target="RFC9250"/>, or DNS over HTTPS (DoH) <xref target="RFC8484"/>,
+they can require additional information beyond the IP address of the DNS server,
+such as the resolver's hostname, alternate IP addresses, non-standard ports, or
+URI Templates. However, common configuration mechanisms only provide the resolver's
+IP address during configuration. Such mechanisms include network provisioning protocols
+like DHCP <xref target="RFC2132"/> <xref target="RFC8415"/> and IPv6 Router Advertisement (RA) options <xref target="RFC8106"/>,
+as well as manual configuration.
+</t>
+      <t>This document defines two mechanisms for clients to discover Designated
+Resolvers that support these encrypted protocols using DNS server Service
+Binding (SVCB) records <xref target="RFC9460"/>:</t>
+      <ol spacing="normal" type="1"><li>When only an IP address of an Unencrypted DNS Resolver is known, the client
+queries a Special-Use Domain Name (SUDN) <xref target="RFC6761"/> to discover DNS SVCB
+records associated with one or more Encrypted DNS Resolvers the Unencrypted DNS
+Resolver has designated for use when support for DNS encryption is
+requested (<xref target="bootstrapping"/>).</li>
+        <li>When the hostname of an Encrypted DNS Resolver is known, the client requests
+details by sending a query for a DNS SVCB record. This can be used to discover
+alternate encrypted DNS protocols supported by a known server, or to provide
+details if a resolver name is provisioned by a network (<xref target="encrypted"/>).</li>
+      </ol>
+      <t>Both of these approaches allow clients to confirm that a discovered Encrypted DNS
+Resolver is designated by the originally provisioned resolver. "Designated" in
+this context means that the resolvers are operated by the same entity or
+cooperating entities; for example, the resolvers are accessible on the same
+IP address, or there is a certificate that contains the IP address for the
+original designating resolver.</t>
+      <section anchor="specification-of-requirements">
+        <name>Specification of Requirements</name>
+       <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+       "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>",
+       "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+       "<bcp14>SHOULD NOT</bcp14>",
+       "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+       "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+       are to be interpreted as described in BCP&nbsp;14
+       <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only
+       when, they appear in all capitals, as shown here.</t>
+      </section>
+    </section>
+    <section anchor="terminology">
+      <name>Terminology</name>
+      <t>This document defines the following terms:</t>
+      <dl>
+        <dt>DDR:</dt>
+        <dd>
+          <t>Discovery of Designated Resolvers. "DDR" refers to the mechanisms defined
+in this document.</t>
+        </dd>
+        <dt>Designated Resolver:</dt>
+        <dd>
+          <t>A resolver, presumably an Encrypted DNS Resolver, designated by another resolver
+for use in its own place. This designation can be verified with TLS certificates.</t>
+        </dd>
+        <dt>Encrypted DNS Resolver:</dt>
+        <dd>
+          <t>A DNS resolver using any encrypted DNS transport. This includes current
+mechanisms such as DoH, DoT, and DoQ, as well as future mechanisms.</t>
+        </dd>
+        <dt>Unencrypted DNS Resolver:</dt>
+        <dd>
+          <t>A DNS resolver using a transport without encryption, historically
+TCP or UDP port 53.</t>
+        </dd>
+      </dl>
+    </section>
+    <section anchor="dns-service-binding-records">
+      <name>DNS Service Binding Records</name>
+      <t>DNS resolvers can advertise one or more Designated Resolvers that
+may offer support over encrypted channels and are controlled by the same
+entity.</t>
+      <t>When a client discovers Designated Resolvers, it learns information such as
+the supported protocols and ports. This information is provided in ServiceMode
+SVCB records for DNS servers, although AliasMode SVCB records
+can be used to direct clients to the needed ServiceMode SVCB record per
+<xref target="RFC9460"/>. The formatting of these records, including the
+DNS-unique parameters such as "dohpath", are defined by <xref target="RFC9461"/>.</t>
+      <t>The following is an example of a SVCB record describing a DoH server discovered
+by querying for <tt>_dns.example.net</tt>:</t>
+      <artwork><![CDATA[
+_dns.example.net.  7200  IN SVCB 1 example.net. (
+     alpn=h2 dohpath=/dns-query{?dns} )
+]]></artwork>
+      <t>The following is an example of a SVCB record describing a DoT server discovered
+by querying for <tt>_dns.example.net</tt>:</t>
+      <artwork><![CDATA[
+_dns.example.net.  7200  IN SVCB 1 dot.example.net (
+     alpn=dot port=8530 )
+]]></artwork>
+      <t>The following is an example of a SVCB record describing a DoQ server discovered
+by querying for <tt>_dns.example.net</tt>:</t>
+      <artwork><![CDATA[
+_dns.example.net.  7200  IN SVCB 1 doq.example.net (
+     alpn=doq port=8530 )
+]]></artwork>
+      <t>If multiple Designated Resolvers are available, using one or more
+encrypted DNS protocols, the resolver deployment can indicate a preference using
+the priority fields in each SVCB record <xref target="RFC9460"/>.</t>
+      <t>If the client encounters a mandatory parameter in a SVCB record it does not
+understand, it <bcp14>MUST NOT</bcp14> use that record to discover a Designated Resolver, in accordance
+with <xref section="8" sectionFormat="of" target="RFC9460"/>. The
+client can still use other records in the same response if the client can understand
+all of their mandatory parameters. This allows future encrypted deployments to
+simultaneously support protocols even if a given client is not aware of all those
+protocols. For example, if the Unencrypted DNS Resolver returns three SVCB records -- one
+for DoH, one for DoT, and one for a yet-to-exist protocol -- a client that only supports
+DoH and DoT should be able to use those records while safely ignoring the third record.</t>
+      <t>To avoid name lookup deadlock, clients that use Designated Resolvers need to ensure
+that a specific Encrypted DNS Resolver is not used for any queries that are needed to
+resolve the name of the resolver itself or to perform certificate revocation checks for
+the resolver, as described in <xref section="10" sectionFormat="of" target="RFC8484"/>. Designated Resolvers need to ensure that this deadlock is avoidable, as also described in <xref section="10" sectionFormat="of"
+target="RFC8484"/>.</t>
+      <t>This document focuses on discovering DoH, DoT, and DoQ Designated Resolvers.
+Other protocols can also use the format defined by <xref target="RFC9461"/>.
+However, if any such protocol does not involve some form of certificate
+validation, new validation mechanisms will need to be defined to support
+validating designation as defined in <xref target="verified"/>.</t>
+    </section>
+    <section anchor="bootstrapping">
+      <name>Discovery Using Resolver IP Addresses</name>
+      <t>When a DNS client is configured with an Unencrypted DNS Resolver IP address, it
+<bcp14>SHOULD</bcp14> query the resolver for SVCB records of a service with a scheme of "dns" and
+an authority of "resolver.arpa" before making other queries. This allows the client
+to switch to using encrypted DNS for all other queries, if possible. Specifically,
+the client issues a query for <tt>_dns.resolver.arpa.</tt>&nbsp;with the SVCB resource record type
+(64) <xref target="RFC9460"/>.</t>
+      <t>Responses to the SVCB query for the "resolver.arpa" SUDN describe Designated Resolvers.
+To ensure that different Designated Resolver configurations can be correctly
+distinguished and associated with A and AAAA records for the resolver, ServiceMode
+SVCB responses to these queries <bcp14>MUST NOT</bcp14> use the "." or "resolver.arpa" value for
+the TargetName. Similarly, clients <bcp14>MUST NOT</bcp14> perform A or AAAA queries for
+"resolver.arpa".</t>
+      <t>The following is an example of a SVCB record describing a DoH server discovered
+by querying for <tt>_dns.resolver.arpa.</tt>:</t>
+      <artwork><![CDATA[
+_dns.resolver.arpa.  7200  IN SVCB 1 doh.example.net (
+     alpn=h2 dohpath=/dns-query{?dns} )
+]]></artwork>
+      <t>The following is an example of a SVCB record describing a DoT server discovered
+by querying for <tt>_dns.resolver.arpa.</tt>:</t>
+      <artwork><![CDATA[
+_dns.resolver.arpa.  7200  IN SVCB 1 dot.example.net (
+     alpn=dot port=8530 )
+]]></artwork>
+      <t>The following is an example of a SVCB record describing a DoQ server discovered
+by querying for <tt>_dns.resolver.arpa.</tt>:</t>
+      <artwork><![CDATA[
+_dns.resolver.arpa.  7200  IN SVCB 1 doq.example.net (
+     alpn=doq port=8530 )
+]]></artwork>
+      <t>If the recursive resolver that receives this query has one or more Designated
+Resolvers, it will return the corresponding SVCB records. When responding
+to these special queries for "resolver.arpa", the recursive resolver
+<bcp14>SHOULD</bcp14> include the A and AAAA records for the name of the Designated Resolver
+in the Additional Answers section. This will save the DNS client an additional
+round trip to retrieve the address of the Designated Resolver; see <xref section="5" sectionFormat="of" target="RFC9460"/>.</t>
+      <t>Designated Resolvers <bcp14>SHOULD</bcp14> be accessible using the IP address families that
+are supported by their associated Unencrypted DNS Resolvers. If an Unencrypted DNS Resolver
+is accessible using an IPv4 address, it ought to provide an A record for an
+IPv4 address of the Designated Resolver; similarly, if it is accessible using an
+IPv6 address, it ought to provide a AAAA record for an IPv6 address of the
+Designated Resolver. The Designated Resolver <bcp14>MAY</bcp14> support more address families
+than the Unencrypted DNS Resolver, but it <bcp14>SHOULD NOT</bcp14> support fewer. If this is
+not done, clients that only have connectivity over one address family might not
+be able to access the Designated Resolver.</t>
+      <t>If the recursive resolver that receives this query has no Designated Resolvers,
+it <bcp14>SHOULD</bcp14> return NODATA for queries to the "resolver.arpa" zone, to provide
+a consistent and accurate signal to clients that it does not have a
+Designated Resolver.</t>
+      <section anchor="use-of-designated-resolvers">
+        <name>Use of Designated Resolvers</name>
+        <t>When a client discovers Designated Resolvers from an Unencrypted DNS Resolver IP
+address, it can choose to use these Designated Resolvers either (1)&nbsp;automatically or (2)&nbsp;based on some other policy, heuristic, or user choice.</t>
+        <t>This document defines two preferred methods for automatically using Designated
+Resolvers:</t>
+        <ul spacing="normal">
+          <li>Verified Discovery (<xref target="verified"/>), for when a TLS certificate can
+be used to validate the resolver's identity.</li>
+          <li>Opportunistic Discovery (<xref target="opportunistic"/>), for when a resolver's IP address
+is a private or local address.</li>
+        </ul>
+        <t>A client <bcp14>MAY</bcp14> additionally use a discovered Designated Resolver without
+either of these methods, based on implementation-specific policy or user input.
+Details of such policy are out of scope for this document. Clients <bcp14>MUST NOT</bcp14>
+automatically use a Designated Resolver without some sort of validation,
+such as the two methods defined in this document or a future mechanism. Use
+without validation can allow an attacker to direct traffic to an Encrypted DNS
+Resolver that is unrelated to the original Unencrypted DNS Resolver, as
+described in <xref target="security"/>.</t>
+        <t>A client <bcp14>MUST NOT</bcp14> reuse a designation discovered using the IP address of one
+Unencrypted DNS Resolver in place of any other Unencrypted DNS Resolver. Instead,
+the client needs to repeat the discovery process to discover the Designated Resolver
+of the other Unencrypted DNS Resolver. In other words, designations are
+per-resolver and <bcp14>MUST NOT</bcp14> be used to configure the client's universal DNS
+behavior. This ensures in all cases that queries are being sent to a party
+designated by the resolver originally being used.</t>
+        <section anchor="use-of-designated-resolvers-across-network-changes">
+          <name>Use of Designated Resolvers across Network Changes</name>
+          <t>If a client is configured with the same Unencrypted DNS Resolver IP address on
+multiple different networks, a Designated Resolver that has been discovered on one
+network <bcp14>SHOULD NOT</bcp14> be reused on any of the other networks without repeating the
+discovery process for each network, since the same IP address may be used for
+different servers on the different networks.</t>
+        </section>
+      </section>
+      <section anchor="verified">
+        <name>Verified Discovery</name>
+        <t>Verified Discovery is a mechanism that allows the automatic use of a
+Designated Resolver that supports DNS encryption that performs a TLS handshake.</t>
+        <t>In order to be considered a verified Designated Resolver, the TLS certificate
+presented by the Designated Resolver needs to pass the following checks made
+by the client:</t>
+        <ol spacing="normal" type="1"><li>The client <bcp14>MUST</bcp14> verify the chain of certificates up to a trust anchor
+as described in <xref section="6" sectionFormat="of" target="RFC5280"/>. The client <bcp14>SHOULD</bcp14> use the default
+system or application trust anchors, unless otherwise configured.</li>
+          <li>The client <bcp14>MUST</bcp14> verify that the certificate contains the IP address of the
+designating Unencrypted DNS Resolver in an iPAddress entry of the subjectAltName
+extension as described in <xref section="4.2.1.6" sectionFormat="of" target="RFC5280"/>.</li>
+        </ol>
+        <t>If these checks pass, the client <bcp14>SHOULD</bcp14> use the discovered Designated Resolver
+for any cases in which it would have otherwise used the Unencrypted DNS Resolver,
+so as to prefer encrypted DNS whenever possible.</t>
+        <t>If these checks fail, the client <bcp14>MUST NOT</bcp14> automatically use the discovered
+Designated Resolver if this designation was only discovered via a
+<tt>_dns.resolver.arpa.</tt>&nbsp;query (if the designation was advertised directly
+by the network as described in <xref target="dnr-interaction"/>, the server can still
+be used). Additionally, the client <bcp14>SHOULD</bcp14> suppress any further
+queries for Designated Resolvers using this Unencrypted DNS Resolver for the
+length of time indicated by the SVCB record's Time to Live (TTL) in order
+to avoid excessive queries that will lead to further failed validations.
+The client <bcp14>MAY</bcp14> issue new queries if the SVCB record's TTL is excessively
+long (as determined by client policy) to minimize the length of time an
+intermittent attacker can prevent the use of encrypted DNS.</t>
+        <t>If the Designated Resolver and the Unencrypted DNS Resolver share an IP
+address, clients <bcp14>MAY</bcp14> choose to opportunistically use the Designated Resolver even
+without this certificate check (<xref target="opportunistic"/>). If the IP address is not shared,
+opportunistic use allows for attackers to redirect queries to an unrelated Encrypted DNS
+Resolver, as described in <xref target="security"/>.</t>
+        <t>Connections to a Designated Resolver can use a different IP address than
+the IP address of the Unencrypted DNS Resolver -- for example, if the process of
+resolving the SVCB service yields additional addresses. Even when a different
+IP address is used for the connection, the TLS certificate checks described
+in this section still apply for the original IP address of the Unencrypted
+DNS Resolver.</t>
+      </section>
+      <section anchor="opportunistic">
+        <name>Opportunistic Discovery</name>
+        <t>There are situations where Verified Discovery of encrypted DNS
+configuration over unencrypted DNS is not possible. For example, the identities of Unencrypted DNS
+Resolvers on private IP addresses <xref target="RFC1918"/>, Unique Local Addresses (ULAs)
+<xref target="RFC4193"/>, and Link-Local addresses <xref target="RFC3927"/> <xref target="RFC4291"/> cannot be safely confirmed using TLS certificates under most conditions.</t>
+        <t>An opportunistic privacy profile is defined for DoT in <xref section="4.1" sectionFormat="of" target="RFC7858"/>
+as a mode in which clients do not validate the name of the resolver presented in
+the certificate. This opportunistic privacy profile similarly applies to
+DoQ <xref target="RFC9250"/>. For this profile, <xref section="4.1" sectionFormat="of" target="RFC7858"/> explains that
+clients might or might not validate the resolver; however, even if clients choose
+to perform some certificate validation checks, they will not be able to validate
+the names presented in the SubjectAltName (SAN) field of the certificate for
+private and local IP addresses.</t>
+        <t>A client <bcp14>MAY</bcp14> use information from the SVCB record for <tt>_dns.resolver.arpa.</tt>&nbsp;with
+this opportunistic privacy profile as long as the IP address of the Encrypted
+DNS Resolver does not differ from the IP address of the Unencrypted
+DNS Resolver. Clients <bcp14>SHOULD</bcp14> use this mode only for resolvers using private or
+local IP addresses, since resolvers that use other addresses are able to provision
+TLS certificates for their addresses.</t>
+      </section>
+    </section>
+    <section anchor="encrypted">
+      <name>Discovery Using Resolver Names</name>
+      <t>A DNS client that already knows the name of an Encrypted DNS Resolver can use DDR
+to discover details about all supported encrypted DNS protocols. This situation
+can arise if a client has been configured to use a given Encrypted DNS Resolver, or
+if a network provisioning protocol (such as DHCP or IPv6 RAs)
+provides a name for an Encrypted DNS Resolver alongside the resolver IP address,
+such as by using Discovery of Network-designated Resolvers (DNR) <xref target="RFC9463"/>.</t>
+      <t>For these cases, the client simply sends a DNS SVCB query using the known name
+of the resolver. This query can be issued to the named Encrypted DNS Resolver itself
+or to any other resolver. Unlike the case of bootstrapping from an Unencrypted DNS
+Resolver (<xref target="bootstrapping"/>), these records <bcp14>SHOULD</bcp14> be available in the public
+DNS if the same domain name's A or AAAA records are available in the
+public DNS to allow using any resolver to discover another resolver's Designated
+Resolvers. When the name can only be resolved in private namespaces,
+these records <bcp14>SHOULD</bcp14> be available to the same audience as the A and AAAA records.</t>
+      <t>For example, if the client already knows about a DoT server
+<tt>resolver.example.com</tt>, it can issue a SVCB query for
+<tt>_dns.resolver.example.com</tt> to discover if there are other encrypted DNS
+protocols available. In the following example, the SVCB answers indicate that
+<tt>resolver.example.com</tt> supports both DoH and DoT and that the DoH server
+indicates a higher priority than the DoT server.</t>
+      <artwork><![CDATA[
+_dns.resolver.example.com.  7200  IN SVCB 1 resolver.example.com. (
+     alpn=h2 dohpath=/dns-query{?dns} )
+_dns.resolver.example.com.  7200  IN SVCB 2 resolver.example.com. (
+     alpn=dot )
+]]></artwork>
+      <t>Clients <bcp14>MUST</bcp14> validate that for any Encrypted DNS Resolver discovered using a
+known resolver name, the TLS certificate of the resolver contains the
+known name in a subjectAltName extension. In the example above,
+this means that both servers need to have certificates that cover
+the name <tt>resolver.example.com</tt>. Often, the various supported encrypted
+DNS protocols will be specified such that the SVCB TargetName matches the
+known name, as is true in the example above. However, even when the
+TargetName is different (for example, if the DoH server had a TargetName of
+<tt>doh.example.com</tt>), the clients still check for the original known resolver
+name in the certificate.</t>
+      <t>Note that this resolver validation is not related to the DNS resolver that
+provided the SVCB answer.</t>
+      <t>As another example, being able to discover a Designated Resolver for a known
+Encrypted DNS Resolver is useful when a client has a DoT configuration for
+<tt>foo.resolver.example.com</tt> but is on a network that blocks DoT traffic. The
+client can still send a query to any other accessible resolver (either the local
+network resolver or an accessible DoH server) to discover if there is a designated
+DoH server for <tt>foo.resolver.example.com</tt>.</t>
+    </section>
+    <section anchor="deployment-considerations">
+      <name>Deployment Considerations</name>
+      <t>Resolver deployments that support DDR are advised to consider the following
+points.</t>
+      <section anchor="caching-forwarders">
+        <name>Caching Forwarders</name>
+        <t>A DNS forwarder <bcp14>SHOULD NOT</bcp14> forward queries for "resolver.arpa" (or any subdomains)
+upstream. This prevents a client from receiving a SVCB record that will fail to
+authenticate because the forwarder's IP address is not in the SubjectAltName (SAN) field of the upstream resolver's Designated Resolver's TLS certificate. A DNS forwarder that already acts as a
+completely transparent forwarder <bcp14>MAY</bcp14> choose to forward these queries when the operator
+expects that this does not apply, because the operator either knows that the upstream
+resolver does have the forwarder's IP address in its TLS certificate's SAN field
+or expects clients to validate the connection via some future mechanism.</t>
+        <t>Operators who choose to forward queries for "resolver.arpa" upstream should note
+that client behavior is never guaranteed and that the use of DDR by a resolver does not
+communicate a requirement for clients to use the SVCB record when it cannot be
+verified.</t>
+      </section>
+      <section anchor="certificate-management">
+        <name>Certificate Management</name>
+        <t>Resolver owners that support Verified Discovery will need to list valid
+referring IP addresses in their TLS certificates. This may pose challenges for
+resolvers with a large number of referring IP addresses.</t>
+      </section>
+      <section anchor="server-name-handling">
+        <name>Server Name Handling</name>
+        <t>Clients <bcp14>MUST NOT</bcp14> use "resolver.arpa" as the server name in either (1)&nbsp;the TLS
+Server Name Indication (SNI) <xref target="RFC8446"/> for DoT, DoQ, or DoH connections or (2)&nbsp;the URI host for DoH requests.</t>
+        <t>When performing discovery using resolver IP addresses, clients <bcp14>MUST</bcp14>
+use the original IP address of the Unencrypted DNS Resolver as the URI
+host for DoH requests.</t>
+        <t>Note that since IP addresses are not supported by default in the TLS SNI,
+resolvers that support discovery using IP addresses will need to be
+configured to present the appropriate TLS certificate when no SNI is present
+for DoT, DoQ, and DoH.</t>
+      </section>
+      <section anchor="handling-non-ddr-queries-for-resolverarpa">
+        <name>Handling Non-DDR Queries for resolver.arpa</name>
+        <t>DNS resolvers that support DDR by responding to queries for <tt>_dns.resolver.arpa.</tt>&nbsp;<bcp14>MUST</bcp14> treat resolver.arpa as a locally served zone per <xref target="RFC6303"/>.
+In practice, this means that resolvers <bcp14>SHOULD</bcp14> respond to queries of any type
+other than SVCB for <tt>_dns.resolver.arpa.</tt>&nbsp;with NODATA and queries of any
+type for any domain name under resolver.arpa with NODATA.</t>
+      </section>
+      <section anchor="dnr-interaction">
+        <name>Interaction with Network-Designated Resolvers</name>
+        <t>DNR <xref target="RFC9463"/> allows
+a network to provide designation of resolvers directly through DHCP <xref target="RFC2132"/>
+          <xref target="RFC8415"/> and through IPv6 RA options <xref target="RFC8106"/>. When such
+indications are present, clients can suppress queries for "resolver.arpa" to the
+unencrypted DNS server indicated by the network over DHCP or RAs, and the DNR
+indications <bcp14>SHOULD</bcp14> take precedence over those discovered using "resolver.arpa"
+for the same resolver if there is a conflict, since DNR is considered a more
+reliable source.</t>
+        <t>The Designated Resolver information in DNR might not contain a full set of
+SvcParams needed to connect to an Encrypted DNS Resolver. In such a case, the client
+can use a SVCB query using a resolver name, as described in <xref target="encrypted"/>, to the
+Authentication Domain Name (ADN).</t>
+      </section>
+    </section>
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>Since clients can receive DNS SVCB answers over unencrypted DNS, on-path
+attackers can prevent successful discovery by dropping SVCB queries or answers
+and thus can prevent clients from switching to using encrypted DNS.
+Clients should be aware that it might not be possible to distinguish between
+resolvers that do not have any Designated Resolver and such an active attack.
+To limit the impact of discovery queries being dropped either maliciously or
+unintentionally, clients can re-send their SVCB queries periodically.</t>
+      <t><xref section="8.2" sectionFormat="of" target="RFC9461"/> describes another type of downgrade attack
+where an attacker can block connections to the encrypted DNS server. For DDR,
+clients need to validate a Designated Resolver using a connection to the
+server before trusting it, so attackers that can block these connections can
+prevent clients from switching to using encrypted DNS.</t>
+      <t>Encrypted DNS Resolvers that allow discovery using DNS SVCB answers over unencrypted
+DNS <bcp14>MUST NOT</bcp14> provide differentiated behavior based solely on metadata in
+the SVCB record, such as the HTTP path or alternate port number, which
+are parameters that an attacker could modify. For example, if a
+DoH resolver provides a filtering service for one URI path and
+a non-filtered service for another URI path, an attacker could select
+which of these services is used by modifying the "dohpath" parameter.
+These attacks can be mitigated by providing separate resolver IP
+addresses or hostnames.</t>
+      <t>While the IP address of the Unencrypted DNS Resolver is often provisioned over
+insecure mechanisms, it can also be provisioned securely, such as via manual
+configuration, on a VPN, or on a network with protections like RA-Guard
+<xref target="RFC6105"/>. An attacker might try to direct encrypted DNS traffic to itself by
+causing the client to think that a discovered Designated Resolver uses
+a different IP address from the Unencrypted DNS Resolver. Such a Designated Resolver
+might have a valid certificate but might be operated by an attacker that is trying to
+observe or modify user queries without the knowledge of the client or network.</t>
+      <t>If the IP address of a Designated Resolver differs from that of an
+Unencrypted DNS Resolver, clients applying Verified Discovery (<xref target="verified"/>) <bcp14>MUST</bcp14>
+validate that the IP address of the Unencrypted DNS Resolver is covered by the
+SubjectAltName (SAN) of the Designated Resolver's TLS certificate. If that
+validation fails, the client <bcp14>MUST NOT</bcp14> automatically use the discovered Designated
+Resolver.</t>
+      <t>Clients using Opportunistic Discovery (<xref target="opportunistic"/>) <bcp14>MUST</bcp14> be limited to cases
+where the Unencrypted DNS Resolver and Designated Resolver have the same IP address,
+which <bcp14>SHOULD</bcp14> be a private or local IP address.
+Clients that do not follow Opportunistic Discovery (<xref target="opportunistic"/>) and instead
+try to connect without first checking for a designation run the possible risk of
+being intercepted by an attacker hosting an Encrypted DNS Resolver on an IP address of
+an Unencrypted DNS Resolver where the attacker has failed to gain control of the
+Unencrypted DNS Resolver.</t>
+      <t>The constraints on the use of Designated Resolvers specified here apply
+specifically to the automatic discovery mechanisms defined in this document, which are
+referred to as Verified Discovery and Opportunistic Discovery. Clients
+<bcp14>MAY</bcp14> use some other mechanism to verify and use Designated Resolvers discovered
+using the DNS SVCB record. However, the use of such an alternate mechanism needs
+to take into account the attack scenarios detailed here.</t>
+    </section>
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <section anchor="special-use-domain-name-resolverarpa">
+        <name>Special-Use Domain Name "resolver.arpa"</name>
+        <t>IANA has registered "resolver.arpa" in the "Special-Use
+Domain Names" registry established by <xref target="RFC6761"/>.</t>
+        <t>IANA has added an entry in the "Transport-Independent Locally-Served
+DNS Zone Registry" for 'resolver.arpa.' with the description "DNS Resolver
+Special-Use Domain" and listed this document as the reference.</t>
+      </section>
+      <section anchor="domain-name-reservation-considerations">
+        <name>Domain Name Reservation Considerations</name>
+        <t>In accordance with <xref section="5" sectionFormat="of" target="RFC6761"/>, the answers to the following
+questions are provided relative to this document:</t>
+      <ol spacing="normal" type="1">
+      <li><t>Are human users expected to recognize these names as special and use them
+differently? In what way?</t>
+        <t>No. This name is used automatically by DNS stub resolvers running on client devices on behalf of users, and users will never see this name directly.</t></li>
+        <li><t>Are writers of application software expected to make their software
+recognize these names as special and treat them differently? In what way?</t>
+        <t>No. There is no use case where a non-DNS application (covered by the next
+question) would need to use this name.</t></li>
+        <li><t>Are writers of name resolution APIs and libraries expected to make their
+software recognize these names as special and treat them differently? If so, how?</t>
+        <t>Yes. &nbsp;DNS client implementors are expected to use this name when querying for
+a resolver's properties instead of records for the name itself. DNS servers
+are expected to respond to queries for this name with their own properties
+instead of checking the matching zone as it would for normal domain names.</t></li>
+        <li><t>Are developers of caching domain name servers expected to make their
+implementations recognize these names as special and treat them differently?
+If so, how?</t>
+        <t>Yes. &nbsp;Caching domain name servers should not forward queries for this name, to
+avoid causing validation failures due to IP address mismatch.</t></li>
+        <li><t>Are developers of authoritative domain name servers expected to make their
+implementations recognize these names as special and treat them differently?
+If so, how?</t>
+        <t>No. DDR is designed for use by recursive resolvers. Theoretically, an authoritative
+server could choose to support this name if it wants to advertise support for
+encrypted DNS protocols over plaintext DNS, but that scenario is covered
+by other work in the IETF DNSOP Working Group.</t></li>
+        <li><t>Does this reserved Special-Use Domain Name have any potential impact on
+DNS server operators? If they try to configure their authoritative DNS server
+as authoritative for this reserved name, will compliant name server software
+reject it as invalid? Do DNS server operators need to know about that and
+understand why? Even if the name server software doesn't prevent them from
+using this reserved name, are there other ways that it may not work as expected,
+of which the DNS server operator should be aware?</t>
+        <t>This name is locally served, and any resolver that supports this name should
+never forward the query. DNS server operators should be aware that records for
+this name will be used by clients to modify the way they connect to their
+resolvers.</t></li>
+        <li><t>How should DNS Registries/Registrars treat requests to register this reserved
+domain name? Should such requests be denied? Should such requests be allowed,
+but only to a specially designated entity?</t>
+        <t>IANA holds the registration for this name. Non-IANA requests to register
+this name should always be denied by DNS Registries/Registrars.</t></li>
+      </ol>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="I-D.schinazi-httpbis-doh-preference-hints" to="DoH-HINTS"/>
+<displayreference target="I-D.ietf-tls-esni" to="ECH"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7858.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9250.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8484.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6761.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+<!-- draft-ietf-dnsop-svcb-https (RFC 9460) -->
+<reference anchor='RFC9460' target='https://www.rfc-editor.org/info/rfc9460'>
+<front>
+<title>Service Binding and Parameter Specification via the DNS (SVCB and HTTPS Resource Records)</title>
+<author initials='B' surname='Schwartz' fullname='Benjamin Schwartz'>
+<organization />
+</author>
+<author initials='M' surname='Bishop' fullname='Mike Bishop'>
+<organization />
+</author>
+<author initials='E' surname='Nygren' fullname='Erik Nygren'>
+<organization />
+</author>
+<date month="November" year="2023"/>
+</front>
+<seriesInfo name="RFC" value="9460"/>
+<seriesInfo name="DOI" value="10.17487/RFC9460"/>
+</reference>
+
+<!-- draft-ietf-add-svcb-dns (RFC 9461) -->
+<reference anchor='RFC9461' target='https://www.rfc-editor.org/info/rfc9461'>
+<front>
+<title>Service Binding Mapping for DNS Servers</title>
+<author initials="B." surname="Schwartz" fullname="Benjamin Schwartz">
+</author>
+<date month="November" year="2023"/>
+</front>
+<seriesInfo name="RFC" value="9461"/>
+<seriesInfo name="DOI" value="10.17487/RFC9461"/>
+</reference>
+	  
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1918.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4193.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3927.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4291.xml"/>
+
+<!-- draft-ietf-add-dnr (RFC 9463) -->
+<reference anchor='RFC9463' target='https://www.rfc-editor.org/info/rfc9463'>
+<front>
+<title>
+DHCP and Router Advertisement Options for the Discovery of Network-designated Resolvers (DNR)
+</title>
+<author initials="M." surname="Boucadair" fullname="Mohamed Boucadair" role="editor">
+</author>
+<author initials="T." surname="Reddy.K" fullname="Tirumaleswar Reddy.K" role="editor">
+</author>
+<author initials="D." surname="Wing" fullname="Dan Wing">
+</author>
+<author initials="N." surname="Cook" fullname="Neil Cook">
+</author>
+<author initials="T." surname="Jensen" fullname="Tommy Jensen">
+</author>
+<date month="November" year="2023"/>
+</front>
+<seriesInfo name="RFC" value="9463"/>
+<seriesInfo name="DOI" value="10.17487/RFC9463"/>
+</reference>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6303.xml"/>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2132.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8415.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8106.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6105.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8880.xml"/>
+
+<!-- draft-schinazi-httpbis-doh-preference-hints (Expired) -->
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.schinazi-httpbis-doh-preference-hints.xml"/>
+
+<!-- draft-ietf-tls-esni (I-D Exists) -->
+<xi:include
+href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-tls-esni.xml"/>
+
+      </references>
+    </references>
+    <section anchor="rationale-for-using-a-special-use-domain-name">
+      <name>Rationale for Using a Special-Use Domain Name</name>
+      <t>The "resolver.arpa" SUDN is similar to "ipv4only.arpa" in that the querying
+client is not interested in an answer from the authoritative "arpa" name
+servers. The intent of the SUDN is to allow clients to communicate with the
+Unencrypted DNS Resolver much like "ipv4only.arpa" allows for client-to-middlebox
+communication. For more context, see <xref target="RFC8880"/> for the rationale behind "ipv4only.arpa".</t>
+    </section>
+    <section anchor="rationale">
+      <name>Rationale for Using SVCB Records</name>
+      <t>These mechanisms use SVCB/HTTPS resource records <xref target="RFC9460"/>
+to communicate that a given domain designates a particular Designated
+Resolver for clients to use in place of an Unencrypted DNS Resolver (using a SUDN)
+or another Encrypted DNS Resolver (using its domain name).</t>
+      <t>There are various other proposals for how to provide similar functionality.
+There are several reasons that these mechanisms have chosen SVCB records:</t>
+      <ul spacing="normal">
+        <li>Discovering Encrypted DNS Resolvers using DNS records keeps client logic for DNS
+self-contained and allows a DNS resolver operator to define which resolver names
+and IP addresses are related to one another.</li>
+        <li>Using DNS records also does not rely on bootstrapping with higher-level
+application operations (such as those discussed in <xref target="I-D.schinazi-httpbis-doh-preference-hints"/>).</li>
+        <li>SVCB records are extensible and allow the definition of parameter keys, making them a superior mechanism for extensibility as compared to approaches such as
+overloading TXT records. The same keys can be used for discovering Designated
+Resolvers of different transport types as well as those advertised by
+Unencrypted DNS Resolvers or another Encrypted DNS Resolver.</li>
+        <li>Clients and servers that are interested in privacy of names will already need
+to support SVCB records in order to use the TLS Encrypted ClientHello
+<xref target="I-D.ietf-tls-esni"/>. Without encrypting names in TLS, the value of encrypting
+DNS is reduced, so pairing the solutions provides the greatest benefit.</li>
+      </ul>
+    </section>
+  </back>
+</rfc>

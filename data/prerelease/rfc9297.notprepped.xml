@@ -1,0 +1,662 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<?xml-stylesheet type="text/xsl" href="rfc2629.xslt" ?>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-masque-h3-datagram-latest" category="std" consensus="true" submissionType="IETF" number="9297" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <link href="https://datatracker.ietf.org/doc/draft-ietf-masque-h3-datagram-latest" rel="prev"/>
+  <front>
+    <title abbrev="HTTP Datagrams">HTTP Datagrams and the Capsule Protocol</title>
+    <seriesInfo name="RFC" value="9297"/>
+    <author initials="D." surname="Schinazi" fullname="David Schinazi">
+      <organization>Google LLC</organization>
+      <address>
+        <postal>
+          <street>1600 Amphitheatre Parkway</street>
+          <city>Mountain View</city>
+          <region>CA</region>
+          <code>94043</code>
+          <country>United States of America</country>
+        </postal>
+        <email>dschinazi.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author initials="L." surname="Pardue" fullname="Lucas Pardue">
+      <organization>Cloudflare</organization>
+      <address>
+        <email>lucaspardue.24.7@gmail.com</email>
+      </address>
+    </author>
+    <date year="2022" month="August"/>
+    <area>Transport</area>
+    <workgroup>MASQUE</workgroup>
+    <keyword>quic</keyword>
+    <keyword>http</keyword>
+    <keyword>datagram</keyword>
+    <keyword>fast</keyword>
+    <keyword>tunnels</keyword>
+    <keyword>turtles all the way down</keyword>
+    <keyword>masque</keyword>
+    <keyword>http-ng</keyword>
+    <abstract>
+      <t>This document describes HTTP Datagrams, a convention for conveying multiplexed,
+potentially unreliable datagrams inside an HTTP connection.</t>
+      <t>In HTTP/3, HTTP Datagrams can be sent unreliably using the QUIC DATAGRAM
+extension. When the QUIC DATAGRAM frame is unavailable or undesirable, HTTP
+Datagrams can be sent using the Capsule Protocol, which is a more general
+convention for conveying data in HTTP connections.</t>
+      <t>HTTP Datagrams and the Capsule Protocol are intended for use by HTTP extensions,
+not applications.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>HTTP extensions (as defined in <xref section="16" sectionFormat="of" target="RFC9110"/>) sometimes need
+to access underlying transport protocol features such as unreliable delivery (as
+offered by <xref target="RFC9221"/>) to enable desirable features. For example,
+this could allow for the introduction of an unreliable version of the CONNECT
+method and the addition of unreliable delivery to WebSockets
+<xref target="RFC6455"/>.</t>
+      <t>In <xref target="datagrams"/>, this document describes HTTP Datagrams, a convention
+for conveying bidirectional and potentially unreliable datagrams inside
+an HTTP connection, with multiplexing when possible.  While HTTP Datagrams are associated with HTTP requests, they
+are not a part of message content. Instead, they are intended for use by HTTP
+extensions (such as the CONNECT method) and are compatible with all versions of
+HTTP.</t>
+      <t>When HTTP is running over a transport protocol that supports unreliable delivery
+(such as when the QUIC DATAGRAM extension <xref target="RFC9221"/> is available to HTTP/3
+<xref target="RFC9114"/>), HTTP Datagrams can use that capability.</t>
+      <t>In <xref target="capsule"/>, this document describes the HTTP Capsule Protocol, which allows the conveyance of HTTP Datagrams using reliable delivery. This addresses HTTP/3 cases where
+use of the QUIC DATAGRAM frame is unavailable or undesirable or where the
+transport protocol only provides reliable delivery, such as with HTTP/1.1 <xref target="RFC9112"/>
+or HTTP/2 <xref target="RFC9113"/> over TCP <xref target="RFC9293"/>.</t>
+      <section anchor="defs">
+        <name>Conventions and Definitions</name>
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+"<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they
+appear in all capitals, as shown here.</t>
+        <t>This document uses terminology from <xref target="RFC9000"/>.</t>
+        <t>Where this document defines protocol types, the definition format uses the
+notation from <xref section="1.3" sectionFormat="of" target="RFC9000"/>. Where fields within types are integers,
+they are encoded using the variable-length integer encoding from <xref section="16" sectionFormat="of" target="RFC9000"/>. Integer values do not need to be encoded on the minimum number of bytes
+necessary.</t>
+        <t>In this document, the term "intermediary" refers to an HTTP intermediary as
+defined in <xref section="3.7" sectionFormat="of" target="RFC9110"/>.</t>
+      </section>
+    </section>
+    <section anchor="datagrams">
+      <name>HTTP Datagrams</name>
+      <t>HTTP Datagrams are a convention for conveying bidirectional and potentially
+unreliable datagrams inside an HTTP connection with multiplexing when
+possible. All HTTP Datagrams are associated with an HTTP request.</t>
+      <t>When HTTP Datagrams are conveyed on an HTTP/3 connection, the QUIC DATAGRAM
+frame can be used to provide demultiplexing and unreliable delivery; see
+<xref target="format"/>. Negotiating the use of QUIC DATAGRAM frames for HTTP Datagrams is
+achieved via the exchange of HTTP/3 settings; see <xref target="setting"/>.</t>
+      <t>When running over HTTP/2, demultiplexing is provided by the HTTP/2 framing
+layer, but unreliable delivery is unavailable. HTTP Datagrams are negotiated
+and conveyed using the Capsule Protocol; see <xref target="datagram-capsule"/>.</t>
+      <t>When running over HTTP/1.x, requests are strictly serialized in the connection;
+therefore, demultiplexing is not available. Unreliable delivery is likewise not
+available. HTTP Datagrams are negotiated and conveyed using the Capsule
+Protocol; see <xref target="datagram-capsule"/>.</t>
+      <t>HTTP Datagrams <bcp14>MUST</bcp14> only be sent with an association to an HTTP request that
+explicitly supports them. For example, existing HTTP methods GET and POST do not
+define semantics for associated HTTP Datagrams; therefore, HTTP Datagrams
+associated with GET or POST request streams cannot be sent.</t>
+      <t>If an HTTP Datagram is received and it is associated with a request that has no
+known semantics for HTTP Datagrams, the receiver <bcp14>MUST</bcp14> terminate the request. If
+HTTP/3 is in use, the request stream <bcp14>MUST</bcp14> be aborted with H3_DATAGRAM_ERROR
+(0x33). HTTP extensions <bcp14>MAY</bcp14> override these requirements by defining a
+negotiation mechanism and semantics for HTTP Datagrams.</t>
+      <section anchor="format">
+        <name>HTTP/3 Datagrams</name>
+        <t>When used with HTTP/3, the Datagram Data field of QUIC DATAGRAM frames uses the
+following format:</t>
+        <figure anchor="h3-datagram-format">
+          <name>HTTP/3 Datagram Format</name>
+          <artwork><![CDATA[
+HTTP/3 Datagram {
+  Quarter Stream ID (i),
+  HTTP Datagram Payload (..),
+}
+]]></artwork>
+        </figure>
+        <dl>
+          <dt>Quarter Stream ID:</dt>
+          <dd>
+            <t>A variable-length integer that contains the value of the client-initiated
+bidirectional stream that this datagram is associated with divided by four (the
+division by four stems from the fact that HTTP requests are sent on
+client-initiated bidirectional streams, which have stream IDs that are divisible
+by four). The largest legal QUIC stream ID value is 2<sup>62</sup>-1, so the
+largest legal value of the Quarter Stream ID field is 2<sup>60</sup>-1. Receipt
+of an HTTP/3 Datagram that includes a larger value <bcp14>MUST</bcp14> be treated as an HTTP/3
+connection error of type H3_DATAGRAM_ERROR (0x33).</t>
+          </dd>
+          <dt>HTTP Datagram Payload:</dt>
+          <dd>
+            <t>The payload of the datagram, whose semantics are defined by the extension that
+is using HTTP Datagrams. Note that this field can be empty.</t>
+          </dd>
+        </dl>
+        <t>Receipt of a QUIC DATAGRAM frame whose payload is too short to allow parsing the
+Quarter Stream ID field <bcp14>MUST</bcp14> be treated as an HTTP/3 connection error of type
+H3_DATAGRAM_ERROR (0x33).</t>
+        <t>HTTP/3 Datagrams <bcp14>MUST NOT</bcp14> be sent unless the corresponding stream's send side is
+open. If a datagram is received after the corresponding stream's receive side is
+closed, the received datagrams <bcp14>MUST</bcp14> be silently dropped.</t>
+        <t>If an HTTP/3 Datagram is received and its Quarter Stream ID field maps to a
+stream that has not yet been created, the receiver <bcp14>SHALL</bcp14> either drop that
+datagram silently or buffer it temporarily (on the order of a round trip) while
+awaiting the creation of the corresponding stream.</t>
+        <t>If an HTTP/3 Datagram is received and its Quarter Stream ID field maps to a
+stream that cannot be created due to client-initiated bidirectional stream
+limits, it <bcp14>SHOULD</bcp14> be treated as an HTTP/3 connection error of type H3_ID_ERROR.
+Generating an error is not mandatory because the QUIC stream limit might be
+unknown to the HTTP/3 layer.</t>
+        <t>Prioritization of HTTP/3 Datagrams is not defined in this document. Future
+extensions <bcp14>MAY</bcp14> define how to prioritize datagrams and <bcp14>MAY</bcp14> define signaling to
+allow communicating prioritization preferences.</t>
+        <section anchor="setting">
+          <name>The SETTINGS_H3_DATAGRAM HTTP/3 Setting</name>
+          <t>An endpoint can indicate to its peer that it is willing to receive HTTP/3
+Datagrams by sending the SETTINGS_H3_DATAGRAM (0x33) setting with a value of 1.</t>
+          <t>The value of the SETTINGS_H3_DATAGRAM setting <bcp14>MUST</bcp14> be either 0 or 1. A value
+of 0 indicates that the implementation is not willing to receive HTTP Datagrams.
+If the SETTINGS_H3_DATAGRAM setting is received with a value that is neither 0
+nor 1, the receiver <bcp14>MUST</bcp14> terminate the connection with error H3_SETTINGS_ERROR.</t>
+          <t>QUIC DATAGRAM frames <bcp14>MUST NOT</bcp14> be sent until the SETTINGS_H3_DATAGRAM setting
+has been both sent and received with a value of 1.</t>
+          <t>When clients use 0-RTT, they <bcp14>MAY</bcp14> store the value of the server's
+SETTINGS_H3_DATAGRAM setting. Doing so allows the client to send QUIC DATAGRAM
+frames in 0-RTT packets. When servers decide to accept 0-RTT data, they <bcp14>MUST</bcp14>
+send a SETTINGS_H3_DATAGRAM setting greater than or equal to the value they sent
+to the client in the connection where they sent them the NewSessionTicket
+message. If a client stores the value of the SETTINGS_H3_DATAGRAM setting with
+their 0-RTT state, they <bcp14>MUST</bcp14> validate that the new value of the
+SETTINGS_H3_DATAGRAM setting sent by the server in the handshake is greater than
+or equal to the stored value; if not, the client <bcp14>MUST</bcp14> terminate the connection
+with error H3_SETTINGS_ERROR. In all cases, the maximum permitted value of the
+SETTINGS_H3_DATAGRAM setting parameter is 1.</t>
+          <t>It is <bcp14>RECOMMENDED</bcp14> that implementations that support receiving HTTP/3 Datagrams
+always send the SETTINGS_H3_DATAGRAM setting with a value of 1,
+even if the application does not intend to use HTTP/3 Datagrams. This helps to
+avoid "sticking out"; see <xref target="security"/>.</t>
+        </section>
+      </section>
+      <section anchor="http-datagrams-using-capsules">
+        <name>HTTP Datagrams Using Capsules</name>
+        <t>When HTTP/3 Datagrams are unavailable or undesirable, HTTP Datagrams can be sent
+using the Capsule Protocol; see <xref target="datagram-capsule"/>.</t>
+      </section>
+    </section>
+    <section anchor="capsule">
+      <name>Capsules</name>
+      <t>One mechanism to extend HTTP is to introduce new HTTP upgrade tokens; see
+<xref section="16.7" sectionFormat="of" target="RFC9110"/>. In HTTP/1.x, these tokens are used via the Upgrade
+mechanism; see <xref section="7.8" sectionFormat="of" target="RFC9110"/>. In HTTP/2 and HTTP/3, these tokens are
+used via the Extended CONNECT mechanism; see <xref target="RFC8441"/> and
+<xref target="RFC9220"/>.</t>
+      <t>This specification introduces the Capsule Protocol. The Capsule Protocol is a
+sequence of type-length-value tuples that definitions of new HTTP upgrade tokens
+can choose to use. It allows endpoints to reliably communicate request-related
+information end-to-end on HTTP request streams, even in the presence of HTTP
+intermediaries. The Capsule Protocol can be used to exchange HTTP Datagrams,
+which is necessary when HTTP is running over a transport that does not support
+the QUIC DATAGRAM frame. The Capsule Protocol can also be used to communicate
+reliable and bidirectional control messages associated with a datagram-based
+protocol even when HTTP/3 Datagrams are in use.</t>
+      <section anchor="data-stream">
+        <name>HTTP Data Streams</name>
+        <t>This specification defines the "data stream" of an HTTP request as the
+bidirectional stream of bytes that follows the header section of the request
+message and the final response message that is either successful (i.e., 2xx) or
+upgraded (i.e., 101).</t>
+        <t>In HTTP/1.x, the data stream consists of all bytes on the connection that follow
+the blank line that concludes either the request header section or the final
+response header section. As a result, only the last HTTP request on an HTTP/1.x
+connection can start the Capsule Protocol.</t>
+        <t>In HTTP/2 and HTTP/3, the data stream of a given HTTP request consists of all
+bytes sent in DATA frames with the corresponding stream ID.</t>
+        <t>The concept of a data stream is particularly relevant for methods such as
+CONNECT, where there is no HTTP message content after the headers.</t>
+        <t>Data streams can be prioritized using any means suited to stream or request
+prioritization. For example, see <xref section="11" sectionFormat="of" target="RFC9218"/>.</t>
+        <t>Data streams are subject to the flow control mechanisms of the underlying
+layers; examples include HTTP/2 stream flow control, HTTP/2 connection flow
+control, and TCP flow control.</t>
+      </section>
+      <section anchor="capsule-protocol">
+        <name>The Capsule Protocol</name>
+        <t>Definitions of new HTTP upgrade tokens can state that their associated request's
+data stream uses the Capsule Protocol. If they do so, the contents of the
+associated request's data stream uses the following format:</t>
+        <figure anchor="capsule-stream-format">
+          <name>Capsule Protocol Stream Format</name>
+          <artwork><![CDATA[
+Capsule Protocol {
+  Capsule (..) ...,
+}
+]]></artwork>
+        </figure>
+        <figure anchor="capsule-format">
+          <name>Capsule Format</name>
+          <artwork><![CDATA[
+Capsule {
+  Capsule Type (i),
+  Capsule Length (i),
+  Capsule Value (..),
+}
+]]></artwork>
+        </figure>
+        <dl>
+          <dt>Capsule Type:</dt>
+          <dd>
+            <t>A variable-length integer indicating the type of the capsule. An IANA registry
+is used to manage the assignment of Capsule Types; see <xref target="iana-types"/>.</t>
+          </dd>
+          <dt>Capsule Length:</dt>
+          <dd>
+            <t>The length, in bytes, of the Capsule Value field, which follows this field,
+encoded as a variable-length integer. Note that this field can have a value of
+zero.</t>
+          </dd>
+          <dt>Capsule Value:</dt>
+          <dd>
+            <t>The payload of this Capsule. Its semantics are determined by the value of the
+Capsule Type field.</t>
+          </dd>
+        </dl>
+        <t>An intermediary can identify the use of the Capsule Protocol either through the
+presence of the Capsule-Protocol header field (<xref target="hdr"/>) or by understanding the
+chosen HTTP Upgrade token.</t>
+        <t>Because new protocols or extensions might define new Capsule Types,
+intermediaries that wish to allow for future extensibility <bcp14>SHOULD</bcp14> forward
+Capsules without modification unless the definition of the Capsule Type in use
+specifies additional intermediary processing. One such Capsule Type is the
+DATAGRAM Capsule; see <xref target="datagram-capsule"/>. In particular, intermediaries <bcp14>SHOULD</bcp14>
+forward Capsules with an unknown Capsule Type without modification.</t>
+        <t>Endpoints that receive a Capsule with an unknown Capsule Type <bcp14>MUST</bcp14> silently
+drop that Capsule and skip over it to parse the next Capsule.</t>
+        <t>By virtue of the definition of the data stream:</t>
+        <ul spacing="normal">
+          <li>The Capsule Protocol is not in use unless the response includes a 2xx
+(Successful) or 101 (Switching Protocols) status code.</li>
+          <li>When the Capsule Protocol is in use, the associated HTTP request and response
+do not carry HTTP content. A future extension <bcp14>MAY</bcp14> define a new Capsule Type to
+carry HTTP content.</li>
+        </ul>
+        <t>The Capsule Protocol only applies to definitions of new HTTP upgrade tokens;
+thus, in HTTP/2 and HTTP/3, it can only be used with the CONNECT method.
+Therefore, once both endpoints agree to use the Capsule Protocol, the frame
+usage requirements of the stream change as specified in <xref section="8.5" sectionFormat="of" target="RFC9113"/>
+and <xref section="4.4" sectionFormat="of" target="RFC9114"/>.</t>
+        <t>The Capsule Protocol <bcp14>MUST NOT</bcp14> be used with messages that contain Content-Length,
+Content-Type, or Transfer-Encoding header fields. Additionally, HTTP status
+codes 204 (No Content), 205 (Reset Content), and 206 (Partial Content) <bcp14>MUST NOT</bcp14>
+be sent on responses that use the Capsule Protocol. A receiver that observes a
+violation of these requirements <bcp14>MUST</bcp14> treat the HTTP message as malformed.</t>
+        <t>When processing Capsules, a receiver might be tempted to accumulate the full
+length of the Capsule Value field in the data stream before handling it. This
+approach <bcp14>SHOULD</bcp14> be avoided because it can consume flow control in underlying
+layers, and that might lead to deadlocks if the Capsule data exhausts the flow
+control window.</t>
+      </section>
+      <section anchor="error-handling">
+        <name>Error Handling</name>
+        <t>When a receiver encounters an error processing the Capsule Protocol, the
+receiver <bcp14>MUST</bcp14> treat it as if it had received a malformed or incomplete HTTP
+message. For HTTP/3, the handling of malformed messages is described in
+<xref section="4.1.2" sectionFormat="of" target="RFC9114"/>. For HTTP/2, the handling of malformed messages is
+described in <xref section="8.1.1" sectionFormat="of" target="RFC9113"/>. For HTTP/1.x, the handling of incomplete
+messages is described in <xref section="8" sectionFormat="of" target="RFC9112"/>.</t>
+        <t>Each Capsule's payload <bcp14>MUST</bcp14> contain exactly the fields identified in its
+description. A Capsule payload that contains additional bytes after the
+identified fields or a Capsule payload that terminates before the end of the
+identified fields <bcp14>MUST</bcp14> be treated as it if were a malformed or incomplete
+message. In particular, redundant length encodings <bcp14>MUST</bcp14> be verified to be
+self-consistent.</t>
+        <t>If the receive side of a stream carrying Capsules is terminated cleanly (for
+example, in HTTP/3 this is defined as receiving a QUIC STREAM frame with the FIN
+bit set) and the last Capsule on the stream was truncated, this <bcp14>MUST</bcp14> be treated
+as if it were a malformed or incomplete message.</t>
+      </section>
+      <section anchor="hdr">
+        <name>The Capsule-Protocol Header Field</name>
+        <t>The "Capsule-Protocol" header field is an Item Structured Field; see <xref section="3.3" sectionFormat="of" target="RFC8941"/>. Its value <bcp14>MUST</bcp14> be a Boolean; any other
+value type <bcp14>MUST</bcp14> be handled as if the field were not present by recipients (for
+example, if this field is included multiple times, its type will become a List
+and the field will be ignored). This document does not define any parameters for
+the Capsule-Protocol header field value, but future documents might define
+parameters. Receivers <bcp14>MUST</bcp14> ignore unknown parameters.</t>
+        <t>Endpoints indicate that the Capsule Protocol is in use on a data stream by
+sending a Capsule-Protocol header field with a true value. A Capsule-Protocol
+header field with a false value has the same semantics as when the header is not
+present.</t>
+        <t>Intermediaries <bcp14>MAY</bcp14> use this header field to allow processing of HTTP Datagrams
+for unknown HTTP upgrade tokens. Note that this is only possible for HTTP
+Upgrade or Extended CONNECT.</t>
+        <t>The Capsule-Protocol header field <bcp14>MUST NOT</bcp14> be used on HTTP responses with a
+status code that is both different from 101 (Switching Protocols) and outside
+the 2xx (Successful) range.</t>
+        <t>When using the Capsule Protocol, HTTP endpoints <bcp14>SHOULD</bcp14> send the Capsule-Protocol
+header field to simplify intermediary processing. Definitions of new HTTP
+upgrade tokens that use the Capsule Protocol <bcp14>MAY</bcp14> alter this recommendation.</t>
+      </section>
+      <section anchor="datagram-capsule">
+        <name>The DATAGRAM Capsule</name>
+        <t>This document defines the DATAGRAM (0x00) Capsule Type. This Capsule allows HTTP
+Datagrams to be sent on a stream using the Capsule Protocol. This is
+particularly useful when HTTP is running over a transport that does not support
+the QUIC DATAGRAM frame.</t>
+        <figure anchor="datagram-capsule-format">
+          <name>DATAGRAM Capsule Format</name>
+          <artwork type="ascii-art"><![CDATA[
+Datagram Capsule {
+  Type (i) = 0x00,
+  Length (i),
+  HTTP Datagram Payload (..),
+}
+]]></artwork>
+        </figure>
+        <dl>
+          <dt>HTTP Datagram Payload:</dt>
+          <dd>
+            <t>The payload of the datagram, whose semantics are defined by the extension that
+is using HTTP Datagrams. Note that this field can be empty.</t>
+          </dd>
+        </dl>
+        <t>HTTP Datagrams sent using the DATAGRAM Capsule have the same semantics as those
+sent in QUIC DATAGRAM frames. In particular, the restrictions on when it is
+allowed to send an HTTP Datagram and how to process them (from <xref target="format"/>) also
+apply to HTTP Datagrams sent and received using the DATAGRAM Capsule.</t>
+        <t>An intermediary can re-encode HTTP Datagrams as it forwards them. In other
+words, an intermediary <bcp14>MAY</bcp14> send a DATAGRAM Capsule to forward an HTTP Datagram
+that was received in a QUIC DATAGRAM frame and vice versa. Intermediaries <bcp14>MUST
+NOT</bcp14> perform this re-encoding unless they have identified the use of the Capsule
+Protocol on the corresponding request stream; see <xref target="capsule-protocol"/>.</t>
+        <t>Note that while DATAGRAM Capsules, which are sent on a stream, are reliably
+delivered in order, intermediaries can re-encode DATAGRAM Capsules into QUIC
+DATAGRAM frames when forwarding messages, which could result in loss or
+reordering.</t>
+        <t>If an intermediary receives an HTTP Datagram in a QUIC DATAGRAM frame and is
+forwarding it on a connection that supports QUIC DATAGRAM frames, the
+intermediary <bcp14>SHOULD NOT</bcp14> convert that HTTP Datagram to a DATAGRAM Capsule. If the
+HTTP Datagram is too large to fit in a DATAGRAM frame (for example, because the
+Path MTU (PMTU) of that QUIC connection is too low or if the maximum UDP payload
+size advertised on that connection is too low), the intermediary <bcp14>SHOULD</bcp14> drop the
+HTTP Datagram instead of converting it to a DATAGRAM Capsule. This preserves the
+end-to-end unreliability characteristic that methods such as Datagram
+Packetization Layer PMTU Discovery (DPLPMTUD) depend on <xref target="RFC8899"/>.
+An intermediary that converts QUIC DATAGRAM frames to DATAGRAM Capsules allows
+HTTP Datagrams to be arbitrarily large without suffering any loss. This can
+misrepresent the true path properties, defeating methods such as DPLPMTUD.</t>
+        <t>While DATAGRAM Capsules can theoretically carry a payload of length
+2<sup>62</sup>-1, most HTTP extensions that use HTTP Datagrams will have their
+own limits on what datagram payload sizes are practical. Implementations <bcp14>SHOULD</bcp14>
+take those limits into account when parsing DATAGRAM Capsules. If an incoming
+DATAGRAM Capsule has a length that is known to be so large as to not be usable,
+the implementation <bcp14>SHOULD</bcp14> discard the Capsule without buffering its contents
+into memory.</t>
+        <t>Since QUIC DATAGRAM frames are required to fit within a QUIC packet,
+implementations that re-encode DATAGRAM Capsules into QUIC DATAGRAM frames might
+be tempted to accumulate the entire Capsule in the stream before re-encoding it.
+This <bcp14>SHOULD</bcp14> be avoided, because it can cause flow control problems; see
+<xref target="capsule-protocol"/>.</t>
+        <t>Note that it is possible for an HTTP extension to use HTTP Datagrams without
+using the Capsule Protocol. For example, if an HTTP extension that uses HTTP
+Datagrams is only defined over transports that support QUIC DATAGRAM frames, it
+might not need a stream encoding. Additionally, HTTP extensions can use HTTP
+Datagrams with their own data stream protocol. However, new HTTP extensions that
+wish to use HTTP Datagrams <bcp14>SHOULD</bcp14> use the Capsule Protocol, as failing to do so
+will make it harder for the HTTP extension to support versions of HTTP other
+than HTTP/3 and will prevent interoperability with intermediaries that only
+support the Capsule Protocol.</t>
+      </section>
+    </section>
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>Since transmitting HTTP Datagrams using QUIC DATAGRAM frames requires sending
+the HTTP/3 SETTINGS_H3_DATAGRAM setting, it "sticks out". In other words,
+probing clients can learn whether a server supports HTTP Datagrams over QUIC
+DATAGRAM frames. As some servers might wish to obfuscate the fact that they
+offer application services that use HTTP Datagrams, it's best for all
+implementations that support this feature to always send this setting; see
+<xref target="setting"/>.</t>
+      <t>Since use of the Capsule Protocol is restricted to new HTTP upgrade tokens, it
+is not directly accessible from Web Platform APIs (such as those commonly accessed via
+JavaScript in web browsers).</t>
+      <t>Definitions of new HTTP upgrade tokens that use the Capsule Protocol need to
+include a security analysis that considers the impact of HTTP Datagrams and
+Capsules in the context of their protocol.</t>
+    </section>
+    <section anchor="iana">
+      <name>IANA Considerations</name>
+      <section anchor="iana-setting">
+        <name>HTTP/3 Setting</name>
+        <t>IANA has registered the following entry in the "HTTP/3 Settings" registry
+maintained at &lt;<eref target="https://www.iana.org/assignments/http3-parameters"/>&gt;:</t>
+        <dl spacing="compact">
+          <dt>Value:</dt>
+          <dd>
+            <t>0x33</t>
+          </dd>
+          <dt>Setting Name:</dt>
+          <dd>
+            <t>SETTINGS_H3_DATAGRAM</t>
+          </dd>
+          <dt>Default:</dt>
+          <dd>
+            <t>0</t>
+          </dd>
+          <dt>Status:</dt>
+          <dd>
+            <t>permanent</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9297</t>
+          </dd>
+          <dt>Change Controller:</dt>
+          <dd>
+            <t>IETF</t>
+          </dd>
+          <dt>Contact:</dt>
+          <dd>
+            <t>HTTP_WG; HTTP working group; ietf-http-wg@w3.org</t>
+          </dd>
+          <dt>Notes:</dt>
+          <dd>
+            <t>None</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="iana-error">
+        <name>HTTP/3 Error Code</name>
+        <t>IANA has registered the following entry in the "HTTP/3 Error Codes" registry
+maintained at &lt;<eref target="https://www.iana.org/assignments/http3-parameters"/>&gt;:</t>
+        <dl spacing="compact">
+          <dt>Value:</dt>
+          <dd>
+            <t>0x33</t>
+          </dd>
+          <dt>Name:</dt>
+          <dd>
+            <t>H3_DATAGRAM_ERROR</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>Datagram or Capsule Protocol parse error</t>
+          </dd>
+          <dt>Status:</dt>
+          <dd>
+            <t>permanent</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9297</t>
+          </dd>
+          <dt>Change Controller:</dt>
+          <dd>
+            <t>IETF</t>
+          </dd>
+          <dt>Contact:</dt>
+          <dd>
+            <t>HTTP_WG; HTTP working group; ietf-http-wg@w3.org</t>
+          </dd>
+          <dt>Notes:</dt>
+          <dd>
+            <t>None</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="iana-hdr">
+        <name>HTTP Header Field Name</name>
+        <t>IANA has registered the following entry in the "Hypertext Transfer Protocol
+(HTTP) Field Name Registry" maintained at
+&lt;<eref target="https://www.iana.org/assignments/http-fields"/>&gt;:</t>
+        <dl spacing="compact">
+          <dt>Field Name:</dt>
+          <dd>
+            <t>Capsule-Protocol</t>
+          </dd>
+          <dt>Template:</dt>
+          <dd>
+            <t>None</t>
+          </dd>
+          <dt>Status:</dt>
+          <dd>
+            <t>permanent</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9297</t>
+          </dd>
+          <dt>Comments:</dt>
+          <dd>
+            <t>None</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="iana-types">
+        <name>Capsule Types</name>
+        <t>This document establishes a registry for HTTP Capsule Type codes. The "HTTP
+Capsule Types" registry governs a 62-bit space and operates under the QUIC
+registration policy documented in <xref section="22.1" sectionFormat="of" target="RFC9000"/>. This new registry
+includes the common set of fields listed in <xref section="22.1.1" sectionFormat="of" target="RFC9000"/>. In
+addition to those common fields, all registrations in this registry <bcp14>MUST</bcp14> include
+a "Capsule Type" field that contains a short name or label for the Capsule Type.</t>
+        <t>Permanent registrations in this registry are assigned using the Specification
+Required policy (<xref section="4.6" sectionFormat="of" target="RFC8126"/>), except for values
+between 0x00 and 0x3f (in hexadecimal; inclusive), which are assigned using
+Standards Action or IESG Approval as defined in Sections <xref target="RFC8126" section="4.9" sectionFormat="bare"/> and <xref target="RFC8126" section="4.10" sectionFormat="bare"/> of <xref target="RFC8126"/>.</t>
+        <t>Capsule Types with a value of the form 0x29 * N + 0x17 for integer values of N
+are reserved to exercise the requirement that unknown Capsule Types be ignored.
+These Capsules have no semantics and can carry arbitrary values. These values
+<bcp14>MUST NOT</bcp14> be assigned by IANA and <bcp14>MUST NOT</bcp14> appear in the listing of assigned
+values.</t>
+        <t>This registry initially contains the following entry:</t>
+        <dl spacing="compact">
+          <dt>Value:</dt>
+          <dd>
+            <t>0x00</t>
+          </dd>
+          <dt>Capsule Type:</dt>
+          <dd>
+            <t>DATAGRAM</t>
+          </dd>
+          <dt>Status:</dt>
+          <dd>
+            <t>permanent</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9297</t>
+          </dd>
+          <dt>Change Controller:</dt>
+          <dd>
+            <t>IETF</t>
+          </dd>
+          <dt>Contact:</dt>
+          <dd>
+            <t>MASQUE Working Group <eref target="mailto:masque@ietf.org">masque@ietf.org</eref></t>
+          </dd>
+          <dt>Notes:</dt>
+          <dd>
+            <t>None</t>
+          </dd>
+        </dl>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="RFC9221" to="QUIC-DGRAM"/>
+<displayreference target="RFC9110" to="HTTP"/>
+<displayreference target="RFC9112" to="HTTP/1.1"/>
+<displayreference target="RFC9113" to="HTTP/2"/>
+<displayreference target="RFC9114" to="HTTP/3"/>
+<displayreference target="RFC8126" to="IANA-POLICY"/>
+<displayreference target="RFC9000" to="QUIC"/>
+<displayreference target="RFC8941" to="STRUCTURED-FIELDS"/>    
+<displayreference target="RFC9293" to="TCP"/>
+
+<displayreference target="RFC8899" to="DPLPMTUD"/>
+<displayreference target="RFC8441" to="EXT-CONNECT2"/>
+<displayreference target="RFC9220" to="EXT-CONNECT3"/>
+<displayreference target="RFC9218" to="PRIORITY"/>
+<displayreference target="RFC6455" to="WEBSOCKET"/>
+
+<references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9221.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9112.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9113.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9114.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9000.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8941.xml"/>
+<xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.9293.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8899.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8441.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9220.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9218.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6455.xml"/>
+      </references>
+    </references>
+    <section numbered="false" anchor="acks">
+      <name>Acknowledgments</name>
+      <t>Portions of this document were previously part of the QUIC DATAGRAM frame
+definition itself; the authors would like to acknowledge the authors of that
+document and the members of the IETF MASQUE working group for their suggestions.
+Additionally, the authors would like to thank <contact fullname="Martin Thomson"/> for suggesting the
+use of an HTTP/3 setting. Furthermore, the authors would like to
+thank <contact fullname="Ben Schwartz"/> for substantive input. The final design in this document came out of the HTTP Datagrams
+Design Team, whose members were <contact fullname="Alan Frindell"/>, 
+<contact fullname="Alex Chernyakhovsky"/>, <contact fullname="Ben
+Schwartz"/>, <contact fullname="Eric Rescorla"/>, <contact fullname="Marcus Ihlar"/>, 
+<contact fullname="Martin Thomson"/>, <contact fullname="Mike Bishop"/>, <contact fullname="Tommy Pauly"/>,
+<contact fullname="Victor Vasiliev"/>, and the authors of this document. The authors thank 
+<contact fullname="Mark Nottingham"/> and <contact fullname="Philipp Tiesel"/> for their helpful comments.</t>
+    </section>
+  </back>
+
+
+</rfc>

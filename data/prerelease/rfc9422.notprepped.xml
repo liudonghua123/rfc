@@ -1,0 +1,513 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-freed-smtp-limits-07" number="9422" submissionType="IETF" category="std" consensus="true" obsoletes="" updates="" xml:lang="en" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.15.2 -->
+  <front>
+    <title abbrev="LIMITS Extension">The LIMITS SMTP Service Extension</title>
+    <seriesInfo name="RFC" value="9422"/>
+
+    <author initials="N." surname="Freed" fullname="Ned Freed">
+	   <organization/>
+	   <address/>
+	</author>
+	<author initials="J." surname="Klensin" fullname="John C. Klensin">
+      <organization/>
+      <address>
+        <postal>
+          <street>1770 Massachusetts Ave, Suite 322</street>
+          <city>Cambridge</city>
+          <region>MA</region>
+          <code>02140</code>
+          <country>United States of America</country>
+        </postal>
+        <email>john-ietf@jck.com</email>
+      </address>
+	</author>
+	<date year="2024" month="February"/>
+	<area>ART</area>
+
+	<keyword>SMTP</keyword>
+	<keyword>LMTP</keyword>
+	<keyword>Message Submission</keyword>
+	<keyword>ESMTP</keyword>
+	<keyword>Extension</keyword>
+
+	<abstract>
+      <t>This document defines a LIMITS extension for the Simple Mail
+		Transfer Protocol (SMTP), including submission, as well as the
+		Local Mail Transfer Protocol (LMTP). It also defines an associated
+		limit registry. The extension provides the means for an SMTP, submission,
+		or LMTP server to inform the client of limits the server intends to apply
+		to the protocol during the current session. The client is then able to adapt
+		its behavior in order to conform to those limits.</t>
+	</abstract>
+
+  </front>
+  <middle>
+    <section anchor="problems" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>The Simple Mail Transfer Protocol  provides the ability to
+		 transfer <xref target="RFC5321" format="default"/> or submit
+		 <xref target="RFC6409" format="default"/> multiple email messages
+         from one host to another, each with one or more recipients,
+		 using a single or multiple connections.</t>
+	  <t>The Local Mail Transfer Protocol
+		 <xref target="RFC2033" format="default"/> provides the ability
+		 to deliver messages to a system without its own mail queues. Like
+SMTP, it allows multiple messages with multiple recipients.</t>
+      <t>In order to conserve resources as well as protect themselves from
+malicious clients, it is necessary for servers to enforce limits
+on various aspects of the protocol, e.g., a limit on the number
+of recipients that can be specified in a single transaction.</t>
+      <t>Additionally, servers may also wish to alter the limits they
+apply depending on their assessment of the reputation of a particular
+client.</t>
+      <t>The variability of the limits that may be in effect creates a
+situation where clients may inadvertently exceed a particular server's
+limits, causing servers to respond with temporary (or in some
+cases, permanent) errors. This in turn can lead to delays or even
+failures in message transfer.</t>
+      <t>The LIMITS extension provides the means for a server
+to inform a client about specific limits in effect for
+a particular SMTP or LMTP session in the EHLO or LHLO command response.
+This information, combined with the
+inherent flexibility of these protocols, makes it possible for clients
+to avoid server errors and the problems they cause.</t>
+      <t>SMTP and LMTP servers have always been able to announce a limit using
+distinguished syntax in a reply, but this approach requires that the
+client first needs to issue a command.  The mechanism specified here
+avoids the overhead of that approach by announcing limits prior to any
+substantive interaction.</t>
+      <t>Limits are registered with the IANA. Each registration includes
+the limit name, value syntax, and a description of its semantics.</t>
+	</section>
+	
+    <section anchor="Terminology" numbered="true" toc="default">
+	   <name>Terminology</name>
+
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+
+<t>This specification uses the Augmented Backus-Naur Form
+			   <xref target="RFC5234" format="default"/> notation and
+			   its core rules to define the formal syntax of the LIMITS extension.</t>
+      <t>This specification makes extensive use of the terminology specified
+and used in <xref target="RFC5321" format="default"/>.</t>
+	</section>
+	
+    <section anchor="Extension" numbered="true" toc="default">
+	   <name>The LIMITS SMTP Extension</name>
+      <t>The extension mechanism for SMTP is defined in Section 2.2 of the current
+		 SMTP specification <xref target="RFC5321a"/>.
+		 <xref target="RFC2033" format="default">LMTP</xref>
+inherits SMTP's extension mechanism.</t>
+      <t>The name of the extension is LIMITS. Servers implementing this
+extension advertise a LIMITS as a keyword in the response to EHLO
+(LHLO for LMTP). The
+associated parameter is used by the server to communicate one or
+more limits, each with an optional value, to the client. The syntax
+of the parameter is:</t>
+<sourcecode type="abnf"><![CDATA[
+  limits-param = limit-name-value 0*[SP limit-name-value]
+  limit-name-value = limit-name ["=" limit-value]
+  limit-name = 1*(ALPHA / DIGIT / "-" / "_")
+  limit-value = 1*(%x21-3A / %x3C-7E) ; Any VCHAR except ";"
+]]></sourcecode>
+      <t>This extension introduces no new SMTP commands and does not
+alter any existing command. However, it is possible for a
+LIMITS parameter to be associated with another SMTP extension
+that does these things.</t>
+      <section anchor="limits" numbered="true" toc="default">
+		 <name>Limits</name>
+		 <t>In order to achieve consistent behavior, all limits
+			<bcp14>MUST</bcp14> be
+registered with the IANA, as described below.</t>
+      </section>
+      <section anchor="limit-naming-conventions" numbered="true" toc="default">
+        <name>Limit Naming Conventions</name>
+        <t>Limit names <bcp14>MUST</bcp14> be comprehensible, but also should
+be kept as short as possible. The use of commonly understood
+abbreviations, e.g., "MAX" for "maximum", is encouraged.</t>
+        <t>When a limit is associated with a particular command, its name
+<bcp14>SHOULD</bcp14> begin with the name of that command.</t>
+        <t>Limit names <bcp14>SHOULD</bcp14> end with one or more terms that describe
+the type of limit.</t>
+      </section>
+      <section anchor="interaction-with-pipelining" numbered="true" toc="default">
+        <name>Interaction with Pipelining</name>
+
+        <t>The "Pipelining" extension <xref target="RFC2920"
+		format="default"/> is commonly used 
+to improve performance, especially over high latency
+connections. Pipelining allows an entire transaction
+to be sent without checking responses, and in some cases it may be
+possible to send multiple transactions.</t>
+        <t>The use of pipelining affects the LIMITS extension in an important way: Since
+a pipelining client cannot check intermediate command responses
+without stalling the pipeline, it cannot count the number of
+successful versus failed responses and adjust its behavior accordingly.
+Limit designers need to take this into account.</t>
+        <t>For example, it may seem like it would be better to impose a limit
+on the number of successful RCPT TO commands as opposed to the
+way the RCPTMAX limit is specified in <xref target="RCPTMAX" format="default"/> below. But
+counting the total number of RCPT TOs is simple, whereas
+counting the number of successful RCPT TO stalls the pipeline.</t>
+      </section>
+      <section anchor="varying-limits" numbered="true" toc="default">
+        <name>Varying Limits</name>
+        <t>This extension provides an announcement as part of the reply to
+		   an EHLO command.</t>
+		<t>Some servers vary their limits, as a session
+progresses, based  on their obtaining more information.
+This extension does not attempt to handle in-session limit changes.</t>
+      </section>
+      <section anchor="interaction-with-smtp-minimums" numbered="true" toc="default">
+        <name>Interaction with SMTP Minimums</name>
+        <t>SMTP specifies minimum values for 
+		   various server sizes, limits, and timeouts
+		   <xref format="default" target="RFC5321b"/>, e.g., servers must
+			accept a minimum of 100 RCPT TO commands
+			<xref target="RFC5321c"/>).
+			Unfortunately, the reality is that servers routinely impose smaller
+			limits than what SMTP requires, and when this is done it is especially
+			important for clients to be aware that this is happening.</t>
+        <t>For this reason there is no requirement that the limits
+advertised by this extension comply with the minimums imposed
+by SMTP.</t>
+      </section>
+      <section anchor="multiple-ehlo-commands" numbered="true" toc="default">
+        <name>Multiple EHLO Commands</name>
+        <t>These protocols require that the EHLO command (LHLO in LMTP) be
+			  reissued under certain circumstances, e.g., after successful
+authentication <xref target="RFC4954" format="default"/> or negotiation of a security layer <xref target="RFC3207" format="default"/>.</t>
+        <t>Servers <bcp14>MAY</bcp14> return updated limits any time the protocol requires
+		   clients to reissue the EHLO command.</t>
+		<t>Clients <bcp14>MUST</bcp14> discard any
+previous limits in favor of those provided by the most recent
+EHLO. This includes the case where the original EHLO provided
+a set of limits but the subsequent EHLO did not; in this
+case, the client <bcp14>MUST</bcp14> act as if no limits were communicated.</t>
+      </section>
+      <section anchor="syntax-errors-in-the-limits-parameter-value" numbered="true" toc="default">
+		 <name>Syntax Errors in the LIMITS Parameter Value</name>
+        <t>Syntax errors in the basic parameter syntax are best handled by
+ignoring the value in its entirety; in this case, clients <bcp14>SHOULD</bcp14>
+proceed as if the LIMITS extension had not been used.</t>
+        <t>Syntax or other errors in the value syntax of a specific
+		   limit, including unrecognized value keywords, are
+			best handled by ignoring that limit; in this case, the client
+			<bcp14>MUST</bcp14> 
+			proceed as if that limit had not been specified.</t>
+        <t>It is possible that a future specification may create
+			multiple limits that are interrelated in some way; in this case,
+			that specification <bcp14>MUST</bcp14> specify how an error in the value syntax of
+			one limit affects the other limits.</t>
+      </section>
+      <section anchor="caching-of-limit-settings-between-sessions" numbered="true" toc="default">
+        <name>Caching of Limit Settings between Sessions Involving the
+		   Same Client and Server SMTP</name>
+        <t>Clients <bcp14>MAY</bcp14> cache limits determined during one session
+and use them to optimize their behavior for subsequent
+sessions. However, since servers are free to adjust their
+limits at any time, clients <bcp14>MUST</bcp14> be able to accommodate
+any limit changes that occur between sessions.</t>
+      </section>
+	</section>
+	
+    <section anchor="initial-limits" numbered="true" toc="default">
+      <name>Initial Limits</name>
+      <t>An initial set of limits is specified in the following sections.</t>
+      <section anchor="mailmax-limit" numbered="true" toc="default">
+        <name>MAILMAX Limit</name>
+	<dl>
+        <dt>Name:</dt><dd>MAILMAX</dd>
+        <dt>Value syntax:</dt><dd>%x31-39 0*5DIGIT ; "0" not allowed, six-digit maximum</dd>
+        <dt>Description:</dt><dd>MAILMAX specifies the maximum number of transactions
+(MAIL FROM commands) the server will accept in a single session. The
+count includes all MAIL FROM commands, regardless of whether they
+succeed or fail.</dd>
+        <dt>Restrictions:</dt><dd> None.</dd>
+        <dt>Security Considerations:</dt><dd> See <xref target="Seccons" format="default"/></dd>
+	</dl>
+      </section>
+      <section anchor="RCPTMAX" numbered="true" toc="default">
+        <name>RCPTMAX Limit</name>
+	<dl>
+        <dt>Name:</dt> <dd>RCPTMAX</dd>
+        <dt>Value syntax:</dt><dd> %x31-39 0*5DIGIT ; "0" not allowed, six-digit maximum</dd>
+        <dt>Description:</dt> <dd>RCPTMAX specifies the maximum number of RCPT TO commands
+the server will accept in a single transaction. It is not a limit
+on the actual number of recipients the message ends up being sent to;
+a single RCPT TO command may produce multiple recipients or, in the
+event of an error, none.</dd>
+        <dt>Restrictions:</dt> <dd>None.</dd>
+        <dt>Security Considerations:</dt> <dd>See <xref target="Seccons" format="default"/></dd>
+	</dl>
+      </section>
+      <section anchor="rcptdomainmax-limit" numbered="true" toc="default">
+        <name>RCPTDOMAINMAX Limit</name>
+	<dl>
+        <dt>Name:</dt> <dd>RCPTDOMAINMAX</dd>
+        <dt>Value syntax:</dt> <dd> %x31-39 0*5DIGIT ; "0" not allowed, six-digit maximum</dd>
+        <dt>Description:</dt> <dd>RCPTDOMAINMAX specifies the maximum number of different domains
+that can appear in a recipient (RCPT TO) address within a single
+session. This limit is imposed by some servers that bind to
+a specific internal delivery mechanism on receipt of the first
+RCPT TO command.</dd>
+        <dt>Restrictions:</dt> <dd>None.</dd>
+        <dt>Security Considerations:</dt> <dd>See <xref target="Seccons" format="default"/></dd>
+      </dl>
+	  </section>
+	</section>
+	
+    <section anchor="example" numbered="true" toc="default">
+      <name>Example</name>
+      <t>A server announces two limits it implements to the client, along
+with various other supported extensions, as follows:</t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+S: [wait for open connection]
+C: [open connection to server]
+S: 220 mail.example.com ESMTP service ready
+C: EHLO example.org
+S: 250-mail.example.com
+S: 250-SMTPUTF8
+S: 250-LIMITS RCPTMAX=20 MAILMAX=5
+S: 250-SIZE 100000000
+S: 250-8BITMIME
+S: 250-ENHANCEDSTATUSCODES
+S: 250-PIPELINING
+S: 250-CHUNKING
+S: 250 STARTTLS
+]]></artwork>
+      <t>The client now knows to limit the number of recipients in a transaction
+to twenty and the number of transactions in a session to five.</t>
+    </section>
+
+	<section anchor="Seccons" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>A malicious server can use limits to overly constrain client behavior,
+		 causing excessive use of client resources.</t>
+      <t>A malicious client may use the limits a server advertises to optimize
+		 the delivery of unwanted messages.</t>
+      <t>A man-in-the-middle attack on unprotected SMTP connections can
+		be used to cause clients to misbehave, which in turn could result
+		in delivery delays or failures. Loss of reputation for the client
+		could also occur.</t>
+      <t>All that said, decades of operational experience with the
+		SMTP "SIZE" extension <xref target="RFC1870" format="default"/>,
+		which provides servers with the 
+		ability to indicate message size, indicates that such abuse is
+		rare and unlikely to be a significant problem.</t>
+      <t>Use of the LIMITS extension to provide client-specific information - as
+		opposed to general server limits - unavoidably provides senders with
+		feedback about their reputation. Malicious senders can exploit this
+		in various ways, e.g., start by sending good email and then, once their
+		reputation is established, sending bad email.</t>
+	</section>
+	
+    <section anchor="iana-considerations" numbered="true" toc="default">
+	   <name>IANA Considerations</name>
+      <section anchor="smtp-service-extension-registry" numbered="true" toc="default">
+        <name>SMTP Service Extension Registry</name>
+        <t>The IANA has added "LIMITS" to the "SMTP Service
+Extensions" registry:</t>
+<dl>
+<dt>EHLO Keyword:</dt><dd>LIMITS</dd>
+
+<dt>Description:</dt><dd>Server limits</dd>
+
+<dt>Reference:</dt><dd>RFC 9422</dd>
+
+<dt>Note:</dt><dd>See "SMTP Server Limits" registry.</dd>
+</dl>
+      </section>
+
+	  <section anchor="smtp-server-limits-registry" numbered="true" toc="default">
+		 <name>SMTP Server Limits Registry</name> 
+
+        <t>The IANA has created a new registry in the "MAIL
+		   Parameters" group for SMTP server limits. The policy for
+		   this registry is "Specification Required". 
+			Registry entries consist of these required values:</t>
+		 <ol spacing="normal" type="1">
+			<li>The name of the limit.</li>
+			<li>The syntax of the limit value, if the limit has one.
+			   This syntax <bcp14>MUST</bcp14> conform to the provisions of
+			   <xref target="Extension"/> above.
+			  In most cases, the syntax will consist of a keyword
+			  designating the limit type followed by a limit value,
+			  using a "name=value" form as illustrated by the
+			  registrations created by this specification in
+			  <xref target="initial-limits"/> above.
+			  Use of ABNF <xref target="RFC5234" format="default"/>
+			  is preferred but not required.  If there is no limit
+			  value, that should be explicit in the registration
+			  request and the registry.</li>
+          <li>A description of the limit's semantics.</li>
+          <li>Restrictions, if any, on the use of the limit. If the limit is specific
+			to any of SMTP, message submission, or LMTP, it should be documented
+			here.</li>
+          <li>Security considerations for the limit.</li>
+		</ol>
+		<t> The Designated Expert(s) appointed under the
+		   "Specification Required" procedure should check that 
+		   registration requests are consistent with the requirements
+		   and intent of the extension mechanisms associated with
+		   SMTP <xref target="RFC5321"/>, 
+		   <xref target="Extension"/> above, and the provision of this
+		   specification more generally and offer advice
+		   accordingly.</t> 
+        <t>The IANA has registered the limits
+		   specified in <xref target="initial-limits"/> of this
+		   document.</t> 
+      </section>
+	</section>
+  </middle>
+
+  <back>
+
+    <displayreference target="RFC2920" to="PIPELINING"/>
+    <displayreference target="RFC5234" to="ABNF"/>
+    <displayreference target="RFC5321" to="SMTP"/>
+    <displayreference target="RFC1870" to="SIZE"/>
+    <displayreference target="RFC2033" to="LMTP"/>
+    <displayreference target="RFC3207" to="STARTTLS"/>
+    <displayreference target="RFC4954" to="AUTH"/>
+    <displayreference target="RFC6409" to="SUBMIT"/>
+    
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2920.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+		<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5321.xml"/>
+
+
+		<reference anchor="RFC5321a">
+			<front>
+			   <title> Simple Mail Transfer Protocol</title>
+			   <author initials="J." surname="Klensin"
+					   fullname="John C. Klensin"/>
+			   <date year="2008" month="October"/>
+			</front>
+			<seriesInfo name="RFC" value="5321"/>
+			<refcontent>Section 2.2</refcontent>
+	    </reference>		
+
+	  </references>
+	
+      <references>
+        <name>Informative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1870.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2033.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3207.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4954.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6409.xml"/>
+
+		 <reference anchor="RFC5321b">
+			<front>
+			   <title> Simple Mail Transfer Protocol</title>
+			   <author initials="J." surname="Klensin"
+					   fullname="John C. Klensin"/>
+			   <date year="2008" month="October"/>
+			</front>
+			<seriesInfo name="RFC" value="5321"/>
+			<refcontent>Section 4.5.3.1</refcontent>
+			</reference>
+
+		 <reference anchor="RFC5321c">
+			<front>
+			   <title> Simple Mail Transfer Protocol</title>
+			   <author initials="J." surname="Klensin"
+					   fullname="John C. Klensin"/>
+			   <date year="2008" month="October"/>
+			</front>
+			<seriesInfo name="RFC" value="5321"/>
+			<refcontent>Section 4.5.3.1.8 </refcontent>
+		 </reference>
+
+      </references>
+</references>
+
+    <section anchor="acknowledgments" numbered="false" toc="default">
+	   <name>Acknowledgments</name>
+	   <t> The concept for this extension came from, and was developed
+		  by, Ned Freed and most of this specification, including
+		  substantially all of the technical details, was written by him.
+		  Unfortunately, he became ill and eventually passed away in
+		  May 2022 without being able to complete the document and
+		  manage it through IETF Last Call.  His contributions to the
+		  Internet, work in the IETF, and the personal style that
+		  made both possible are irreplaceable and greatly missed.
+		  With the support of the
+		  community, John Klensin picked the document up, responded to
+		  some additional feedback, and got the document into what is
+		  believed to be a finished state.  In the interest of
+		  preserving this as Ned's document, a few comments that
+		  proposed additional features and options were set aside for
+		  future work rather than our having to guess at whether Ned
+		  would have approved of them.</t>
+	   <t> The acknowledgments below are divided into two parts, those
+		  written by Ned and those associated with input to the
+		  document after his passing.</t>
+
+		 <ul><li><t>Acknowledgments from the Last Version Prepared by
+			 Ned Freed</t>
+		  <t>A lot of people have helped make this specification
+		  possible. The author wishes to thank <contact
+		  fullname="Claus Assmann"/>, <contact fullname="Laura Atkins"/>,
+		  <contact fullname="Alex Brotman"/>, <contact fullname="Richard Clayton"/>, 
+		  <contact fullname="Dave Crocker"/>, <contact fullname="Viktor Dukhovni"/>, 
+		  <contact fullname=" Arnt Gulbrandsen"/>, <contact fullname="Jeremy Harris"/>, 
+		  <contact fullname="Todd Herr"/>, <contact fullname="Mike Hillyer"/>, 
+		  <contact fullname="Matthias Leisi"/>, <contact fullname="John Klensin"/>, 
+		  <contact fullname="Valdis Klētnieks"/>, <contact fullname="John Levine"/>, 
+		  <contact fullname="Alexey Melnikov"/>, <contact fullname="Keith Moore"/>, 
+		  <contact fullname="Michael Peddemors"/>, <contact fullname="Hector Santos"/>, 
+		  <contact fullname="George Schlossnagle"/>, <contact fullname="Rolf E. Sonneveld"/>, 
+		  and <contact fullname="Alessandro Vesely"/> for their contributions and reviews.</t>
+	   </li>
+
+		  <li><t>Acknowledgments from Versions Subsequent to Ned
+			 Freed's Passing</t>
+		 <t> Additional helpful suggestions were received when the draft
+			was requeued in the last part of 2022 and thereafter.  Reviews and
+			suggestions from <contact fullname="Alex Brotman"/>, <contact fullname="Dave Crocker"/>, 
+			<contact fullname="Gene Hightower"/>, <contact fullname="Murray S. Kucherawy"/>, 
+			<contact fullname="Barry Leiba"/>, <contact fullname="John Levine"/>, and
+			<contact fullname="Phil Pennock"/> were 
+			especially helpful in identifying errors and suggesting
+			clarifying some issues with the document without changing
+			Ned's fundamental issues or very much of his text.</t>
+		 <t> IETF Last Call comments (and comments immediately before
+			it started) from people not listed above that resulted in
+			document changes were received from
+			<contact fullname="Amanda Baber"/> (for IANA), <contact fullname="Linda Dunbar"/>, and
+			<contact fullname="Paul Kyzivat"/>.</t>
+		      </li>
+		  </ul>
+	   </section>
+
+  </back>
+</rfc>

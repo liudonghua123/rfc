@@ -1,0 +1,332 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-add-svcb-dns-09" number="9461" category="std" submissionType="IETF" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+  <!-- xml2rfc v2v3 conversion 3.17.3 -->
+  <front>
+    <title abbrev="SVCB for DNS">Service Binding Mapping for DNS Servers</title>
+    <seriesInfo name="RFC" value="9461"/>
+    <author initials="B." surname="Schwartz" fullname="Benjamin Schwartz">
+      <organization>Meta Platforms, Inc.</organization>
+      <address>
+        <email>ietf@bemasc.net</email>
+      </address>
+    </author>
+    <date year="2023" month="November"/>
+    <area>int</area>
+    <workgroup>add</workgroup>
+
+  <keyword>DoH</keyword>
+  <keyword>DoT</keyword>
+  <keyword>DoQ</keyword>
+  <keyword>DDR</keyword>
+  <keyword>DNR</keyword>
+
+    <abstract>
+<t>The SVCB DNS resource record type expresses a bound collection of endpoint metadata, for use when establishing a connection to a named service.  DNS itself can be such a service, when the server is identified by a domain name.  This document provides the SVCB mapping for named DNS servers, allowing them to indicate support for encrypted transport protocols.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>The SVCB resource record (RR) type <xref target="SVCB"/> provides clients with information about how to reach alternative endpoints for a service.  These endpoints may offer improved performance or privacy properties.  The service is identified by a "scheme" indicating the service type, a hostname, and, optionally, other information such as a port number.  A DNS server is often identified only by its IP address (e.g., in DHCP), but in some contexts it can also be identified by a hostname (e.g., "NS" records, manual resolver configuration) and sometimes also a non-default port number.</t>
+      <t>The use of the SVCB RR type requires a mapping document for each service type (<xref section="2.4.3" sectionFormat="of" target="SVCB"/>), indicating how a client for that service can interpret the contents of the SVCB SvcParams.  This document provides the mapping for the "dns" service type, allowing DNS servers to offer alternative endpoints and transports, including encrypted transports like DNS over TLS (DoT) <xref target="RFC7858"/>, DNS over HTTPS (DoH) <xref target="RFC8484"/>, and DNS over QUIC (DoQ) <xref target="RFC9250"/>.</t>
+      <t>The SVCB mapping described in this document is intended as a general-purpose baseline.  Subsequent specifications will adapt this mechanism as needed to support specific configurations (e.g., for communication between stub resolvers and recursive resolvers).</t>
+    </section>
+    <section anchor="conventions-and-definitions">
+      <name>Conventions and Definitions</name>
+       <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+       "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>",
+       "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+       "<bcp14>SHOULD NOT</bcp14>",
+       "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+       "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+       are to be interpreted as described in BCP&nbsp;14
+       <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only
+       when, they appear in all capitals, as shown here.</t>
+    </section>
+    <section anchor="identity">
+      <name>Identities and Names</name>
+      <t>SVCB record names (i.e., QNAMEs) for DNS services are formed using Port Prefix Naming (<xref section="2.3" sectionFormat="of" target="SVCB"/>), with a scheme of "dns".  For example, SVCB records for a DNS service identified as <tt>dns1.example.com</tt> would be queried at <tt>_dns.dns1.example.com</tt>.</t>
+      <t>In some use cases, the name used for retrieving these DNS records is different from the server identity used to authenticate the secure transport.  To distinguish between these, this document uses the following terms:</t>
+      <dl spacing="normal">
+        <dt>Binding authority:</dt><dd>The service name (<xref section="1.3" sectionFormat="of" target="SVCB"/>) and optional port number used as input to Port Prefix Naming.</dd>
+        <dt>Authentication name:</dt><dd>The name used for secure transport authentication.  This <bcp14>MUST</bcp14> be a DNS hostname or a literal IP address.  Unless otherwise specified, this is the service name from the binding authority.</dd>
+      </dl>
+      <section anchor="special-case-non-default-ports">
+        <name>Special Case: Non-default Ports</name>
+        <t>Normally, a DNS service is identified by an IP address or a domain name.  When connecting to the service using unencrypted DNS over UDP or TCP, clients use the default port number for DNS (53).  However, in rare cases, a DNS service might be identified by both a name and a port number.  For example, the DNS URI scheme <xref target="RFC4501"/> optionally includes an authority, comprised of a host and a port number (with a default of 53).  DNS URIs normally omit the authority or specify an IP address, but a hostname and non-default port number are allowed.</t>
+        <t>When the binding authority specifies a non-default port number, Port Prefix Naming places the port number in an additional prefix on the name.  For example, if the binding authority is "<tt>dns1.example.com:9953</tt>", the client would query for SVCB records at <tt>_9953._dns.dns1.example.com</tt>.  If two DNS services operating on different port numbers provide different behaviors, this arrangement allows them to preserve the distinction when specifying alternative endpoints.</t>
+      </section>
+    </section>
+    <section anchor="applicable-existing-svcparamkeys">
+      <name>Applicable Existing SvcParamKeys</name>
+      <section anchor="alpn">
+        <name>&quot;alpn&quot;</name>
+        <t>This key indicates the set of supported protocols (<xref section="7.1" sectionFormat="of" target="SVCB"/>).  There is no default protocol, so the "<tt>no-default-alpn</tt>" key does not apply.  If the "<tt>alpn</tt>" SvcParamKey is absent, the client <bcp14>MUST</bcp14> treat the SVCB record as "incompatible" (as defined in <xref section="8" sectionFormat="of" target="SVCB"/>) unless some other recognized SvcParam indicates a supported protocol.</t>
+        <t>If the protocol set contains any HTTP versions (e.g., "h2", "h3"), then the record indicates support for DoH and the "dohpath" key <bcp14>MUST</bcp14> be present (<xref target="dohpath"/>).  All keys specified for use with the HTTPS record are also permissible and apply to the resulting HTTP connection.</t>
+        <t>If the protocol set contains protocols with different default ports and no "port" key is specified, then protocols are contacted separately on their default ports.  Note that in this configuration, Application-Layer Protocol Negotiation (ALPN) negotiation does not defend against cross-protocol downgrade attacks.</t>
+      </section>
+      <section anchor="port">
+        <name>&quot;port&quot;</name>
+        <t>This key is used to indicate the target port for connection (<xref section="7.2" sectionFormat="of" target="SVCB"/>).  If omitted, the client <bcp14>SHALL</bcp14> use the default port number for each transport protocol (853 for DoT and DoQ, 443 for DoH).</t>
+        <t>This key is automatically mandatory for this binding.  This means that a client that does not respect the "<tt>port</tt>" key <bcp14>MUST</bcp14> ignore any SVCB record that contains this key.  (See <xref section="8" sectionFormat="of" target="SVCB"/> for the definition of "automatically mandatory".)</t>
+        <t>Support for the "<tt>port</tt>" key can be unsafe if the client has implicit elevated access to some network service (e.g., a local service that is inaccessible to remote parties) and that service uses a TCP-based protocol other than TLS.  A hostile DNS server might be able to manipulate this service by causing the client to send a specially crafted TLS Server Name Indication (SNI) or session ticket that can be misparsed as a command or exploit.  To avoid such attacks, clients <bcp14>SHOULD NOT</bcp14> support the "<tt>port</tt>" key unless one of the following conditions applies:</t>
+        <ul spacing="normal">
+          <li>The client is being used with a DNS server that it trusts not to attempt this attack.</li>
+          <li>The client is being used in a context where implicit elevated access cannot apply.</li>
+          <li>The client restricts the set of allowed TCP port values to exclude any ports where a confusion attack is likely to be possible (e.g., the "bad ports" list from Section&nbsp;<xref target="FETCH" section="2.9"
+relative="https://fetch.spec.whatwg.org/#port-blocking" sectionFormat="bare">"Port blocking"</xref> of <xref target="FETCH"/>).</li>
+        </ul>
+      </section>
+      <section anchor="other-applicable-svcparamkeys">
+        <name>Other Applicable SvcParamKeys</name>
+        <t>These SvcParamKeys from <xref target="SVCB"/> apply to the "dns" scheme without modification:</t>
+        <ul spacing="normal">
+          <li>mandatory</li>
+          <li>ipv4hint</li>
+          <li>ipv6hint</li>
+        </ul>
+        <t>Future SvcParamKeys might also be applicable.</t>
+      </section>
+    </section>
+    <section anchor="dohpath">
+      <name>New SvcParamKey: "dohpath"</name>
+      <t>"<tt>dohpath</tt>" is a single-valued SvcParamKey whose value (in both presentation format and wire format) <bcp14>MUST</bcp14> be a URI Template in relative form (<xref section="1.1" sectionFormat="comma" target="RFC6570"/>) encoded in UTF-8 <xref target="RFC3629"/>.  If the "<tt>alpn</tt>" SvcParam indicates support for HTTP, "<tt>dohpath</tt>" <bcp14>MUST</bcp14> be present.  The URI Template <bcp14>MUST</bcp14> contain a "<tt>dns</tt>" variable, and <bcp14>MUST</bcp14> be chosen such that the result after DoH URI Template expansion (<xref section="6" sectionFormat="of" target="RFC8484"/>) is always a valid and functional "<tt>:path</tt>" value (<xref section="8.3.1" sectionFormat="comma" target="RFC9113"/>).</t>
+      <t>When using this SVCB record, the client <bcp14>MUST</bcp14> send any DoH requests to the HTTP origin identified by the "<tt>https</tt>" scheme, the authentication name, and the port from the "<tt>port</tt>" SvcParam (if present).  HTTP requests <bcp14>MUST</bcp14> be directed to the resource resulting from DoH URI Template expansion of the "<tt>dohpath</tt>" value.</t>
+      <t>Clients <bcp14>SHOULD NOT</bcp14> query for any HTTPS RRs when using "<tt>dohpath</tt>".  Instead, the SvcParams and address records associated with this SVCB record <bcp14>SHOULD</bcp14> be used for the HTTPS connection, with the same semantics as an HTTPS RR.  However, for consistency, service operators <bcp14>SHOULD</bcp14> publish an equivalent HTTPS RR, especially if clients might learn about this DoH service through a different channel.</t>
+    </section>
+    <section anchor="limitations">
+      <name>Limitations</name>
+      <t>This document is concerned exclusively with the DNS transport and does not affect or inform the construction or interpretation of DNS messages.  For example, nothing in this document indicates whether the service is intended for use as a recursive or authoritative DNS server.  Clients need to know the intended use of services based on their context.</t>
+      <t>Not all features of this specification will be applicable or effective in all contexts:</t>
+      <ul spacing="normal">
+        <li>If the authentication name is received over an insecure channel (e.g., a glue NS record), this specification cannot prevent the client from connecting to an attacker.</li>
+        <li>Different transports might prove to be popular for different purposes (e.g., querying a recursive resolver vs. an authoritative server).  Implementors are not obligated to implement all the defined transports, although doing so is beneficial for compatibility.</li>
+        <li>Where resolution speed is a high priority, the SVCB TargetName <bcp14>SHOULD</bcp14> follow the convention described in <xref section="10.2" sectionFormat="of" target="SVCB"/>, and the use of AliasMode records (<xref section="2.4.2" sectionFormat="of" target="SVCB"/>) is <bcp14>NOT RECOMMENDED</bcp14>.</li>
+      </ul>
+    </section>
+    <section anchor="examples">
+      <name>Examples</name>
+      <ul spacing="normal">
+        <li>
+          <t>A resolver known as <tt>simple.example</tt> that supports DNS over TLS on port 853 (implicitly, as this is its default port):  </t>
+          <sourcecode type="dns-rr"><![CDATA[
+_dns.simple.example. 7200 IN SVCB 1 simple.example. alpn=dot
+]]></sourcecode>
+        </li>
+        <li>
+          <t>A DoH-only resolver at <tt>https://doh.example/dns-query{?dns}</tt>. (DNS over TLS is not supported.):  </t>
+          <sourcecode type="dns-rr"><![CDATA[
+_dns.doh.example. 7200 IN SVCB 1 doh.example. (
+      alpn=h2 dohpath=/dns-query{?dns} )
+]]></sourcecode>
+        </li>
+        <li>
+          <t>A resolver known as <tt>resolver.example</tt> that supports:  </t>
+          <ul spacing="normal">
+            <li>DoT on <tt>resolver.example</tt> ports 853 (implicit in record 1) and 8530 (explicit in record 2), with "<tt>resolver.example</tt>" as the Authentication Domain Name,</li>
+            <li>DoQ on <tt>resolver.example</tt> port 853 (record 1),</li>
+            <li>DoH at <tt>https://resolver.example/q{?dns}</tt> (record 1), and</li>
+            <li>
+              <t>an experimental protocol on <tt>fooexp.resolver.example:5353</tt> (record 3):      </t>
+              <sourcecode type="dns-rr"><![CDATA[
+_dns.resolver.example.  7200 IN \
+  SVCB 1 resolver.example. alpn=dot,doq,h2,h3 dohpath=/q{?dns}
+  SVCB 2 resolver.example. alpn=dot port=8530
+  SVCB 3 fooexp.resolver.example. \
+    port=5353 alpn=foo foo-info=...
+]]></sourcecode>
+            </li>
+          </ul>
+        </li>
+        <li>
+          <t>A name server named <tt>ns.example.</tt> whose service configuration is published on a different domain:  </t>
+          <sourcecode type="dns-rr"><![CDATA[
+_dns.ns.example. 7200 IN SVCB 0 _dns.ns.nic.example.
+]]></sourcecode>
+        </li>
+      </ul>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <section anchor="adversary-on-the-query-path">
+        <name>Adversary on the Query Path</name>
+        <t>This section considers an adversary who can add or remove responses to the SVCB query.</t>
+        <t>During secure transport establishment, clients <bcp14>MUST</bcp14> authenticate the server to its authentication name, which is not influenced by the SVCB record contents.  Accordingly, this document does not mandate the use of DNSSEC.  This document also does not specify how clients authenticate the name (e.g., selection of roots of trust), as this procedure might vary according to the context.</t>
+        <section anchor="downgrade-attacks">
+          <name>Downgrade Attacks</name>
+          <t>This attacker cannot impersonate the secure endpoint, but it can forge a response indicating that the requested SVCB records do not exist.  For a SVCB-reliant client (<xref section="3" sectionFormat="comma" target="SVCB"/>), this only results in a denial of service.  However, SVCB-optional clients will generally fall back to insecure DNS in this case, exposing all DNS traffic to attacks.</t>
+        </section>
+        <section anchor="redirection-attacks">
+          <name>Redirection Attacks</name>
+          <t>SVCB-reliant clients always enforce the Authentication Domain Name, but they are still subject to attacks using the transport, port number, and "dohpath" value, which are controlled by this adversary.  By changing these values in the SVCB answers, the adversary can direct DNS queries for $HOSTNAME to any port on $HOSTNAME and any path on "<tt>https://$HOSTNAME</tt>".  If the DNS client uses shared TLS or HTTP state, the client could be correctly authenticated (e.g., using a TLS client certificate or HTTP cookie).</t>
+          <t>This behavior creates a number of possible attacks for certain server configurations.  For example, if <tt>https://$HOSTNAME/upload</tt> accepts any POST request as a public file upload, the adversary could forge a SVCB record containing <tt>dohpath=/upload{?dns}</tt>.  This would cause the client to upload and publish every query, resulting in unexpected storage costs for the server and privacy loss for the client.  Similarly, if two DoH endpoints are available on the same origin and the service has designated one of them for use with this specification, this adversary can cause clients to use the other endpoint instead.</t>
+          <t>To mitigate redirection attacks, a client of this SVCB mapping <bcp14>MUST NOT</bcp14> identify or authenticate itself when performing DNS queries, except to servers that it specifically knows are not vulnerable to such attacks.  If an endpoint sends an invalid response to a DNS query, the client <bcp14>SHOULD NOT</bcp14> send more queries to that endpoint and <bcp14>MAY</bcp14> log this error.  Multiple DNS services <bcp14>MUST NOT</bcp14> share a hostname identifier (<xref target="identity"/>) unless they are so similar that it is safe to allow an attacker to choose which one is used.</t>
+        </section>
+      </section>
+      <section anchor="adversary-on-the-transport-path">
+        <name>Adversary on the Transport Path</name>
+        <t>This section considers an adversary who can modify network traffic between the client and the alternative service (identified by the TargetName).</t>
+        <t>For a SVCB-reliant client, this adversary can only cause a denial of service.  However, because DNS is unencrypted by default, this adversary can execute a downgrade attack against SVCB-optional clients.  Accordingly, when the use of this specification is optional, clients <bcp14>SHOULD</bcp14> switch to SVCB-reliant behavior if SVCB resolution succeeds.  Specifications making use of this mapping <bcp14>MAY</bcp14> adjust this fallback behavior to suit their requirements.</t>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>Per <xref target="SVCB"/>, IANA has added the following entry to the "Service Parameter Keys (SvcParamKeys)" registry.</t>
+
+      <table>
+        <thead>
+          <tr>
+            <th align="left">Number</th>
+            <th align="left">Name</th>
+            <th align="left">Meaning</th>
+            <th align="left">Format Reference</th>
+            <th align="left">Change Controller</th>
+            <th align="left">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="center">7</td>
+            <td align="left">dohpath</td>
+            <td align="left">DNS-over-HTTPS path template</td>
+            <td align="left">RFC 9461</td>
+            <td align="left">IETF</td>
+            <td align="left">RFC 9461</td>
+          </tr>
+        </tbody>
+      </table>
+      <t>Per <xref target="RFC8552"/>, IANA has added the following entry to the DNS "Underscored and Globally Scoped DNS Node Names" registry:</t>
+      <table>
+        <thead>
+          <tr>
+            <th align="left">RR Type</th>
+            <th align="left">_NODE NAME</th>
+            <th align="left">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">SVCB</td>
+            <td align="left">_dns</td>
+            <td align="left">RFC 9461</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="RFC8552" to="Attrleaf"/>
+<displayreference target="RFC4501" to="DNSURI"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+
+<!-- draft-ietf-dnsop-svcb-https (companion) (RFC 9460)-->
+        <reference anchor="SVCB" target="https://www.rfc-editor.org/info/rfc9460">
+          <front>
+            <title>Service Binding and Parameter Specification via the DNS (SVCB and HTTPS Resource Records)</title>
+            <author fullname="Ben Schwartz" initials="B." surname="Schwartz"></author>
+            <author fullname="Mike Bishop" initials="M." surname="Bishop">
+            </author>
+            <author fullname="Erik Nygren" initials="E." surname="Nygren">
+            </author>
+            <date month="November" year="2023"/>
+          </front>
+          <seriesInfo name="RFC" value="9460"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9460"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8484.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6570.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3629.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9113.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <reference anchor="FETCH" target="https://fetch.spec.whatwg.org/">
+          <front>
+            <title>Fetch Living Standard</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+            <date year="2023" month="October"/>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7858.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9250.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4501.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8552.xml"/>
+      </references>
+    </references>
+
+<section anchor="mapping-summary">
+      <name>Mapping Summary</name>
+      <t>This table serves as a non-normative summary of the DNS mapping for SVCB.</t>
+      <table>
+        <tbody>
+          <tr>
+            <td align="left">
+              <strong>Mapped scheme</strong></td>
+            <td align="left">"dns"</td>
+          </tr>
+          <tr>
+            <td align="left">
+              <strong>RR type</strong></td>
+            <td align="left">SVCB (64)</td>
+          </tr>
+          <tr>
+            <td align="left">
+              <strong>Name prefix</strong></td>
+            <td align="left">
+              <tt>_dns</tt> for port 53, else <tt>_$PORT._dns</tt></td>
+          </tr>
+          <tr>
+            <td align="left">
+              <strong>Required keys</strong></td>
+            <td align="left">
+              <tt>alpn</tt> or equivalent</td>
+          </tr>
+          <tr>
+            <td align="left">
+              <strong>Automatically mandatory keys</strong></td>
+            <td align="left">
+              <tt>port</tt></td>
+          </tr>
+          <tr>
+            <td align="left">
+              <strong>Special behaviors</strong></td>
+            <td align="left">Supports all HTTPS RR SvcParamKeys</td>
+          </tr>
+          <tr>
+            <td/>
+            <td align="left">Overrides the HTTPS RR for DoH</td>
+          </tr>
+          <tr>
+            <td/>
+            <td align="left">Default port is per-transport</td>
+          </tr>
+          <tr>
+            <td/>
+            <td align="left">Cleartext fallback is discouraged</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section numbered="false" anchor="acknowledgments">
+      <name>Acknowledgments</name>
+      <t>Thanks to the many reviewers and contributors, including <contact fullname="Andrew Campling"/>, <contact fullname="Peter van Dijk"/>, <contact fullname="Paul Hoffman"/>, <contact fullname="Daniel Migault"/>, <contact fullname="Matt Nordhoff"/>, <contact fullname="Eric Rescorla"/>, <contact fullname="Andreas Schulze"/>, and <contact fullname="Éric Vyncke"/>.</t>
+    </section>
+  </back>
+</rfc>

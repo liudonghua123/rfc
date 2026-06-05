@@ -1,0 +1,521 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-bess-evpn-mh-pa-13" number="9786" consensus="true" submissionType="IETF" ipr="trust200902" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3" xml:lang="en" obsoletes="" updates="">
+
+ <front>
+   <title abbrev="EVPN Port-Active Redundancy Mode">EVPN Port-Active Redundancy Mode</title>
+    <seriesInfo name="RFC" value="9786"/>
+    <author fullname="Patrice Brissette" initials="P." surname="Brissette">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <city>Ottawa</city>
+          <region>ON</region>
+          <country>Canada</country>
+        </postal>
+        <email>pbrisset@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Luc André Burdet" initials="LA." surname="Burdet" role="editor">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>Canada</country>
+        </postal>
+        <email>lburdet@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Bin Wen" initials="B." surname="Wen">
+      <organization>Comcast</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>Bin_Wen@comcast.com</email>
+      </address>
+    </author>
+    <author fullname="Edward Leyton" initials="E." surname="Leyton">
+      <organization>Verizon Wireless</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>edward.leyton@verizonwireless.com</email>
+      </address>
+    </author>
+    <author fullname="Jorge Rabadan" initials="J." surname="Rabadan">
+      <organization>Nokia</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>jorge.rabadan@nokia.com</email>
+      </address>
+    </author>
+    <date year="2025" month="June"/>
+
+    <area>RTG</area>
+    <workgroup>bess</workgroup>
+
+    <keyword>Port-Active</keyword>
+    <keyword>EVPN</keyword>
+    <keyword>Multi-homing</keyword>
+
+    <abstract>
+      <t>The Multi-Chassis Link Aggregation (MC-LAG) group technology enables
+   establishing a logical link-aggregation connection with a
+   redundant group of independent nodes. The objective of MC-LAG is to enhance both network
+   availability and bandwidth utilization through various modes of traffic load balancing. RFC 7432
+   defines an EVPN-based MC-LAG with Single-Active and All-Active multihoming redundancy modes.
+   This document builds on the existing redundancy mechanisms supported by EVPN and introduces
+   a new active/standby redundancy mode, called 'Port-Active'.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>EVPN <xref target="RFC7432"/> defines the All-Active and Single-Active redundancy modes.
+      All-Active redundancy provides per-flow load balancing for multihoming, while Single-Active
+      redundancy ensures service carving where only one of the Provider Edge (PE) devices in a redundancy relationship is
+      active per service.</t>
+      <t>Although these two multihoming scenarios are widely utilized in data center and service provider
+      access networks, there are cases where active/standby multihoming at the interface level is
+      beneficial and necessary. The primary consideration for this new mode of load balancing is the
+      determinism of traffic forwarding through a specific interface rather than statistical per-flow
+      load balancing across multiple PEs providing multihoming. This determinism is essential for certain
+      QoS features to function correctly. Additionally, this mode ensures fast convergence during failure
+      and recovery, which is expected by customers.</t>
+      <t>This document defines the Port-Active redundancy mode as a new type of multihoming in EVPN
+      and details how this mode operates and is supported via EVPN.</t>
+      <section anchor="requirements">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+      <section>
+        <name>Multi-Chassis Link Aggregation (MC-LAG)</name>
+        <t>When a Customer Equipment (CE) device is multihomed to a set of PE nodes using the 
+   Link Aggregation Control Protocol (LACP) <xref target="IEEE_802.1AX_2014"/>, the PEs must function as a single LACP entity for the
+   Ethernet links to form and operate as a Link Aggregation Group (LAG). To achieve this, the PEs
+   connected to the same multihomed CE must synchronize LACP configuration and operational data
+   among them. Historically, the Inter-Chassis Communication Protocol (ICCP) <xref target="RFC7275"/>
+   has been used for this synchronization.
+   EVPN, as described in <xref target="RFC7432"/>, covers the scenario where a CE is multihomed to
+   multiple PE nodes, using a LAG to simplify the procedure significantly. However, this simplification
+   comes with certain assumptions:</t>
+        <ul spacing="normal">
+          <li>A CE device connected to EVPN multihoming PEs <bcp14>MUST</bcp14> have a single LAG with all its links
+        connected to the EVPN multihoming PEs in a redundancy group.</li>
+          <li>Identical LACP parameters <bcp14>MUST</bcp14> be configured on peering PEs, including the system ID, port priority, and port key.</li>
+        </ul>
+        <t>This document presumes proper LAG operation as specified in <xref target="RFC7432"/>.
+      Issues resulting from deviations in the aforementioned assumptions, LAG misconfiguration, and
+      miswiring detection across peering PEs are considered outside the scope of this document.
+        </t>
+        <figure anchor="Topology">
+          <name>MC-LAG Topology</name>
+          <artwork align="left"><![CDATA[
+                 +-----+
+                 | PE3 |
+                 +-----+
+              +-----------+
+              |  MPLS/IP  |
+              |  CORE     |
+              +-----------+
+            +-----+   +-----+
+            | PE1 |   | PE2 |
+            +-----+   +-----+
+               I1       I2
+                \       /
+                 \     /
+                  \   /
+                  +---+
+                  |CE1|
+                  +---+]]></artwork>
+        </figure>
+        <t><xref target="Topology"/> shows an MC-LAG multihoming topology where PE1 and PE2 are
+     part of the same redundancy group providing multihoming to CE1 via
+     interfaces I1 and I2. Interfaces I1 and I2 are members of a LAG running LACP. The core, shown as IP or MPLS
+     enabled, provides a wide range of L2 and L3 services. MC-LAG multihoming
+     functionality is decoupled from those services in the core, and
+     it focuses on providing multihoming to the CE. In Port-Active redundancy mode, only one of the
+     two interfaces, I1 or I2,
+     would be in forwarding, and the other interface would be in standby. This
+     also implies that all services on the active interface operate in active
+     mode and all services on the standby interface operate in standby
+     mode.</t>
+      </section>
+    </section>
+    <section>
+      <name>Port-Active Redundancy Mode</name>
+      <section>
+        <name>Overall Advantages</name>
+        <t>The use of Port-Active redundancy in EVPN networks provides the following benefits:</t>
+        <ol spacing="normal" type="a">
+        <li>It offers open-standards-based
+      active/standby redundancy at the interface level rather than VLAN granularity <xref target="RFC7432"/>.</li>
+          <li>It eliminates the need for ICCP and LDP  <xref target="RFC5036"/> (e.g.,
+      Virtual eXtensible Local Area Network (VXLAN) <xref target="RFC7348"/> or Segment Routing over IPv6 (SRv6) <xref target="RFC8402"/> may be used in the network).</li>
+          <li>This mode is agnostic of the underlying technology (MPLS, VXLAN, and SRv6) and associated services (Layer 2 (L2), Layer 3 (L3), Bridging, E-LINE, etc.)</li>
+          <li>It enables deterministic QoS over MC-LAG attachment circuits.</li>
+          <li>It is fully compliant with <xref target="RFC7432"/> and does not
+        require any new protocol enhancements to existing EVPN RFCs.</li>
+          <li>It can leverage various Designated Forwarder (DF) election algorithms, such as modulo
+        <xref target="RFC7432"/>, Highest Random Weight (HRW) <xref target="RFC8584"/>, etc.</li>
+          <li>
+            <t>It replaces legacy MC-LAG ICCP-based solutions and offers the
+          following additional benefits:</t>
+            <ul spacing="normal">
+              <li>Efficient support for 1+N redundancy mode (with EVPN using BGP Route Reflector), whereas ICCP
+            requires a full mesh of LDP sessions among PEs in the redundancy group.</li>
+              <li>Fast convergence with mass withdraw is possible with EVPN, which has no equivalent
+            in ICCP.</li>
+            </ul>
+          </li>
+        </ol>
+      </section>
+      <section>
+        <name>Port-Active Redundancy Procedures</name>
+        <t>The following steps outline the proposed procedure for supporting Port-Active redundancy
+        mode with EVPN LAG:</t>
+        <ol spacing="normal" type="a">
+        <li>The Ethernet Segment Identifier (ESI) <bcp14>MUST</bcp14> be assigned per access interface as described
+        in <xref target="RFC7432"/>. The ESI can be auto-derived or manually assigned, and the access
+        interface <bcp14>MAY</bcp14> be an L2 or L3 interface.</li>
+          <li>The Ethernet Segment (ES) <bcp14>MUST</bcp14> be configured in Port-Active redundancy mode on peering
+        PEs for the specified access interface.</li>
+          <li>When ESI is configured on an L3 interface, the ES route (Route
+          Type-4) can be the only route exchanged by PEs in the redundancy group.</li>
+
+          <li>PEs in the redundancy group leverage the DF election defined in <xref target="RFC8584"/>
+        to determine which PE keeps the port in active mode and which PE(s) keeps it in standby
+        mode. Although the DF election defined in <xref target="RFC8584"/> is per [ES, Ethernet Tag]
+        granularity, the DF election is performed per [ES] in Port-Active redundancy mode. The
+        details of this algorithm are described in <xref target="df_algo"/>.</li>
+          <li>The DF router <bcp14>MUST</bcp14> keep the corresponding access interface in an up and forwarding
+        active state for that ES.</li>
+        <li>
+	  
+            <t>Non-DF routers <bcp14>SHOULD</bcp14> implement a bidirectional blocking scheme for all traffic
+        comparable to the Single-Active redundancy mode described in <xref target="RFC7432"/>,
+        albeit across all VLANs.
+            </t>
+            <ul>
+              <li>Non-DF routers <bcp14>MAY</bcp14> bring and keep the peering access interface attached to them in
+            an operational down state.</li>
+              <li>If the interface is running the LACP protocol, the non-DF PE <bcp14>MAY</bcp14> set the LACP state
+            to Out of Sync (OOS) instead of setting the interface to a down state. This approach
+            allows for better convergence during the transition from standby to active mode.</li>
+            </ul>
+          </li>
+          <li>The primary/backup bits of the EVPN Layer 2 Attributes (L2-Attr) Extended Community <xref target="RFC8214"/> <bcp14>SHOULD</bcp14> be used to achieve better convergence, as described in <xref target="es_ead_pb"/>.</li>
+        </ol>
+      </section>
+    </section>
+    <section anchor="df_algo">
+      <name>Designated Forwarder Algorithm to Elect per Port-Active PE</name>
+      <t>The ES routes operating in Port-Active redundancy mode are advertised with the new Port
+      Mode Load-Balancing capability bit in the DF Election Extended Community as defined in <xref target="RFC8584"/>. Additionally, the ES associated with the port utilizes the existing
+      Single-Active procedure and signals the Single-Active multihomed site redundancy mode along
+      with the Ethernet A-D per-ES route (refer to <xref target="RFC7432" section="7.5"/>).
+      Finally, The ESI label-based split-horizon procedures specified in <xref target="RFC7432" section="8.3"/> <bcp14>SHOULD</bcp14> be employed to prevent transient echo packets when L2 circuits are
+      involved.</t>
+      <t>Various algorithms for DF election are detailed in Sections <xref target="modulo" format="counter"/> to <xref target="ac_df" format="counter"/> for comprehensive
+      understanding, although the choice of algorithm in this solution does not significantly impact
+      complexity or performance compared to other redundancy modes.</t>
+      <section anchor="cap_flag">
+        <name>Capability Flag</name>
+        <t> <xref target="RFC8584"/> defines a DF Election Extended Community and a bitmap (2
+        octets) field to encode "DF Election Capabilities" to use with the DF election algorithm
+       in the DF algorithm field: </t>
+        <dl newline="false" spacing="normal" indent="10">
+          <dt>Bit 0:</dt>
+          <dd>D bit or 'Don't Preempt' bit, as described in <xref target="RFC9785"/>.</dd>
+          <dt>Bit 1:</dt>
+          <dd>AC-Influenced DF (AC-DF) election, as described in <xref target="RFC8584"/>.</dd>
+          <dt>Bit 3:</dt>
+          <dd>Time Synchronization, as described in <xref target="RFC9722"/>.</dd>
+        </dl>
+        <figure anchor="bitmap">
+          <name>Amended DF Election Capabilities in the DF Election Extended Community</name>
+          <artwork align="left"><![CDATA[
+                         1 1 1 1 1 1
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |D|A| |T| |P|                   |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+        <t>This document defines the following value and extends the DF Election Capabilities bitmap field:</t>
+        <dl newline="false" spacing="normal" indent="10">
+          <dt>Bit 5:</dt>
+          <dd>Port Mode Designated Forwarder Election. This
+            bit determines that the DF election algorithm <bcp14>SHOULD</bcp14> be modified to consider the
+            port ES only and not the Ethernet Tags.</dd>
+        </dl>
+      </section>
+      <section anchor="modulo">
+        <name>Modulo-Based Algorithm</name>
+        <t>The default DF election algorithm, or modulo-based algorithm, as described in <xref target="RFC7432"/> and updated by <xref target="RFC8584"/>, is applied here at the
+        granularity of ES only. Given that the ES-Import Route Target extended community may be
+        auto-derived and directly inherits its auto-derived value from ESI bytes 1-6, many operators
+        differentiate ESIs primarily within these bytes. Consequently, bytes 3-6 are utilized to
+        determine the designated forwarder using the modulo-based DF assignment, achieving good
+        entropy during modulo calculation across ESIs.</t>
+        <t>Assuming a redundancy group of N PE nodes, the PE with ordinal i is designated as the DF
+        for an &lt;ES&gt; when (Es mod N) = i, where Es represents bytes 3-6 of that ESI.</t>
+      </section>
+      <section anchor="hrw">
+        <name>Highest Random Weight Algorithm</name>
+        <t>
+       An application of Highest Random Weight (HRW) to EVPN DF election is
+       defined in <xref target="RFC8584"/>, and it <bcp14>MAY</bcp14>
+       be used and signaled. For Port-Active, this is modified to operate at the granularity of
+       &lt;ES&gt; rather than per &lt;ES, VLAN&gt;.</t>
+        <t><xref target="RFC8584" section="3.2"/> describes computing a 32-bit Cyclic Redundancy Check (CRC) over the concatenation of
+       Ethernet Tag (V) and ESI (Es). For Port-Active redundancy mode, the
+       Ethernet Tag is omitted from the CRC computation and all references to (V, Es) are
+	replaced by (Es).</t>
+
+        <t>The algorithm used to determine the DF and Backup Designated 
+   Forwarder (BDF) per <xref target="RFC8584" section="3.2"/> is repeated and summarized below using only (Es) in the
+       computation:</t>
+        <ol>
+           <li>DF(Es) = Si| Weight(Es, Si) &gt;= Weight(Es, Sj), for all j.
+           In the case of a tie, choose the PE whose IP address is
+           numerically the least.  Note that 0 &lt;= i,j &lt; number of PEs in the
+           redundancy group.</li>
+          <li>BDF(Es) = Sk| Weight(Es, Si) &gt;= Weight(Es, Sk), and
+            Weight(Es, Sk) &gt;= Weight(Es, Sj).  In the case of a tie,
+            choose the PE whose IP address is numerically the least.</li>
+        </ol>
+        <t>Where:</t>
+        <ul>
+          <li>DF(Es) is defined to be the address Si (index i) for which
+           Weight(Es, Si) is the highest; 0 &lt;= i &lt; N-1.</li>
+          <li>BDF(Es) is defined as that PE with address Sk for which the
+           computed Weight is the next highest after the Weight of the DF.
+           j is the running index from 0 to N-1; i and k are selected values.</li>
+        </ul>
+      </section>
+      <section anchor="pref_df">
+        <name>Preference-Based DF Election</name>
+        <t> When the new capability 'Port Mode' is signaled, the preference-based DF election
+        algorithm <xref target="RFC9785"/> is
+       modified to consider the port only and not any associated Ethernet Tags. The Port Mode
+       capability is compatible with the 'Don't Preempt' bit and both may be signaled. When an interface recovers,
+       a peering PE signaling the D bit enables non-revertive behavior at
+       the port level. </t>
+      </section>
+      <section anchor="ac_df">
+        <name>AC-Influenced DF Election</name>
+        <t>The AC-DF bit defined in <xref target="RFC8584"/> <bcp14>MUST</bcp14> be set to 0 when advertising Port Mode Designated Forwarder Election capability
+        (P=1).
+        When an AC (sub-interface) goes down, any resulting Ethernet A-D per EVI withdrawal does not influence the DF election.</t>
+        <t>Upon receiving the AC-DF bit set (A=1) from a remote PE, it <bcp14>MUST</bcp14> be ignored when performing
+        Port Mode Designated Forwarder Election.</t>
+      </section>
+    </section>
+    <section>
+      <name>Convergence Considerations</name>
+      <t>To enhance convergence during failure and recovery when the Port-Active redundancy mode is
+      employed, prior synchronization between peering PEs may be beneficial.</t>
+      <t>The Port-Active mode
+      poses a challenge to synchronization since the "standby" port may be in a down state. Transitioning a "standby"
+      port to an up state and stabilizing the network requires time. For Integrated Routing and
+      Bridging (IRB) and L3 services, prior synchronization of ARP / Neighbor Discovery (ND) caches is recommended.
+      Additionally, associated Virtual Routing and Forwarding (VRF) tables may need to be synchronized. For L2 services,
+      synchronization of MAC tables may be considered.</t>
+      <t>Moreover, for members of a LAG running LACP, the ability to set the "standby" port to an
+      "out-of-sync" state, also known as "warm-standby," can be utilized to improve convergence
+      times.</t>
+      <section anchor="es_ead_pb">
+
+        <name>Primary/Backup Bits per Ethernet Segment</name>
+        <t>The EVPN L2-Attr Extended Community defined in <xref target="RFC8214"/> <bcp14>SHOULD</bcp14> be advertised in the Ethernet A-D per ES route to enable fast
+        convergence.</t>
+        <t>Only the P and B bits of the Control Flags field in the L2-Attr Extended Community are
+        relevant to this document, specifically in the context of Ethernet A-D per ES routes:</t>
+        <ul>
+          <li>When advertised, the L2-Attr Extended Community <bcp14>SHALL</bcp14> have only the P or B bits set
+            in the Control Flags field, and all other bits and fields <bcp14>MUST</bcp14> be zero.</li>
+          <li>A remote PE receiving the optional L2-Attr Extended Community in Ethernet A-D per ES
+            routes <bcp14>SHALL</bcp14> consider only the P and B bits and ignore other values.</li>
+        </ul>
+        <t>For the L2-Attr Extended Community sent and received in Ethernet A-D per EVI
+     routes used in <xref target="RFC8214"/>, <xref target="RFC7432"/>, and <xref target="RFC9744"/>:</t>
+        <ul>
+          <li>P and B bits received <bcp14>SHOULD</bcp14> be considered overridden by "parent" bits when
+            advertised in the Ethernet A-D per ES.</li>
+          <li>Other fields and bits of the extended community are used according to the procedures
+            outlined in the referenced documents.</li>
+        </ul>
+        <t>By adhering to these procedures, the network ensures proper handling of the L2-Attr
+        Extended Community to maintain robust and efficient convergence across Ethernet
+        Segments.</t>
+      </section>
+      <section>
+        <name>Backward Compatibility</name>
+        <t>Implementations that comply with <xref target="RFC7432"/> or <xref target="RFC8214"/> only (i.e., implementations 
+    that predate this specification) and that receive an L2-Attr Extended Community in Ethernet A-D per ES routes will ignore it and continue
+    to use the default path resolution algorithms of the two specifications above:</t>
+        <ul>
+          <li>The L2-Attr Extended Community in Ethernet A-D per ES route is ignored.</li>
+
+          <li>The remote ESI Label Extended Community <xref target="RFC7432"/> signals the
+      Single-Active redundancy mode (<xref target="df_algo"/>).</li>
+          <li>The remote Media Access Control (MAC) and/or Ethernet A-D per EVI routes are unchanged; the P and B bits in the L2-Attr
+    Extended Community in Ethernet A-D per EVI routes are used.</li>
+        </ul>
+      </section>
+    </section>
+    <section>
+      <name>Applicability</name>
+      <t>A prevalent deployment scenario involves providing L2 or L3 services on PE devices that offer
+      multihoming capabilities. The services may include any L2 EVPN solutions such as EVPN Virtual Private Wire Service (VPWS) or
+      standard EVPN as defined in <xref target="RFC7432"/>. Additionally, L3 services may be
+      provided within a VPN context, as specified in <xref target="RFC4364"/>, or within a global routing context.
+      When a PE provides first-hop routing, EVPN IRB may also be deployed on the PEs. The mechanism
+      outlined in this document applies to PEs providing L2 and/or L3 services where active/standby
+      redundancy at the interface level is required.</t>
+      <t>An alternative solution to the one described in this document is MC-LAG with ICCP active/standby redundancy, as detailed in <xref target="RFC7275"/>. However, ICCP requires LDP to be enabled as a transport for ICCP messages.
+      There are numerous scenarios where LDP is not necessary, such as deployments utilizing VXLAN
+      or SRv6. The solution using EVPN, as described in this document, does not mandate the use of LDP or
+      ICCP and remains independent of the underlay encapsulation.</t>
+    </section>
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <t>Per this document, IANA has added the following entry to the "DF Election Capabilities" registry under the "Border Gateway Protocol (BGP) Extended
+      Communities" registry group:</t>
+
+<table anchor="iana_table">  
+  <thead>
+    <tr>
+      <th>Bit</th> 
+      <th>Name</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>         
+    <tr>
+      <td>5</td>
+      <td>Port Mode Designated Forwarder Election</td>
+      <td>RFC 9786</td>
+    </tr>
+  </tbody>
+</table>
+
+    </section>
+    <section>
+      <name>Security Considerations</name>
+      <t>The security considerations described in <xref target="RFC7432"/> and <xref target="RFC8584"/> are applicable to this
+      document.</t>
+      <t>Introducing a new capability necessitates unanimity among PEs. Without consensus on the new
+      DF election procedures and Port Mode, the DF election algorithm defaults to the procedures
+      outlined in <xref target="RFC8584"/> and <xref target="RFC7432"/>.This fallback behavior could
+      be exploited by an attacker who modifies the configuration of one PE within the ES. Such manipulation could force all PEs in the ES to revert to the default DF election
+      algorithm and capabilities. In this scenario, the PEs may be subject to unfair load
+      balancing, service disruption, and potential issues such as traffic loss or duplicate traffic,
+      as mentioned in the security sections of those documents.</t>
+    </section>
+  </middle>
+<back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7432.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8214.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8584.xml"/>
+
+
+         <!--draft-ietf-bess-evpn-fast-df-recovery-12 is now RFC 9722-->
+	 <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9722.xml"/>
+
+
+<!-- [RFC9785] draft-ietf-bess-evpn-pref-df-13 companion doc -->
+<reference anchor="RFC9785" target="https://www.rfc-editor.org/info/rfc9785">
+  <front>
+    <title>Preference-Based EVPN Designated Forwarder (DF) Election</title>
+    <author fullname="Jorge Rabadan" initials="J." surname="Rabadan" role="editor">
+      <organization>Nokia</organization>
+    </author>
+    <author fullname="Senthil Sathappan" initials="S." surname="Sathappan">
+      <organization>Nokia</organization>
+    </author>
+    <author fullname="Wen Lin" initials="W." surname="Lin">
+      <organization>Juniper Networks</organization>
+    </author>
+    <author fullname="John Drake" initials="J." surname="Drake">
+      <organization>Independent</organization>
+    </author>
+    <author fullname="Ali Sajassi" initials="A." surname="Sajassi">
+      <organization>Cisco Systems</organization>
+    </author>
+    <date month="June" year="2025"/>
+  </front>
+  <seriesInfo name="RFC" value="RFC9785"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9785"/>
+</reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml6/reference.R.IEEE.802.1AX-2014.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4364.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5036.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7275.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7348.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8402.xml"/>
+
+      <!--I-D.ietf-bess-evpn-vpws-fxc is now RFC 9744 -->
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9744.xml"/>
+      </references>
+    </references>
+  <section numbered="false">
+      <name>Acknowledgements</name>
+      <t>The authors thank <contact fullname="Anoop Ghanwani"/> for his
+      comments and suggestions and <contact fullname="Stephane Litkowski"/>
+      and <contact fullname="Gunter Van de Velde"/> for their careful
+      reviews.</t>
+    </section>
+    <section numbered="false">
+      <name>Contributors</name>
+      <t>In addition to the authors listed on the front page, the following
+      people have also contributed to this document:</t>
+      <author fullname="Ali Sajassi" initials="A." surname="Sajassi">
+        <organization>Cisco Systems</organization>
+        <address>
+          <postal>
+            <country>United States of America</country>
+          </postal>
+          <email>sajassi@cisco.com</email>
+        </address>
+      </author>
+      <author fullname="Samir Thoria" initials="S." surname="Thoria">
+        <organization>Cisco Systems</organization>
+        <address>
+          <postal>
+            <country>United States of America</country>
+          </postal>
+          <email>sthoria@cisco.com</email>
+        </address>
+      </author>
+    </section>
+
+  </back>
+</rfc>

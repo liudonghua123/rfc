@@ -1,0 +1,851 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" ipr="trust200902" docName="draft-ietf-mpls-spring-lsp-ping-path-sid-13" number="9884" updates="" obsoletes="" consensus="true" submissionType="IETF" tocInclude="true" symRefs="true" sortRefs="true" version="3" xml:lang="en">
+
+
+  <front>
+    <title abbrev="LSP Ping for SR PSID">Label Switched Path Ping for Segment Routing Path Segment Identifier with  MPLS Data Plane</title>
+    <seriesInfo name="RFC" value="9884"/>
+    <author fullname="Xiao Min" initials="X" surname="Min">
+      <organization>ZTE Corp.</organization>
+      <address>
+        <postal>
+          <city>Nanjing</city>
+          <country>China</country>
+        </postal>
+        <phone>+86 18061680168</phone>
+        <email>xiao.min2@zte.com.cn</email>
+     </address>
+    </author>
+    <author fullname="Shaofu Peng" initials="S" surname="Peng">
+      <organization>ZTE Corp.</organization>
+      <address>
+        <postal>
+          <city>Nanjing</city>
+          <country>China</country>
+        </postal>
+        <email>peng.shaofu@zte.com.cn</email>
+     </address>
+    </author>
+    <author fullname="Liyan Gong" initials="L" surname="Gong">
+      <organization>China Mobile</organization>
+      <address>
+        <postal>
+          <city>Beijing</city>
+          <country>China</country>
+        </postal>
+        <email>gongliyan@chinamobile.com</email>
+     </address>
+    </author>
+    <author fullname="Rakesh Gandhi" initials="R" surname="Gandhi">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+          <country>Canada</country>
+        </postal>
+        <email>rgandhi@cisco.com</email>
+     </address>
+    </author>
+    <author fullname="Carlos Pignataro" initials="C" surname="Pignataro">
+      <organization>Blue Fern Consulting</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>carlos@bluefern.consulting</email>
+     </address>
+    </author>
+    <date year="2025" month="October"/>
+    <area>RTG</area>
+    <workgroup>mpls</workgroup>
+
+
+
+    <abstract>
+      <t> Segment Routing (SR) leverages source routing to steer packets through an ordered list of instructions called "segments". SR can 
+  be instantiated over the MPLS data plane. Path Segment Identifiers (PSIDs) are used to identify and correlate bidirectional or 
+  end-to-end paths in SR networks. This document defines procedures (i.e., six new Target Forwarding Equivalence Class 
+  (FEC) Stack sub-TLVs) for the use of LSP Ping to support connectivity verification and fault isolation for SR paths that include 
+  PSIDs. The mechanisms described enable the validation and tracing of SR paths with Path SIDs in MPLS networks, 
+  complementing existing SR-MPLS Operations, Administration, and Maintenance (OAM) capabilities. </t>
+    </abstract>
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t> A Path Segment is a local segment <xref target="RFC9545"/> that uniquely identifies an SR path on the egress node. A Path Segment 
+  Identifier (PSID) is a single label that is assigned from the SR Local Block (SRLB) <xref target="RFC8402"/> of the egress 
+  node of an SR path. </t>
+      <t> As specified in <xref target="RFC9545"/>, PSID is a single label inserted by the ingress node of the SR path and then processed 
+  by the egress node of the SR path. The PSID is placed within the MPLS label stack as a label immediately following the last label of 
+      the SR path. The egress node pops the PSID. </t>
+      
+      <t>The procedure for LSP Ping <xref target="RFC8029"/> as defined in <xref target="RFC8287" section="7.4"/> is also applicable to PSID; this document appends the existing step 4a with a new step 4b specific to PSID. Concretely, LSP Ping can be used to check the correct 
+  operation of a PSID and verify the PSID against the control plane. Checking correct operation means that an initiator can use LSP Ping 
+  to check whether a PSID reached the intended node and got processed by that node correctly. Moreover, verifying a PSID against the control 
+  plane means that the initiator can use LSP Ping to verify the SR path context (segment-list, candidate path, or SR Policy) associated 
+  with the PSID as signaled or provisioned at the egress node. To that end, this document specifies six new Target Forwarding Equivalence 
+  Class (FEC) Stack sub-TLVs for such PSID checks. </t>
+      <t> LSP Traceroute <xref target="RFC8287"/> is left out of this document because transit nodes are not involved in PSID processing. </t>
+    </section>
+    <section>
+      <name>Conventions</name>
+      <section>
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+      <section anchor="sect-2.2">
+        <name>Terminology</name>
+        <t> This document uses the terminology defined in <xref target="RFC3031"/>, <xref target="RFC8402"/>, <xref target="RFC8029"/>, and 
+	<xref target="RFC9545"/>; readers are expected to be familiar with the terms in those documents. </t>
+
+	<t>This document introduces the following additional term:</t>
+	<dl spacing="normal" newline="true">
+          <dt>Segment-List-ID</dt>
+          <dd>The Segment-List-ID field is a 4-octet identifier that uniquely
+          identifies a segment list within the context of the candidate path
+          of an SR Policy. Although not defined in <xref target="RFC9256"/>,
+          the Segment-List-ID is the same identifier as the one that can be
+          signaled through control plane protocols including Border Gateway Protocol (BGP) (<xref section="2.1" target="I-D.ietf-idr-sr-policy-seglist-id"/>, Path Computation Element Communication Protocol (PCEP) (<xref section="4.2" target="I-D.ietf-pce-multipath"/>), and Border Gateway Protocol - Link State (BGP-LS) (<xref section="5.7.4" target="RFC9857"/>).</dd>
+        </dl>
+      </section>
+    </section>
+    <section>
+      <name>Path Segment ID Sub-TLVs</name>
+      <t> Analogous to what's defined in <xref target="RFC8287" section="5"/> and <xref target="RFC9703" section="4"/>, six new sub-TLVs 
+  are defined for the Target FEC Stack TLV (Type 1), the Reverse-Path Target FEC Stack TLV (Type 16), and the Reply Path TLV (Type 21). 
+  Note that the structures of the six new sub-TLVs follow the TLV's structure defined in <xref target="RFC8029" section="3"/>. </t>
+      <table>
+        <name>Sub-TLVs for PSID Checks</name>
+        <thead>
+          <tr>
+            <th align="left">Sub-Type</th>
+            <th align="left">Sub-TLV Name</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">49</td>
+            <td align="left">SR Policy Associated PSID - IPv4</td>
+          </tr>
+          <tr>
+            <td align="left">50</td>
+            <td align="left">SR Candidate Path Associated PSID - IPv4</td>
+          </tr>
+          <tr>
+            <td align="left">51</td>
+            <td align="left">SR Segment List Associated PSID - IPv4</td>
+          </tr>
+          <tr>
+            <td align="left">52</td>
+            <td align="left">SR Policy Associated PSID - IPv6</td>
+          </tr>
+          <tr>
+            <td align="left">53</td>
+            <td align="left">SR Candidate Path Associated PSID - IPv6</td>
+          </tr>
+          <tr>
+            <td align="left">54</td>
+            <td align="left">SR Segment List Associated PSID - IPv6</td>
+          </tr>
+        </tbody>
+      </table>
+
+      
+      <t> As specified in <xref target="RFC9545" section="2"/>, a PSID is used to identify the following:</t>
+      <ul>
+	<li>a single segment list, some segment lists, or all segment lists in a candidate path of an SR Policy,</li>
+	<li>some segment lists across multiple candidate paths of an SR Policy, or</li>
+	<li>all segment lists in all candidate paths of an SR Policy.</li></ul>
+	
+<t>Therefore, six different Target FEC Stack sub-TLVs need to be defined for PSID. The ordered list of selection 
+  rules for the six Target FEC Stack sub-TLVs are defined as follows:
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t> When a PSID is used to identify all segment lists in an SR Policy, the Target FEC Stack sub-TLV of the type "SR Policy Associated 
+	  PSID" (for IPv4 or IPv6) <bcp14>MUST</bcp14> be used for PSID checks. </t>
+        </li>
+        <li>
+          <t> When a PSID is used to identify all segment lists in an SR Candidate Path, the Target FEC Stack sub-TLV of the type "SR Candidate 
+	  Path Associated PSID" (for IPv4 or IPv6) <bcp14>MUST</bcp14> be used for PSID checks. </t>
+        </li>
+        <li>
+          <t> When a PSID is used to identify a single segment list, the Target FEC Stack sub-TLV of the type "SR Segment List Associated PSID" (for IPv4 
+	  or IPv6) <bcp14>MUST</bcp14> be used for PSID checks. </t>
+        </li>
+        <li>
+          <t> When a PSID is used to identify some segment lists in a candidate path or an SR Policy, the Target FEC Stack sub-TLV of the type 
+	  "SR Segment List Associated PSID" (for IPv4 or IPv6) <bcp14>MUST</bcp14> be used for PSID checks. In this case, multiple LSP Ping messages <bcp14>MUST</bcp14> be sent, 
+	  and one Target FEC Stack sub-TLV of the type "SR Segment List Associated PSID" (for IPv4 or IPv6) <bcp14>MUST</bcp14> be carried in each LSP Ping message. </t>
+        </li>
+      </ul>
+      <t> These six new Target FEC Stack sub-TLVs are not expected to be present in the same message. If more than one of these sub-TLVs are 
+  present in a message, only the first sub-TLV will be processed, per the validation rules in <xref target="sect-4"/>.</t>
+      <section anchor="sect-3.1">
+        <name>SR Policy Associated PSID - IPv4 Sub-TLV</name>
+        <t> The SR Policy Associated PSID - IPv4 sub-TLV is defined as follows: </t>
+        <figure anchor="Figure_1">
+          <name>SR Policy Associated PSID - IPv4 Sub-TLV Format</name>
+          <artwork align="left"><![CDATA[ 
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 49            |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Headend (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Color (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Endpoint (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+<dl spacing="normal" newline="true">
+  <dt>Type (length: 2 octets)</dt>
+  <dd> The Type field identifies the sub-TLV as an SR Policy Associated PSID - IPv4 sub-TLV. The value is set to 49.</dd>
+  <dt>Length (length: 2 octets)</dt>
+  <dd> The Length field indicates the length of the sub-TLV in octets, excluding the first 4 octets (Type and Length fields). The value <bcp14>MUST</bcp14> be set to 12. </dd>
+  <dt>Headend (length: 4 octets)</dt>
+  <dd> The Headend field encodes the headend IPv4 address of the SR Policy. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Color (length: 4 octets)</dt>
+  <dd> The Color field identifies the color (i.e., policy identifier) of the SR Policy and is encoded as defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Endpoint (length: 4 octets)</dt>
+  <dd> The Endpoint field encodes the endpoint IPv4 address of the SR Policy. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+</dl>
+      </section>
+      <section anchor="sect-3.2">
+        <name>SR Candidate Path Associated PSID - IPv4 Sub-TLV</name>
+        <t> The SR Candidate Path Associated PSID - IPv4 sub-TLV is defined as follows: </t>
+        <figure anchor="Figure_2">
+          <name>SR Candidate Path Associated PSID - IPv4 Sub-TLV Format</name>
+          <artwork align="left"><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 50            |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Headend (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Color (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Endpoint (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Protocol-Origin|                    Reserved                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                                                               |
+|                   Originator (20 octets)                      |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Discriminator (4 octets)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+<dl spacing="normal" newline="true">
+  <dt>Type (length: 2 octets)</dt>
+  <dd> The Type field identifies the sub-TLV as an SR Candidate Path Associated PSID - IPv4 sub-TLV. The value is set to 50.</dd>
+  <dt>Length (length: 2 octets)</dt>
+  <dd> The Length field indicates the length of the sub-TLV in octets, excluding the first 4 octets (Type and Length fields). The value <bcp14>MUST</bcp14> be set to 40. </dd>
+  <dt>Headend (length: 4 octets)</dt>
+  <dd> The Headend field encodes the headend IPv4 address of the SR Candidate Path. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Color (length: 4 octets)</dt>
+  <dd> The Color field identifies the policy color and is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Endpoint (length: 4 octets)</dt>
+  <dd> The Endpoint field encodes the endpoint IPv4 address of the SR Candidate Path. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Protocol-Origin (length: 1 octet)</dt>
+  <dd> The Protocol-Origin field indicates the protocol that originated the SR
+  Candidate Path. It is defined in <xref target="RFC9256" section="2.3"/> and
+  takes values from the IANA registry <xref target="PROTOCOL-ORIGIN"/>. If an
+  unsupported value is used, validation at the responder <bcp14>MUST</bcp14>
+  fail.</dd>
+  <dt>Reserved (length: 3 octets)</dt>
+  <dd> The Reserved field is reserved for future use. It <bcp14>MUST</bcp14> be set to zero when sent and <bcp14>MUST</bcp14> be ignored upon receipt. </dd>
+  <dt>Originator (length: 20 octets)</dt>
+  <dd> The Originator field identifies the originator of the SR Candidate Path and is encoded as defined in <xref target="RFC9256" section="2.4"/>. </dd>
+  <dt>Discriminator (length: 4 octets)</dt>
+  <dd> The Discriminator field uniquely identifies the SR Candidate Path within the context of the Headend, Color, and Endpoint fields. 
+					   This field is defined in <xref target="RFC9256" section="2.5"/>. </dd>
+</dl>
+      </section>
+      <section anchor="sect-3.3">
+        <name>SR Segment List Associated PSID - IPv4 Sub-TLV</name>
+        <t> The SR Segment List Associated PSID - IPv4 sub-TLV is used to identify a specific segment list within the context of a candidate path of an SR Policy. 
+  The format of this sub-TLV is shown in <xref target="Figure_3"/>. </t>
+        <figure anchor="Figure_3">
+          <name>SR Segment List Associated PSID - IPv4 Sub-TLV Format</name>
+          <artwork align="left"><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 51            |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Headend (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Color (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Endpoint (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Protocol-Origin|                    Reserved                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                                                               |
+|                    Originator (20 octets)                     |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Discriminator (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Segment-List-ID (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+<dl spacing="normal" newline="true">
+  <dt>Type (length: 2 octets)</dt>
+  <dd> The Type field identifies the sub-TLV as an SR Segment List Associated PSID - IPv4 sub-TLV. The value is set to 51.</dd>
+  <dt>Length (length: 2 octets)</dt>
+  <dd> The Length field indicates the length of the sub-TLV in octets, excluding the first 4 octets (Type and Length fields). The value <bcp14>MUST</bcp14> be set to 44. </dd>
+  <dt>Headend (length: 4 octets)</dt>
+  <dd> The Headend field encodes the headend IPv4 address of the SR Policy. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Color (length: 4 octets)</dt>
+  <dd> The Color field identifies the color of the SR Policy and is encoded as specified in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Endpoint (length: 4 octets)</dt>
+  <dd> The Endpoint field specifies the endpoint IPv4 address of the SR Policy, as defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Protocol-Origin (length: 1 octet)</dt>
+  <dd> The Protocol-Origin field indicates the protocol that originated the SR
+  Candidate Path. It is defined in <xref target="RFC9256" section="2.3"/> and
+  takes values from the IANA registry <xref target="PROTOCOL-ORIGIN"/>. If an
+  unsupported value is used, validation at the responder <bcp14>MUST</bcp14>
+  fail.</dd>
+  <dt>Reserved (length: 3 octets)</dt>
+  <dd> The Reserved field is reserved for future use. It <bcp14>MUST</bcp14> be set to zero when transmitted and <bcp14>MUST</bcp14> be ignored upon receipt. </dd>
+  <dt>Originator (length: 20 octets)</dt>
+  <dd> The Originator field identifies the originator of the SR Candidate Path and is defined in <xref target="RFC9256" section="2.4"/>. </dd>
+  <dt>Discriminator (length: 4 octets)</dt>
+  <dd> The Discriminator field uniquely identifies the SR Candidate Path
+  within the context of the Headend, Color, and Endpoint fields.  This field is
+  defined in <xref target="RFC9256" section="2.5"/>. </dd>
+  <dt>Segment-List-ID (length: 4 octets)</dt>
+  <dd> The Segment-List-ID field is a 4-octet identifier that uniquely
+  identifies a segment list within the context of the candidate path of an SR
+  Policy.  This field is defined in <xref target="sect-2.2"/>.</dd>
+</dl>
+      </section>
+      <section anchor="sect-3.4">
+        <name>SR Policy Associated PSID - IPv6 Sub-TLV</name>
+        <t> The SR Policy Associated PSID - IPv6 sub-TLV is defined as follows: </t>
+        <figure anchor="Figure_4">
+          <name>SR Policy Associated PSID - IPv6 Sub-TLV Format</name>
+          <artwork align="left"><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 52            |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                     Headend (16 octets)                       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Color (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                    Endpoint (16 octets)                       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+<dl spacing="normal" newline="true">
+  <dt>Type (length: 2 octets)</dt>
+  <dd> The Type field identifies the sub-TLV as an SR Policy Associated PSID - IPv6 sub-TLV. The value is set to 52.</dd>
+  <dt>Length (length: 2 octets)</dt>
+  <dd> The Length field indicates the length of the sub-TLV in octets, excluding the first 4 octets (Type and Length fields). The value <bcp14>MUST</bcp14> be set to 36. </dd>
+  <dt>Headend (length: 16 octets)</dt>
+  <dd> The Headend field encodes the headend IPv6 address of the SR Policy. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Color (length: 4 octets)</dt>
+  <dd> The Color field identifies the color (i.e., policy identifier) of the SR Policy and is encoded as defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Endpoint (length: 16 octets)</dt>
+  <dd> The Endpoint field encodes the endpoint IPv6 address of the SR Policy. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+</dl>
+      </section>
+      <section anchor="sect-3.5">
+        <name>SR Candidate Path Associated PSID - IPv6 Sub-TLV</name>
+        <t> The SR Candidate Path Associated PSID - IPv6 sub-TLV is defined as follows: </t>
+        <figure anchor="Figure_5">
+          <name>SR Candidate Path Associated PSID - IPv6 Sub-TLV Format</name>
+          <artwork align="left"><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 53            |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                     Headend (16 octets)                       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Color (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                    Endpoint (16 octets)                       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Protocol-Origin|                    Reserved                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                                                               |
+|                   Originator (20 octets)                      |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Discriminator (4 octets)                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+<dl spacing="normal" newline="true">
+  <dt>Type (length: 2 octets)</dt>
+  <dd> The Type field identifies the sub-TLV as an SR Candidate Path Associated PSID - IPv6 sub-TLV. The value is set to 53.</dd>
+  <dt>Length (length: 2 octets)</dt>
+  <dd> The Length field indicates the length of the sub-TLV in octets, excluding the first 4 octets (Type and Length fields). The value <bcp14>MUST</bcp14> be set to 64. </dd>
+  <dt>Headend (length: 16 octets)</dt>
+  <dd> The Headend field encodes the headend IPv6 address of the SR Candidate Path. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Color (length: 4 octets)</dt>
+  <dd> The Color field identifies the policy color and is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Endpoint (length: 16 octets)</dt>
+  <dd> The Endpoint field encodes the endpoint IPv6 address of the SR Candidate Path. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Protocol-Origin (length: 1 octet)</dt>
+  <dd> The Protocol-Origin field indicates the protocol that originated the SR
+  Candidate Path. It is defined in <xref target="RFC9256" section="2.3"/> and
+  takes values from the IANA registry <xref target="PROTOCOL-ORIGIN"/>. If an
+  unsupported value is used, validation at the responder <bcp14>MUST</bcp14>
+  fail.</dd>
+  <dt>Reserved (length: 3 octets)</dt>
+  <dd> The Reserved field is reserved for future use. It <bcp14>MUST</bcp14> be set to zero when sent and <bcp14>MUST</bcp14> be ignored upon receipt. </dd>
+  <dt>Originator (length: 20 octets)</dt>
+  <dd> The Originator field identifies the originator of the SR Candidate Path and is encoded as defined in <xref target="RFC9256" section="2.4"/>. </dd>
+  <dt>Discriminator (length: 4 octets)</dt>
+  <dd> The Discriminator field uniquely identifies the SR Candidate Path
+  within the context of the Headend, Color, and Endpoint fields.  This field is
+  defined in <xref target="RFC9256" section="2.5"/>. </dd>
+</dl>
+      </section>
+      <section anchor="sect-3.6">
+        <name>SR Segment List Associated PSID - IPv6 Sub-TLV</name>
+        <t> The SR Segment List Associated PSID - IPv6 sub-TLV is used to identify a specific segment list within the context of a candidate path of an SR Policy. 
+  The format of this sub-TLV is shown in <xref target="Figure_6"/>. </t>
+        <figure anchor="Figure_6">
+          <name>SR Segment List Associated PSID - IPv6 Sub-TLV Format</name>
+          <artwork align="left"><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 54            |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                     Headend (16 octets)                       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Color (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                    Endpoint (16 octets)                       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Protocol-Origin|                    Reserved                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                                                               |
+|                    Originator (20 octets)                     |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Discriminator (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Segment-List-ID (4 octets)                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+<dl spacing="normal" newline="true">
+  <dt>Type (length: 2 octets)</dt>
+  <dd> The Type field identifies the sub-TLV as an SR Segment List Associated PSID - IPv6 sub-TLV. The value is set to 54.</dd>
+  <dt>Length (length: 2 octets)</dt>
+  <dd> The Length field indicates the length of the sub-TLV in octets, excluding the first 4 octets (Type and Length fields). The value <bcp14>MUST</bcp14> be set to 68. </dd>
+  <dt>Headend (length: 16 octets)</dt>
+  <dd> The Headend field encodes the headend IPv6 address of the SR Policy. This field is defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Color (length: 4 octets)</dt>
+  <dd> The Color field identifies the color of the SR Policy and is encoded as specified in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Endpoint (length: 16 octets)</dt>
+  <dd> The Endpoint field specifies the endpoint IPv6 address of the SR Policy, as defined in <xref target="RFC9256" section="2.1"/>. </dd>
+  <dt>Protocol-Origin (length: 1 octet)</dt>
+  <dd> The Protocol-Origin field indicates the protocol that originated the SR
+  Candidate Path. It is defined in <xref target="RFC9256" section="2.3"/> and
+  takes values from the IANA registry <xref target="PROTOCOL-ORIGIN"/>. If an
+  unsupported value is used, validation at the responder <bcp14>MUST</bcp14>
+  fail.</dd>
+  <dt>Reserved (length: 3 octets)</dt>
+  <dd> The Reserved field is reserved for future use. It <bcp14>MUST</bcp14> be set to zero when transmitted and <bcp14>MUST</bcp14> be ignored upon receipt. </dd>
+  <dt>Originator (length: 20 octets)</dt>
+  <dd> The Originator field identifies the originator of the SR Candidate Path and is defined in <xref target="RFC9256" section="2.4"/>. </dd>
+  <dt>Discriminator (length: 4 octets)</dt>
+  <dd> The Discriminator field uniquely identifies the SR Candidate Path
+  within the context of the Headend, Color, and Endpoint fields.  This field is
+  defined in <xref target="RFC9256" section="2.5"/>. </dd>
+  <dt>Segment-List-ID (length: 4 octets)</dt>
+  <dd> The Segment-List-ID field is a 4-octet identifier that uniquely
+  identifies a segment list within the context of the candidate path of an SR
+  Policy.  This field is defined in <xref target="sect-2.2"/>.</dd>
+</dl>
+      </section>
+    </section>
+    <section anchor="sect-4">
+      <name>PSID FEC Validation</name>
+
+      <t> The MPLS LSP Ping procedures may be initiated by the headend of the SR path or a 
+  centralized topology-aware data plane monitoring system as described in <xref target="RFC8403"/>. For the 
+  PSID, the responder nodes that receive an echo request and send an echo reply <bcp14>MUST</bcp14> be the endpoint of the 
+      SR path. </t>
+
+      
+      <t> When an endpoint receives the LSP echo request packet with the top FEC being the PSID, it <bcp14>MUST</bcp14> perform 
+  validity checks on the content of the PSID Target FEC Stack sub-TLV.</t>
+      <t> If a malformed Target FEC Stack sub-TLV is received, then a return code of 1, "Malformed echo request received" as defined 
+  in <xref target="RFC8029"/> <bcp14>MUST</bcp14> be sent. The section below is appended to step 4a of <xref target="RFC8287" section="7.4"/>. </t>
+      <section>
+        <name>PSID FEC Validation Rules</name>
+
+	
+
+<sourcecode type="pseudocode"><![CDATA[
+4b. Segment Routing PSID Validation:
+
+If the Label-stack-depth is 1 and the Target FEC Stack sub-TLV at 
+FEC-stack-depth is 49 (SR Policy Associated PSID - IPv4 sub-TLV), { 
+
+   Set the Best-return-code to 10 "Mapping for this FEC is not the
+   given label at stack-depth <RSC>" if any below conditions fail 
+   (the notation <RSC> refers to the Return Subcode): 
+
+   -  Validate that the PSID is signaled or provisioned for the SR 
+      Policy { 
+
+      *  Validate that the signaled or provisioned headend, color, 
+         and endpoint for the PSID match with the corresponding 
+         fields in the received SR Policy Associated PSID - IPv4
+         sub-TLV.
+
+      }
+
+   }
+
+   If all the above validations have passed, set the return code to 3
+   "Replying router is an egress for the FEC at stack-depth <RSC>".
+
+   Set the FEC-Status to 1 and return.
+
+}
+
+Else, if the Label-stack-depth is 1 and the Target FEC Stack sub-TLV 
+at FEC-stack-depth is 50 (SR Candidate Path Associated PSID - IPv4 
+sub-TLV), { 
+
+   Set the Best-return-code to 10 "Mapping for this FEC is not the
+   given label at stack-depth <RSC>" if any below conditions fail: 
+
+   -  Validate that the PSID is signaled or provisioned for the SR 
+      Candidate Path { 
+
+      *  Validate that the signaled or provisioned headend, color, 
+         endpoint, originator, and discriminator for the PSID 
+         match with the corresponding fields in the received SR 
+         Candidate Path Associated PSID - IPv4 sub-TLV.
+
+      }
+
+   }
+
+   If all the above validations have passed, set the return code to 3
+   "Replying router is an egress for the FEC at stack-depth <RSC>".
+
+   Set the FEC-Status to 1 and return.
+
+}
+
+Else, if the Label-stack-depth is 1 and the Target FEC Stack sub-TLV
+at FEC-stack-depth is 51 (SR Segment List Associated PSID - IPv4 
+sub-TLV), { 
+
+   Set the Best-return-code to 10 "Mapping for this FEC is not the
+   given label at stack-depth <RSC>" if any below conditions fail:
+
+   -  Validate that the PSID is signaled or provisioned for the SR 
+      Segment List { 
+
+      *  Validate that the signaled or provisioned headend, color, 
+         endpoint, originator, discriminator, and segment-list-id 
+         for the PSID match with the corresponding fields in the 
+         received SR Segment List Associated PSID - IPv4 sub-TLV.
+
+      }
+
+   }
+
+  If all the above validations have passed, set the return code to 3,
+  "Replying router is an egress for the FEC at stack-depth <RSC>".
+
+  Set the FEC-Status to 1 and return.
+
+}
+
+Else, if the Label-stack-depth is 1 and the Target FEC Stack sub-TLV 
+at FEC-stack-depth is 52 (SR Policy Associated PSID - IPv6 
+sub-TLV), { 
+
+   Set the Best-return-code to 10 "Mapping for this FEC is not the
+   given label at stack-depth <RSC>" if any below conditions fail 
+
+   -  Validate that the PSID is signaled or provisioned for the SR 
+      Policy { 
+
+      *  Validate that the signaled or provisioned headend, color,
+         and endpoint for the PSID match with the corresponding 
+         fields in the received SR Policy Associated PSID - IPv6 sub-
+         TLV.
+
+      }
+
+   }
+
+   If all the above validations have passed, set the return code to 3
+   "Replying router is an egress for the FEC at stack-depth <RSC>".
+
+   Set the FEC-Status to 1 and return.
+
+}
+
+Else, if the Label-stack-depth is 1 and the Target FEC Stack sub-TLV 
+at FEC-stack-depth is 53 (SR Candidate Path Associated PSID - IPv6 
+sub-TLV), { 
+
+   Set the Best-return-code to 10 "Mapping for this FEC is not the
+   given label at stack-depth <RSC>" if any below conditions fail:
+
+   -  Validate that the PSID is signaled or provisioned for the SR 
+      Candidate Path { 
+
+      *  Validate that the signaled or provisioned headend, color, 
+         endpoint, originator, and discriminator for the PSID
+         match with the corresponding fields in the received SR 
+         Candidate Path Associated PSID - IPv6 sub-TLV.
+
+      }
+
+   }
+
+   If all the above validations have passed, set the return code to 3
+   "Replying router is an egress for the FEC at stack-depth <RSC>".
+
+   Set the FEC-Status to 1 and return.
+
+}
+
+Else, if the Label-stack-depth is 1 and the Target FEC Stack sub-TLV
+at FEC-stack-depth is 54 (SR Segment List Associated PSID - IPv6 
+sub-TLV), { 
+
+   Set the Best-return-code to 10 "Mapping for this FEC is not the
+   given label at stack-depth <RSC>" if any below conditions fail:
+
+   -  Validate that the PSID is signaled or provisioned for the SR 
+      Segment List { 
+
+      *  Validate that the signaled or provisioned headend, color, 
+         endpoint, originator, discriminator, and segment-list-id 
+         for the PSID match with the corresponding fields in the 
+         received SR Segment List Associated PSID - IPv6 sub-TLV.
+
+      }
+
+   }
+
+   If all the above validations have passed, set the return code to 3
+   "Replying router is an egress for the FEC at stack-depth <RSC>".
+
+   Set the FEC-Status to 1 and return.
+
+}]]></sourcecode>
+
+        <t> When any of the following is carried in a Reverse-Path Target FEC Stack TLV (Type 16) or Reply Path TLV (Type 21), it
+	<bcp14>MUST</bcp14> be sent by an endpoint in an echo reply.</t>
+	<ul>
+	  <li>SR Policy Associated PSID - IPv4 sub-TLV,</li>
+	  <li>SR Candidate Path Associated PSID - IPv4 sub-TLV,</li>
+	  <li>SR Segment List Associated PSID - IPv4 sub-TLV,</li>
+	  <li>SR Policy Associated PSID - IPv6 sub-TLV,</li>
+	  <li>SR Candidate Path Associated PSID - IPv6 sub-TLV, or</li>
+	  <li>SR Segment List Associated PSID - IPv6 sub-TLV</li></ul>
+
+	  <t>The headend <bcp14>MUST</bcp14> perform validity checks as described above without setting the return 
+	code. If any of the validations fail, then the headend <bcp14>MUST</bcp14> drop the echo reply and <bcp14>SHOULD</bcp14> log and/or report an error.</t>
+      </section>
+    </section>
+    <section>
+      <name>Security Considerations</name>
+      <t> This document defines additional MPLS LSP Ping sub-TLVs and follows the mechanisms defined in <xref target="RFC8029"/>. 
+  All the security considerations defined in <xref target="RFC8029" section="5"/> apply to this document. The MPLS LSP Ping 
+  sub-TLVs defined in this document do not impose any additional security challenges to be considered.</t>
+    </section>
+    <section>
+      <name>IANA Considerations</name>
+      <t> IANA has assigned six Target FEC Stack sub-TLVs from the "Sub-TLVs for TLV Types 1, 16, and 21" registry 
+  <xref target="MPLS-LSP-PING"/> within the "TLVs" registry of the "Multiprotocol Label Switching (MPLS) Label Switched Paths (LSPs) 
+  Ping Parameters" registry group. The Standards Action <xref target="RFC8126"/> range that requires an error message to be returned if the sub-TLV is not 
+  recognized (range 0-16383) has been used.</t>
+      <table>
+        <name>Sub-TLVs for TLV Types 1, 16, and 21 Registry</name>
+        <thead>
+          <tr>
+            <th align="left">Sub-Type</th>
+            <th align="left">Sub-TLV Name</th>
+            <th align="left">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">49</td>
+            <td align="left">SR Policy Associated PSID - IPv4</td>
+            <td align="left"><xref target="sect-3.1"/> of RFC 9884</td>
+          </tr>
+          <tr>
+            <td align="left">50</td>
+            <td align="left">SR Candidate Path Associated PSID - IPv4</td>
+            <td align="left"><xref target="sect-3.2"/> of RFC 9884</td>
+          </tr>
+          <tr>
+            <td align="left">51</td>
+            <td align="left">SR Segment List Associated PSID - IPv4</td>
+            <td align="left"><xref target="sect-3.3"/> of RFC 9884</td>
+          </tr>
+          <tr>
+            <td align="left">52</td>
+            <td align="left">SR Policy Associated PSID - IPv6</td>
+            <td align="left"><xref target="sect-3.4"/> of RFC 9884</td>
+          </tr>
+          <tr>
+            <td align="left">53</td>
+            <td align="left">SR Candidate Path Associated PSID - IPv6</td>
+            <td align="left"><xref target="sect-3.5"/> of RFC 9884</td>
+          </tr>
+          <tr>
+            <td align="left">54</td>
+            <td align="left">SR Segment List Associated PSID - IPv6</td>
+            <td align="left"><xref target="sect-3.6"/> of RFC 9884</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </middle>
+  <back>
+
+    <displayreference target="I-D.ietf-idr-sr-policy-seglist-id" to="SR-SEGLIST-ID"/>
+    <displayreference target="I-D.ietf-pce-multipath" to="PCE-MULTIPATH"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9545.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8287.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8029.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9256.xml"/>
+        <reference anchor="PROTOCOL-ORIGIN" target="https://www.iana.org/assignments/segment-routing">
+          <front>
+            <title>SR Policy Protocol Origin</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="MPLS-LSP-PING" target="http://www.iana.org/assignments/mpls-lsp-ping-parameters">
+          <front>
+            <title>Multiprotocol Label Switching (MPLS) Label Switched Paths (LSPs) Ping Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3031.xml"/>
+	  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8402.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8403.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9703.xml"/>
+
+	
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-idr-sr-policy-seglist-id.xml"/>
+
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-pce-multipath.xml"/>
+
+<reference anchor="RFC9857" target="https://www.rfc-editor.org/info/rfc9857">
+  
+   <front>
+      <title>Advertisement of Segment Routing Policies Using BGP - Link State</title>
+      <author initials="S." surname="Previdi" fullname="Stefano Previdi">
+         <organization>Individual</organization>
+      </author>
+      <author initials="K." surname="Talaulikar" fullname="Ketan Talaulikar" role="editor">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="J." surname="Dong" fullname="Jie Dong">
+         <organization>Huawei Technologies</organization>
+      </author>
+      <author initials="H." surname="Gredler" fullname="Hannes Gredler">
+         <organization>RtBrick Inc.</organization>
+      </author>
+      <author initials="J." surname="Tantsura" fullname="Jeff Tantsura">
+         <organization>Nvidia</organization>
+      </author>
+      <date month="October" year="2025" />
+   </front>
+  <seriesInfo name="RFC" value="9857"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9857"/>
+   
+</reference>
+      </references>
+    </references>
+    <section numbered="false">
+      <name>Acknowledgements</name>
+      <t> The authors would like to acknowledge <contact fullname="Loa
+      Andersson"/>, <contact fullname="Detao Zhao"/>, <contact fullname="Ben
+      Niven-Jenkins"/>, <contact fullname="Greg Mirsky"/>, <contact
+      fullname="Ketan Talaulikar"/>, <contact fullname="James Guichard"/>,
+      <contact fullname="Jon Geater"/>, <contact fullname="Gorry Fairhurst"/>,
+      <contact fullname="Bing Liu"/>, <contact fullname="Mohamed Boucadair"/>,
+      <contact fullname="Éric Vyncke"/>, <contact fullname="Gunter Van de
+      Velde"/>, <contact fullname="Mahesh Jethanandani"/>, and <contact
+      fullname="Andy Smith"/> for their thorough review and very helpful
+      comments. </t>
+      <t> The authors would like to acknowledge <contact fullname="Yao Liu"/>
+      and <contact fullname="Quan Xiong"/> for the very helpful face to face
+      discussion.</t>
+    </section>   
+    
+  </back>
+</rfc>

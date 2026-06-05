@@ -1,0 +1,611 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]> 
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category='std' docName='draft-ietf-nfsv4-layoutwcc-07' number="9766" ipr='trust200902' obsoletes='' updates="" sortRefs='true' submissionType='IETF' symRefs='true' tocDepth='3' tocInclude='true' version='3' consensus='true' xml:lang='en'>
+
+<front>
+  <title abbrev="WCC in NFSv4.2's Flexible File Layout">Extensions for Weak Cache Consistency in NFSv4.2's Flexible File Layout
+  </title>
+  <seriesInfo name='RFC' value='9766'/>
+  <author fullname='Thomas Haynes' initials='T.' surname='Haynes'>
+    <organization abbrev='Hammerspace'>Hammerspace</organization>
+    <address>
+      <email>loghyr@gmail.com</email>
+    </address>
+  </author>
+  <author fullname='Trond Myklebust' initials='T.' surname='Myklebust'>
+    <organization abbrev='Hammerspace'>Hammerspace</organization>
+    <address>
+      <email>trondmy@hammerspace.com</email>
+    </address>
+  </author>
+  <date year='2025' month='April'/>
+  <area>WIT</area>
+  <workgroup>nfsv4</workgroup>
+
+  <abstract>
+    <t>
+      This document specifies extensions to NFSv4.2 for improving Weak Cache
+      Consistency (WCC).  These extensions introduce mechanisms that ensure
+      partial writes performed under a Parallel NFS (pNFS) layout remain
+      coherent and correctly tracked. The solution addresses concurrency and
+      data integrity concerns that may arise when multiple clients write to
+      the same file through separate data servers. By defining additional
+      interactions among clients, metadata servers, and data servers, this
+      specification enhances the reliability of NFSv4 in parallel-access
+      environments and ensures consistency across diverse deployment
+      scenarios.
+    </t>
+  </abstract>
+
+</front>
+
+<middle>
+
+<section anchor='sec_intro' numbered='true'  toc='default'>
+  <name>Introduction</name>
+
+  <t>
+    In the Parallel NFS (pNFS)
+    flexible file layout (see <xref target='RFC8435'/>), there is no mechanism for the data servers to
+    update the metadata servers when the data portion of the file is
+    modified.  The metadata server needs this knowledge to correspondingly
+    update the metadata portion of the file. If the client is using NFSv3 as
+    the protocol with the data server, it can leverage Weak Cache Consistency
+    (WCC) to update the metadata server of the attribute changes.  In this
+    document, we introduce a new operation called LAYOUT_WCC to NFSv4.2, which
+    allows the client to periodically report the attributes of the data files
+    to the metadata server.
+  </t>
+
+  <t>
+    Using the process detailed in <xref target='RFC8178' format='default'/>, the revisions in this document become an
+    extension of NFSv4.2 <xref target='RFC7862' format='default'/>. They are built on top of the External Data
+    Representation (XDR) <xref target='RFC4506' format='default'/> generated from <xref target='RFC7863'
+    format='default'/>.
+  </t>
+
+  <section anchor='sec_defs' numbered='true'  toc='default'>
+    <name>Definitions</name>
+    <t>
+      For a more comprehensive set of definitions, see <xref target='RFC8435'
+      sectionFormat='of' section="1.1"/>.
+    </t>
+    <dl newline='false' spacing='normal'>
+      <dt>(file) data:</dt>
+      <dd>
+        that part of the file system object that contains the
+        data to be read or written.  It is the contents of the object
+        rather than the attributes of the object.
+      </dd>
+
+      <dt>data server (DS):</dt>
+      <dd>
+        a pNFS server that provides the file's data when
+        the file system object is accessed over a file-based protocol.
+      </dd>
+
+      <dt>(file) metadata:</dt>
+      <dd>
+        the part of the file system object that contains
+        various descriptive data relevant to the file object, as opposed
+        to the file data itself.  This could include the time of last
+        modification, access time, EOF position, etc.
+      </dd>
+
+      <dt>metadata server (MDS):</dt>
+      <dd>
+        the pNFS server that provides metadata
+        information for a file system object.
+      </dd>
+
+      <dt>storage device:</dt>
+      <dd>
+        the target to which clients may direct I/O requests
+        when they hold an appropriate layout.  Note that each data server
+        is a storage device but that some storage device are not data
+        servers. (See <xref target='RFC8434' sectionFormat='of' section="2.1"/>
+        for a discussion on the difference between a data server
+        and a storage device.)
+      </dd>
+
+      <dt>weak cache consistency (WCC):</dt>
+      <dd>
+        the mechanism in NFSv3 that allows the client to check for file attribute changes
+        before and after an operation (see <xref target='RFC1813'
+        sectionFormat='of' section="2.6"/>).
+      </dd>
+    </dl>
+  </section>
+  <section numbered='true'  toc='default'>
+    <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+  </section>
+</section>
+
+<section anchor='wcc' numbered='true'  toc='default'>
+  <name>Weak Cache Consistency (WCC)</name>
+     <t>
+       A pNFS layout type enables the metadata server to inform the client of
+       both the storage protocol and the locations of the data that the client
+       should use when communicating with the storage devices. The flexible
+       file layout type, as specified in <xref target='RFC8435' />, describes
+       how data servers using NFSv3 can be accessed. The client is restricted
+       to performing the following NFSv3 operations on the filehandles
+       provided in the layout: READ, WRITE, and COMMIT (see Sections <xref
+       target='RFC1813' sectionFormat="bare" section="3.3.6"/>, <xref
+       target='RFC1813' sectionFormat="bare" section="3.3.7"/>, and <xref
+       target='RFC1813' sectionFormat="bare" section="3.3.21"/> of <xref
+       target='RFC1813'/>, respectively). In other words, the client may only use NFSv3
+       operations that act directly on the data portion of the file.
+     </t>
+     <t>
+       Because there is no control protocol (see <xref target='RFC8434'
+       format='default' sectionFormat='of'/>) possible with all data servers,
+       NFSv3 is used as the control protocol.  As such, the following NFSv3
+       operations are commonly used by the metadata server: CREATE, GETATTR,
+       and SETATTR (see Sections <xref target='RFC1813' section="3.3.8"
+       sectionFormat='bare'/>, <xref target='RFC1813' section="3.3.1"
+       sectionFormat='bare'/>, and <xref target='RFC1813' section="3.3.2"
+       sectionFormat='bare'/> of <xref target='RFC1813'/>, respectively). That
+       is, the metadata server is only allowed to use NFSv3 operations that
+       directly act on the metadata portion of the data file.  GETATTR allows
+       the metadata server to mainly retrieve the mtime (modify time), ctime
+       (change time), and atime (access time). The metadata server can use
+       this information to determine if the client modified the file whilst it
+       held an iomode of LAYOUTIOMODE4_RW (see <xref target='RFC8881'
+       section="3.3.20" sectionFormat='of'/>). Then it can determine the
+       following for the metadata file: time_modify, time_metadata, and
+       time_access (see Sections <xref target='RFC8881' section="5.8.2.43"
+       sectionFormat='bare'/>, <xref target='RFC8881' section="5.8.2.42"
+       sectionFormat='bare'/>, and <xref target='RFC8881' section="5.8.2.37"
+       sectionFormat='bare'/> of <xref target='RFC8881'/>, respectively). That
+       is, it can determine the information to return to clients in an NFSv4.2
+       GETATTR response.
+     </t>
+     <t>
+       For example, the metadata server might issue an NFSv3 GETATTR operation
+       to the data server, which is typically triggered by a client's NFSv4
+       GETATTR request to the metadata server. In addition to the cost of each
+       individual GETATTR operation, the data server can be overwhelmed by a
+       large volume of such requests. NFSv3 addressed a similar challenge by
+       including a post-operation attribute in the READ and WRITE operations
+       to report WCC data (see <xref target='RFC1813'
+       sectionFormat="of" section="2.6"/>).
+     </t>
+
+     <t>
+       Each NFSv3 operation entails a single round trip between the
+       client and server.  Consequently, issuing a WRITE followed by
+       a GETATTR would require two round trips. In that situation, the
+       retrieved attribute information is regarded as having strict server-client
+       consistency. By contrast, NFSv4 enables a WRITE and GETATTR to
+       be combined within a compound operation, which requires only
+       one round trip. This combined approach is likewise considered to have
+       strict server-client consistency. Essentially, NFSv4 READ and
+       WRITE operations omit post-operation attributes, allowing the
+       client to determine whether it requires that information.
+     </t>
+
+     <t>
+       Whilst NFSv4 got rid of the requirement for WCC information to
+       be supplied by the WRITE or READ operations, the introduction
+       of pNFS reintroduces the same problem. The metadata server
+       has to communicate with the data server in order to get
+       the data that could be provided by a WCC model.
+     </t>
+     <t>
+       With the flexible file layout type, the client can leverage
+       the NFSv3 WCC to service the proxying of times (see <xref
+       target='RFC9754' section="5" sectionFormat='of'/>),
+       but the granularity of this data is limited. With client-side
+       mirroring (see <xref target='RFC8435' section="8"
+       sectionFormat='of'/>), the client has to aggregate the N mirrored
+       files in order to send one piece of information instead of N
+       pieces of information. Also, the client is limited to sending
+       that information only when it returns the delegation.
+     </t>
+     <t>
+       This document introduces a new NFSv4.2 operation, LAYOUT_WCC,
+       which enables the client to provide the metadata server with
+       information obtained from the data server. The client is
+       responsible for gathering the NFSv3 WCC data, returned by the
+       three permissible NFSv3 operations, and conveying it back to
+       the metadata server as part of NFSv4.2 attributes. The metadata
+       server <bcp14>MAY</bcp14> therefore avoid issuing costly NFSv3
+       GETATTR calls to the data servers. Because this approach relies
+       on a weak model, the metadata server <bcp14>MAY</bcp14> still
+       perform these calls if it chooses to strengthen the model.
+     </t>
+
+</section>
+
+<section anchor='op_LAYOUT_WCC' numbered='true'  toc='default'>
+  <name>Operation 77: LAYOUT_WCC - Layout Weak Cache Consistency</name>
+
+  <section toc='default' anchor='ss_op_LAYOUT_WCC_A' numbered='true'>
+    <name>ARGUMENT</name>
+    <sourcecode name='' type='xdr' markers='true'><![CDATA[
+/// struct LAYOUT_WCC4args {
+///         stateid4        lowa_stateid;
+///         layouttype4     lowa_type;
+///         opaque          lowa_body<>;
+/// };
+]]></sourcecode>
+   <t>
+     stateid4 is defined in <xref target='RFC8881' section="3.3.12"
+     sectionFormat='of'/>.  layouttype4 is defined in <xref target='RFC8881'
+     section="3.3.13" sectionFormat='of'/>.
+   </t>
+   </section>
+   <section toc='default' anchor='ss_op_LAYOUT_WCC_R' numbered='true'>
+     <name>RESULT</name>
+     <sourcecode name='' type='xdr' markers='true'><![CDATA[
+/// struct LAYOUT_WCC4res {
+///         nfsstat4                lowr_status;
+/// };
+]]></sourcecode>
+   <t>
+     nfsstat4 is defined in <xref target='RFC8881'
+       section="3.2" sectionFormat='of'/>.
+   </t>
+   </section>
+   <section toc='default' anchor='ss_op_LAYOUT_WCC_D' numbered='true'>
+     <name>DESCRIPTION</name>
+     <t>
+       The current filehandle and the lowa_stateid identify the specific
+       layout for the LAYOUT_WCC operation. The lowa_type indicates how
+       to interpret the layout-type-specific payload contained in the
+       lowa_body field. The lowa_type is the corresponding value
+       from the "pNFS Layout Types" IANA registry for the layout
+       type being used.
+     </t>
+     <t>
+       The lowa_body contains the data file attributes. The client is
+       responsible for mapping NFSv3 post-operation attributes to the
+       fattr4 representation. Similar to the behavior of post-operation
+       attributes, the client may ignore these attributes, and the
+       server may also choose to ignore any attributes included in
+       LAYOUT_WCC. However, the server can use these attributes to avoid
+       querying the data server for data file attributes. Because these
+       attributes are optional and the client has no recourse if the
+       server opts to disregard them, there is no requirement to return
+       a bitmap4 indicating which attributes have been accepted in the
+       LAYOUT_WCC result.
+     </t>
+   </section>
+
+   <section anchor='ss_op_LAYOUT_WCC_impl' numbered='true'  toc='default'>
+     <name>Implementation</name>
+     <section anchor='ss_op_LAYOUT_WCC_examples' numbered='true'  toc='default'>
+       <name>Examples of When to Use LAYOUT_WCC</name>
+       <t>
+         The only way for the metadata server to detect modifications
+         to the data file is to probe the data servers via a GETATTR. It
+         can compare the mtime results across multiple calls to detect an
+         NFSv3 WRITE operation by the client. Likewise, the atime results
+         indicate the client having issued an NFSv3 READ operation. As such,
+         the client can leverage the LAYOUT_WCC operation whenever it
+         has the belief that the metadata server would need to refresh
+         the attributes of the data files.  While the client can send a
+         LAYOUT_WCC at any time, there are times it will want to do this
+         operation in order to avoid having the metadata server issue
+         NFSv3 GETATTR requests to the data servers:
+       </t>
+
+       <ul spacing='normal'>
+         <li>
+           <t>Whenever it sends a GETATTR for any of the following attributes:</t>
+	   <ul spacing='normal'>
+           <li>size (see <xref target='RFC8881' sectionFormat='of'
+           section="5.8.1.5"/>)</li>
+	   <li>space_used (see <xref target='RFC8881'
+           sectionFormat='of' section="5.8.2.35"/>)</li>
+	   <li>change (see <xref
+           target='RFC8881' sectionFormat='of' section="5.8.1.4"/>)</li>
+           <li>time_access (see <xref target='RFC8881' sectionFormat='of'
+           section="5.8.2.37"/>)</li>
+	   <li>time_metadata (see <xref target='RFC8881'
+           sectionFormat='of' section="5.8.2.42"/>)</li>
+	   <li>time_modify (see
+           <xref target='RFC8881' sectionFormat='of'
+		 section="5.8.2.43"/>)</li>
+	   </ul>
+
+         </li>
+         <li>
+           Whenever it sends an NFS4ERR_ACCESS error via LAYOUTRETURN or LAYOUTERROR. It could
+           have already gotten the NFSv3 uid and gid values back in the WCC of the WRITE,
+           READ, or COMMIT operation that got the error. Thus, it could report that information
+           back to the metadata server, saving it from querying that information via an NFSv3 GETATTR.
+         </li>
+
+	 <li>
+           Whenever it sends a SETATTR to refresh the proxied times (see <xref
+           target='RFC9754' section="5" sectionFormat='of'/>). The metadata server will
+           correlate these times in order to detect later modification to
+           the data file.
+         </li>
+       </ul>
+     </section>
+
+     <section anchor='ss_op_LAYOUT_WCC_payload' numbered='true'  toc='default'>
+       <name>Examples of What to Send in LAYOUT_WCC</name>
+       <t>
+         The NFSv3 attributes returned in the WCC of WRITE, READ, and COMMIT operations are a smaller subset
+         of what can be transmitted as an NFSv4 attribute. The mapping of NFSv3 to NFSv4 attributes
+         is shown in <xref target='table_mappings'/>.
+         The LAYOUT_WCC <bcp14>MUST</bcp14> provide all of these attributes to the metadata server.
+         Both the uid and gid are stringified into their respective attributes of owner and owner_group.
+         In the case of NFS4ERR_ACCESS, the reason to provide these two attributes is that the metadata
+         server can compare what it expects the values of the uid and gid of the data file
+         to be versus the actual values. It can then repair the permissions as needed or
+         modify the expected values it has cached.
+       </t>
+
+       <table anchor='table_mappings'>
+         <name>NFSv3 to NFSv4.2 Attribute Mappings</name>
+         <thead>
+           <tr><th>NFSv3 Attribute</th> <th>NFSv4.2 Attribute</th></tr>
+         </thead>
+
+         <tbody>
+           <tr><td>size</td>  <td>size</td></tr>
+           <tr><td>used</td>  <td>space_used</td></tr>
+           <tr><td>mode</td>  <td>mode</td></tr>
+           <tr><td>uid</td>   <td>owner</td></tr>
+           <tr><td>gid</td>   <td>owner_group</td></tr>
+           <tr><td>atime</td> <td>time_access</td></tr>
+           <tr><td>mtime</td> <td>time_modify</td></tr>
+           <tr><td>ctime</td> <td>time_metadata</td></tr>
+         </tbody>
+       </table>
+
+     </section>
+   </section>
+
+   <section anchor='ss_op_LAYOUT_WCC_errs' numbered='true'  toc='default'>
+     <name>Allowed Errors</name>
+     <t>
+      The LAYOUT_WCC operation can raise the errors listed in <xref
+      target='tbl_op_error_returns' format='default'/>.  When an error is
+      encountered, the metadata server can decide to ignore the entire
+      operation, or depending on the layout-type-specific payload, it could
+      decide to apply a portion of the payload.  Note that there are no new
+      errors introduced for the LAYOUT_WCC operation and the errors in <xref
+      target='tbl_op_error_returns' format='default'/> are each defined in
+      <xref target='RFC8881' section="15.1" sectionFormat='of'/>. <xref
+      target='tbl_op_error_returns' format='default'/> can be considered as an
+      extension of <xref target='RFC8881' section="15.2" sectionFormat='of'/>.
+     </t>
+     <table anchor='tbl_op_error_returns' align='center'>
+       <name>Operations and Their Valid Errors</name>
+       <thead>
+         <tr>
+           <th>Operation</th>
+           <th>Errors</th>
+         </tr>
+       </thead>
+       <tbody>
+         <tr>
+           <td>
+        LAYOUT_WCC
+           </td>
+           <td>
+        NFS4ERR_ADMIN_REVOKED,
+        NFS4ERR_BADXDR,
+        NFS4ERR_BAD_STATEID,
+        NFS4ERR_DEADSESSION,
+        NFS4ERR_DELAY,
+        NFS4ERR_DELEG_REVOKED,
+        NFS4ERR_EXPIRED,
+        NFS4ERR_FHEXPIRED,
+        NFS4ERR_GRACE,
+        NFS4ERR_INVAL,
+        NFS4ERR_ISDIR,
+        NFS4ERR_MOVED,
+        NFS4ERR_NOFILEHANDLE,
+        NFS4ERR_NOTSUPP,
+        NFS4ERR_NO_GRACE,
+        NFS4ERR_OLD_STATEID,
+        NFS4ERR_OP_NOT_IN_SESSION,
+        NFS4ERR_REP_TOO_BIG,
+        NFS4ERR_REP_TOO_BIG_TO_CACHE,
+        NFS4ERR_REQ_TOO_BIG,
+        NFS4ERR_RETRY_UNCACHED_REP,
+        NFS4ERR_SERVERFAULT,
+        NFS4ERR_STALE,
+        NFS4ERR_TOO_MANY_OPS,
+        NFS4ERR_UNKNOWN_LAYOUTTYPE,
+        NFS4ERR_WRONG_CRED,
+        NFS4ERR_WRONG_TYPE
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+  <section anchor='ss_op_LAYOUT_WCC_opt' numbered='true'  toc='default'>
+    <name>Extension of Existing Implementations</name>
+    <t>
+      The new LAYOUT_WCC operation is <bcp14>OPTIONAL</bcp14> for both
+      NFSv4.2 <xref target='RFC7863' format='default'/>
+      and the flexible file layout type <xref target='RFC8435' format='default'/>.
+    </t>
+  </section>
+  <section anchor='ss_op_LAYOUT_WCC_ff' numbered='true'  toc='default'>
+    <name>Flexible File Layout Type</name>
+    <sourcecode name='' type='xdr' markers='true'><![CDATA[
+/// struct ff_data_server_wcc4 {
+///             deviceid4            ffdsw_deviceid;
+///             stateid4             ffdsw_stateid;
+///             nfs_fh4              ffdsw_fh_vers<>;
+///             fattr4               ffdsw_attributes;
+/// };
+///
+/// struct ff_mirror_wcc4 {
+///             ff_data_server_wcc4  ffmw_data_servers<>;
+/// };
+///
+/// struct ff_layout_wcc4 {
+///             ff_mirror_wcc4       fflw_mirrors<>;
+/// };
+]]></sourcecode>
+    <t>
+      The results specific to the flexible file layout type <bcp14>MUST</bcp14>
+      correspond to the ff_layout4 data structure as defined in <xref
+      target='RFC8435' section="5.1" sectionFormat='of'/>.  There
+      <bcp14>MUST</bcp14> be a one-to-one correspondence between the following:
+    </t>
+    <ul spacing='normal'>
+      <li>
+        ff_data_server4 -&gt; ff_data_server_wcc4
+      </li>
+      <li>
+        ff_mirror4 -&gt; ff_mirror_wcc4
+      </li>
+      <li>
+        ff_layout4 -&gt; ff_layout_wcc4
+      </li>
+    </ul>
+    <t>
+      Each ff_layout4 has an array of ff_mirror4, which has an array of ff_data_server4.
+      Based on the current filehandle and the lowa_stateid, the server can match the
+      reported attributes.
+    </t>
+    <t>
+      But the positional correspondence between the elements is not
+      sufficient to determine the attributes to update. Consider the
+      case where a layout has three mirrors and two of them have updated
+      attributes but the third does not. A client could decide to present
+      all three mirrors, with one mirror having an attribute mask with
+      no attributes present. Or it could decide to present only the
+      two mirrors that had been changed.
+    </t>
+    <t>
+      In either case, the combination of ffdsw_deviceid, ffdsw_stateid, and
+      ffdsw_fh_vers will uniquely identify the attributes to be updated.
+      All three arguments are required. A layout might have multiple data
+      files on the same storage device, in which case the ffdsw_deviceid and
+      ffdsw_stateid would match, but the ffdsw_fh_vers would not.
+    </t>
+    <t>
+
+
+      The ffdsw_attributes are processed similar to the obj_attributes in
+      the SETATTR arguments (see <xref target='RFC8881' section="18.30" sectionFormat='of'/>).
+    </t>
+  </section>
+</section>
+
+<section anchor='xdr_desc' numbered='true'  toc='default'>
+  <name>Extraction of XDR</name>
+
+
+  <t>
+    This document contains the XDR
+    <xref target='RFC4506' format='default'/> description of the new NFSv4.2 operation LAYOUT_WCC.
+    The XDR description is embedded in this
+    document in a way that makes it simple for the reader to extract
+    into a ready-to-compile form.  The reader can feed this document
+    into the following shell script to produce the machine-readable
+    XDR description of the new NFSv4.2 operation LAYOUT_WCC.
+  </t>
+  <sourcecode name='' type='shell' markers='true'><![CDATA[
+#!/bin/sh
+grep '^ *///' $* | sed 's?^ */// ??' | sed 's?^ *///$??'
+]]></sourcecode>
+  <t>
+    That is, if the above script is stored in a file called 'extract.sh', and
+    this document is in a file called 'spec.txt', then the reader can do:
+  </t>
+  <sourcecode name='' type='shell' markers='true'><![CDATA[
+sh extract.sh < spec.txt > layout_wcc.x
+]]></sourcecode>
+  <t>
+    The effect of the script is to remove leading blank space from each
+    line, plus a sentinel sequence of '///'.  XDR descriptions with the
+    sentinel sequence are embedded throughout the document.
+  </t>
+  <t>
+    Note that the XDR code contained in this document depends on types
+    from the NFSv4.2 nfs4_prot.x file (generated from <xref target='RFC7863' format='default'/>).
+    This includes both nfs types that end with a 4 (such as offset4 and
+    length4) as well as more generic types (such as uint32_t and
+    uint64_t).
+  </t>
+  <t>
+    While the XDR can be appended to that from <xref target='RFC7863' format='default' sectionFormat='of'/>,
+    the various code snippets belong in their respective areas of
+    that XDR.
+  </t>
+
+
+</section>
+
+<section anchor='sec_security' numbered='true'  toc='default'>
+  <name>Security Considerations</name>
+  <t>
+    There are no new security considerations beyond those in
+    <xref target='RFC8435' format='default'/>.
+  </t>
+</section>
+
+<section anchor='sec_iana' numbered='true' toc='default'>
+  <name>IANA Considerations</name>
+  <t>This document has no IANA actions.
+  </t>
+</section>
+
+</middle>
+
+<back>
+
+<references>
+  <name>References</name>
+
+  <references>
+  <name>Normative References</name>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4506.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7862.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7863.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8178.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8434.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8435.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8881.xml'/>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9754.xml'/>
+
+    
+  </references>
+
+  <references>
+  <name>Informative References</name>
+    <xi:include href='https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1813.xml'/>
+
+  </references>
+</references>
+
+<section numbered='false' toc='default'>
+      <name>Acknowledgments</name>
+      <t><contact fullname="Dave Noveck"/>, <contact fullname="Tigran
+      Mkrtchyan"/>, and <contact fullname="Rick Macklem"/> provided reviews of
+      the document.</t>
+    </section>
+
+</back>
+
+</rfc>

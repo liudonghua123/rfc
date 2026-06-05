@@ -1,0 +1,680 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" number="9444" docName="draft-ietf-acme-subdomains-07" category="std" submissionType="IETF" consensus="true" tocDepth="2" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+  <!-- xml2rfc v2v3 conversion 3.17.1 -->
+  <front>
+    <title abbrev="ACME for Subdomains">Automated Certificate Management Environment (ACME) for Subdomains</title>
+    <seriesInfo name="RFC" value="9444"/>
+    <author initials="O." surname="Friel" fullname="Owen Friel">
+      <organization>Cisco</organization>
+      <address>
+        <email>ofriel@cisco.com</email>
+      </address>
+    </author>
+    <author initials="R." surname="Barnes" fullname="Richard Barnes">
+      <organization>Cisco</organization>
+      <address>
+        <email>rlb@ipv.sx</email>
+      </address>
+    </author>
+    <author initials="T." surname="Hollebeek" fullname="Tim Hollebeek">
+      <organization>DigiCert</organization>
+      <address>
+        <email>tim.hollebeek@digicert.com</email>
+      </address>
+    </author>
+    <author initials="M." surname="Richardson" fullname="Michael Richardson">
+      <organization>Sandelman Software Works</organization>
+      <address>
+        <email>mcr+ietf@sandelman.ca</email>
+      </address>
+    </author>
+    <date year="2023" month="August"/>
+    <area>Security</area>
+    <workgroup>ACME Working Group</workgroup>
+    <keyword>BRSKI</keyword>
+    <keyword>BRSKI-Cloud</keyword>
+    <keyword>ACME-Integrations</keyword>
+    <abstract>
+      <t>This document specifies how Automated Certificate Management Environment (ACME) can be used by a client to obtain a certificate for a subdomain identifier from a certification authority. Additionally, this document specifies how a client can fulfill a challenge against an ancestor domain but may not need to fulfill a challenge against the explicit subdomain if certification authority policy allows issuance of the subdomain certificate without explicit subdomain ownership proof.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>ACME <xref target="RFC8555"/> defines a protocol that a certification authority (CA) and an applicant can use to automate the process of domain name ownership validation and X.509v3 (PKIX) <xref target="RFC5280"/> certificate issuance. The CA is the ACME server and the applicant is the ACME client, and the client uses the ACME protocol to request certificate issuance from the server. This document outlines how ACME can be used to issue subdomain certificates without requiring the ACME client to explicitly fulfill an ownership challenge against the subdomain identifiers -- the ACME client need only fulfill an ownership challenge against an ancestor domain identifier.</t>
+    </section>
+    <section anchor="terminology">
+      <name>Terminology</name>
+      <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+      </t>
+      <t>The following terms are defined in "DNS Terminology" <xref target="RFC8499"/> and are reproduced here:</t>
+      <dl newline="true">
+        <dt>Label:</dt>
+        <dd>An ordered list of zero or more octets that makes up a
+    portion of a domain name.  Using graph theory, a label identifies
+    one node in a portion of the graph of all possible domain names.</dd>
+        <dt>Domain Name:</dt>
+        <dd>An ordered list of one or more labels.</dd>
+        <dt>Fully-Qualified Domain Name (FQDN):</dt>
+        <dd>This is often just a clear way
+    of saying the same thing as "domain name of a node", as outlined
+    above.  However, the term is ambiguous.  Strictly speaking, a
+    fully-qualified domain name would include every label, including
+    the zero-length label of the root: such a name would be written
+    <tt>www.example.net.</tt> (note the terminating dot).  But, because every
+    name eventually shares the common root, names are often written
+    relative to the root (such as <tt>www.example.net</tt>) and are still
+    called "fully qualified".  This term first appeared in <xref target="RFC0819"/>.
+    In this document, names are often written relative to the root.</dd>
+      </dl>
+      <t>The following definition for "subdomain" is taken from "DNS Terminology" <xref target="RFC8499"/> and reproduced here; however, the definition is ambiguous and is further clarified below:</t>
+      <dl newline="true">
+        <dt>Subdomain:</dt>
+        <dd>"A domain is a subdomain of another domain if it is
+    contained within that domain.  This relationship can be tested by
+    seeing if the subdomain's name ends with the containing domain's
+    name."  (Quoted from <xref section="3.1" sectionFormat="of" target="RFC1034"/>.) For example, in the
+    host name <tt>nnn.mmm.example.com</tt>, both <tt>mmm.example.com</tt> and
+    <tt>nnn.mmm.example.com</tt> are subdomains of <tt>example.com</tt>.  Note that
+    the comparisons here are done on whole labels; that is,
+    <tt>ooo.example.com</tt> is not a subdomain of <tt>oo.example.com</tt>.</dd>
+      </dl>
+      <t>The definition is ambiguous as it appears to allow a subdomain to include the given domain. That is, <tt>mmm.example.com</tt> ends with <tt>mmm.example.com</tt> and thus is a subdomain of itself. This document interprets the first sentence of the above definition as meaning "a domain is a subdomain of a different domain if it is contained within that different domain". A domain cannot be a subdomain of itself. For example,  <tt>mmm.example.com</tt> is not a subdomain of <tt>mmm.example.com</tt>.</t>
+      <t>The following additional terms are used in this document:</t>
+      <dl newline="true">
+        <dt>Certification Authority (CA):</dt>
+        <dd>An organization that is responsible for the creation, issuance, revocation, and management of Certificates. The term applies equally to both root CAs and subordinate CAs. Refer to <xref target="RFC5280"/> for detailed information on Certification Authorities.</dd>
+        <dt>CSR:</dt>
+        <dd>Certificate Signing Request, as defined in <xref target="RFC2986"/>.</dd>
+        <dt>Ancestor Domain:</dt>
+        <dd>A domain is an ancestor domain of a subdomain if it contains that subdomain and has fewer labels than that subdomain. A domain cannot be an ancestor domain of itself. For example, for the host name <tt>nnn.mmm.example.com</tt>, both <tt>mmm.example.com</tt> and <tt>example.com</tt> are ancestor domains of <tt>nnn.mmm.example.com</tt>. However, <tt>nnn.mmm.example.com</tt> is not an ancestor domain of  <tt>nnn.mmm.example.com</tt>. Note that the comparisons here are done on whole labels; that is, <tt>oo.example.com</tt> is not an ancestor domain of <tt>ooo.example.com</tt>.</dd>
+      </dl>
+      <t><xref target="RFC8555"/> defines the following object types that are used in this document:</t>
+      <dl newline="false">
+        <dt>Order Object:</dt>
+        <dd>An ACME order object represents a client's request for a certificate and is used to track the progress of that order through to issuance.</dd>
+        <dt>Authorization Object:</dt>
+        <dd>An ACME authorization object represents a server's authorization for an account to represent an identifier.</dd>
+        <dt>Challenge Object:</dt>
+        <dd>An ACME challenge object represents a server's offer to validate a client's possession of an identifier in a specific way.</dd>
+      </dl>
+      <t>ACME <xref target="RFC8555" sectionFormat="comma" section="6.3"/> introduces the following term which is used in this document:</t>
+      <dl newline="true">
+        <dt>POST-as-GET Request:</dt>
+        <dd>When a client wishes to fetch a resource from the server, then it <bcp14>MUST</bcp14> send a POST request with a signed JSON Web Signature (JWS) body, where the JWS body is specified in ACME <xref target="RFC8555" sectionFormat="comma" section="6.2"/>. ACME refers to these as "POST-as-GET" requests.</dd>
+      </dl>
+    </section>
+    <section anchor="acme-workflow-and-identifier-requirements">
+      <name>ACME Workflow and Identifier Requirements</name>
+      <t>A typical ACME workflow for issuance of certificates is as follows:</t>
+      <ol spacing="normal" type="1">
+	<li>Client POSTs a newOrder request that contains a set of identifier objects in the <tt>identifiers</tt> field of the ACME order object.</li>
+        <li>Server replies with an order object that contains a set of links to authorization object(s) and a <tt>finalize</tt> URI.</li>
+        <li>Client sends POST-as-GET request(s) to retrieve the authorization object(s), with the downloaded authorization object(s) containing the <tt>identifier</tt> that the client must prove that they control, and a set of links to associated challenge objects, one of which the client must fulfill.</li>
+        <li>Client proves control over the <tt>identifier</tt> in the authorization object by completing one of the specified challenges, for example, by publishing a DNS TXT record.</li>
+        <li>Client POSTs a CSR to the <tt>finalize</tt> API.</li>
+        <li>Server replies with an updated order object that includes a <tt>certificate</tt> URI.</li>
+        <li>Client sends a POST-as-GET request to the <tt>certificate</tt> URI to download the certificate.</li>
+      </ol>
+      <t>ACME places the following restrictions on <tt>identifiers</tt>:</t>
+      <ul spacing="normal">
+        <li>
+          <xref section="7.1.3" sectionFormat="comma" target="RFC8555"/>: "The authorizations required are dictated by server policy; there may not be a 1:1 relationship between the order identifiers and the authorizations required."</li>
+        <li>
+          <xref section="7.1.4" sectionFormat="comma" target="RFC8555"/>: The only type of <tt>identifier</tt> defined by the ACME specification is an FQDN: "The only type of identifier defined by this specification is a fully qualified domain name (type: "dns"). The domain name <bcp14>MUST</bcp14> be encoded in the form in which it would appear in a certificate."</li>
+        <li>
+          <xref section="7.4" sectionFormat="comma" target="RFC8555"/>: The <tt>identifier</tt> in the CSR request must match the <tt>identifier</tt> in the newOrder request: "The CSR <bcp14>MUST</bcp14> indicate the exact same set of requested identifiers as the initial newOrder request."</li>
+        <li>
+          <xref section="8.3" sectionFormat="comma" target="RFC8555"/>: The <tt>identifier</tt>, or FQDN, in the authorization object must be used when fulfilling challenges via HTTP: "Construct a URL by populating the URL template ... where the <tt>domain</tt> field is set to the domain name being verified."</li>
+        <li>
+          <xref section="8.4" sectionFormat="comma" target="RFC8555"/>: The <tt>identifier</tt>, or FQDN, in the authorization object must be used when fulfilling challenges via DNS: "The client constructs the validation domain name by prepending the label "_acme-challenge" to the domain name being validated."</li>
+      </ul>
+      <t>ACME does not mandate that the <tt>identifier</tt> in a newOrder request matches the <tt>identifier</tt> in authorization objects.</t>
+      <t>The ACME base document <xref target="RFC8555"/> only specifies the "dns" identifier type. Additional identifiers may be defined and registered in the IANA <xref target="ACME-Identifier-Types"/> registry. For example, <xref target="RFC8738"/> specifies the "ip" identifier type. This document is only relevant for the "dns" identifier type.</t>
+      <t>Note that ACME supports multiple different validation methods that can be used to fulfill challenges and prove ownership of identifiers. Validation methods are registered in the IANA <xref target="ACME-Validation-Methods"/> registry. This document does not mandate use of any particular validation method or methods. ACME server policy dictates which validation methods are supported. See <xref target="acme-server-policy-considerations"/> for more information on ACME server policy.</t>
+    </section>
+    <section anchor="acme-issuance-of-subdomain-certificates">
+      <name>ACME Issuance of Subdomain Certificates</name>
+      <t>As noted in the previous section, ACME <xref target="RFC8555"/> does not mandate that the <tt>identifier</tt> in a newOrder request matches the <tt>identifier</tt> in authorization objects. This means that the ACME specification does not preclude an ACME server processing newOrder requests and issuing certificates for a subdomain without requiring a challenge to be fulfilled against that explicit subdomain.</t>
+      <t>ACME server policy could allow issuance of certificates for a subdomain to a client where the client only has to fulfill an authorization challenge for an ancestor domain of that subdomain. For example, this allows for a flow where a client proves ownership of <tt>example.org</tt> and then successfully obtains a certificate for <tt>sub.example.org</tt>.</t>
+      <t>ACME server policy is out of scope of this document; however, some commentary is provided in <xref target="acme-server-policy-considerations"/>.</t>
+      <t>Clients need a mechanism to instruct the ACME server that they are requesting authorization for all subdomains subordinate to the specified domain, as opposed to just requesting authorization for an explicit domain identifier. Clients need a mechanism to do this in both newAuthz and newOrder requests. ACME servers need a mechanism to indicate to clients that authorization objects are valid for all subdomains under the specified domain. These are described in this section.</t>
+      <section anchor="authorization-object">
+        <name>Authorization Object</name>
+        <t>ACME (<xref section="7.1.4" sectionFormat="comma" target="RFC8555"/>) defines the authorization object. This document defines a new <tt>subdomainAuthAllowed</tt> field for the authorization object. 
+When ACME server policy allows authorization for subdomains subordinate to a domain, the server indicates this by including the new <tt>subdomainAuthAllowed</tt> field in the authorization object for that domain identifier:</t>
+        <dl>
+          <dt><tt>subdomainAuthAllowed</tt> (optional, boolean):</dt>
+          <dd>If present, this field
+   <bcp14>MUST</bcp14> be true for authorizations where ACME server policy
+   allows certificates to be issued for any subdomain subordinate
+   to the domain specified in the <tt>identifier</tt> field of the
+   authorization object.</dd>
+        </dl>
+<!--[rfced] Regarding the use of fixed-width font:
+where the spanx element was used in the provided XML file, now 
+the <tt> element is present. Please review whether you would like to 
+use that element elsewhere for consistent usage. It yields 
+fixed-width font in the PDF and HTML files. 
+Example of usage: ... for the domain <tt>example.org</tt> 
+-->
+        <t>The following example shows an authorization object for the domain <tt>example.org</tt>, where the authorization covers the subdomains subordinate to <tt>example.org</tt>.</t>
+
+        <sourcecode type="json"><![CDATA[
+{
+  "status": "valid",
+  "expires": "2023-09-01T14:09:07.99Z",
+
+  "identifier": {
+    "type": "dns",
+    "value": "example.org"
+  },
+
+  "challenges": [
+    {
+      "url": "https://example.com/acme/chall/prV_B7yEyA4",
+      "type": "http-01",
+      "status": "valid",
+      "token": "DGyRejmCefe7v4NfDGDKfA",
+      "validated": "2014-12-01T12:05:58.16Z"
+    }
+  ],
+
+  "subdomainAuthAllowed": true
+}
+]]></sourcecode>
+        <t>If the <tt>subdomainAuthAllowed</tt> field is not included, then the assumed default value is false.</t>
+        <t>If ACME server policy allows issuance of certificates containing wildcard identifiers under that authorization object, then the server <bcp14>SHOULD</bcp14> include the <tt>wildcard</tt> field with a value of true, as per <xref section="7.1.4" sectionFormat="comma" target="RFC8555"/>.</t>
+      </section>
+      <section anchor="pre-authorization">
+        <name>Pre-authorization</name>
+        <t>The basic ACME workflow has authorization objects created reactively in response to a certificate order. ACME also allows for pre-authorization, where clients obtain authorization for an identifier proactively, outside of the context of a specific issuance. With the ACME pre-authorization flow, a client can pre-authorize for a domain once and then issue multiple newOrder requests for certificates with identifiers in the subdomains subordinate to that domain.</t>
+        <t>ACME (<xref section="7.4.1" sectionFormat="comma" target="RFC8555"/>) defines the <tt>identifier</tt> object for newAuthz requests. This document defines a new <tt>subdomainAuthAllowed</tt> field for the <tt>identifier</tt> object:</t>
+        <dl>
+          <dt><tt>subdomainAuthAllowed</tt> (optional, boolean):</dt>
+          <dd>An ACME client sets
+   this flag to indicate to the server that it is requesting an 
+   authorization for the subdomains subordinate to the specified
+   domain identifier value.</dd>
+        </dl>
+        <t>Clients include the new <tt>subdomainAuthAllowed</tt> field in the <tt>identifier</tt> object of newAuthz requests to indicate that they are requesting a subdomain authorization. In the following example of a newAuthz payload, the client is requesting pre-authorization for the subdomains subordinate to <tt>example.org</tt>.</t>
+        <sourcecode type="json"><![CDATA[
+"payload": base64url({
+  "identifier": {
+    "type": "dns",
+    "value": "example.org",
+    "subdomainAuthAllowed": true
+  }
+})
+]]></sourcecode>
+        <t>If the server is willing to allow a single authorization for the subdomains and there is not an existing authorization object for the identifier, then it will create an authorization object and include the <tt>subdomainAuthAllowed</tt> flag with a value of true.</t>
+        <t>If the server policy does not allow creation of subdomain authorizations subordinate to that domain, the server can create an authorization object for the indicated identifier and <bcp14>MAY</bcp14> include the <tt>subdomainAuthAllowed</tt> flag with a value of false. If the server creates an authorization object and does not include the <tt>subdomainAuthAllowed</tt> flag, then the assumed value is false.</t>
+        <t>In both scenarios, handling of the pre-authorization follows the process documented in ACME <xref section="7.4.1" sectionFormat="comma" target="RFC8555"/>.</t>
+      </section>
+      <section anchor="new-orders">
+        <name>New Orders</name>
+        <t>Clients need a mechanism to optionally indicate to servers whether or not they are authorized to fulfill challenges against an ancestor domain for a given identifier. For example, if a client places an order for an identifier <tt>foo.bar.example.org</tt> and is authorized to fulfill a challenge against the ancestor domains <tt>bar.example.org</tt> or <tt>example.org</tt>, then the client needs a mechanism to indicate control over the ancestor domains to the ACME server.</t>
+        <t>In order to accomplish this, this document defines a new <tt>ancestorDomain</tt> field for the identifier that is included in order objects.</t>
+        <dl>
+          <dt><tt>ancestorDomain</tt> (optional, string):</dt>
+          <dd>This is an ancestor domain of
+   the requested identifier. The client <bcp14>MUST</bcp14> be able to fulfill
+   a challenge against the ancestor domain.</dd>
+        </dl>
+        <t>This field specifies an ancestor domain of the identifier that the client has DNS control over and is capable of fulfilling challenges against. Based on server policy, the server can choose to issue a challenge against any ancestor domain of the identifier up to and including the specified <tt>ancestorDomain</tt> and create a corresponding authorization object against the chosen identifier.</t>
+        <t>In the following example of a newOrder payload, the client requests a certificate for identifier <tt>foo.bar.example.org</tt> and indicates that it can fulfill a challenge against the ancestor domain <tt>bar.example.org</tt>. The server can then choose to issue a challenge against either <tt>foo.bar.example.org</tt> or <tt>bar.example.org</tt> identifiers.</t>
+        <sourcecode type="json"><![CDATA[
+"payload": base64url({
+       "identifiers": [
+         { "type": "dns",
+           "value": "foo.bar.example.org",
+           "ancestorDomain": "bar.example.org"  }
+       ],
+       "notBefore": "2023-09-01T00:04:00+04:00",
+       "notAfter": "2023-09-08T00:04:00+04:00"
+     })
+]]></sourcecode>
+        <t>In the following example of a newOrder payload, the client requests a certificate for identifier <tt>foo.bar.example.org</tt> and indicates that it can fulfill a challenge against the ancestor domain <tt>example.org</tt>. The server can then choose to issue a challenge against any one of <tt>foo.bar.example.org</tt>, <tt>bar.example.org</tt>, or <tt>example.org</tt> identifiers.</t>
+        <sourcecode type="json"><![CDATA[
+"payload": base64url({
+       "identifiers": [
+         { "type": "dns",
+           "value": "foo.bar.example.org",
+           "ancestorDomain": "example.org"  }
+       ],
+       "notBefore": "2023-09-01T00:04:00+04:00",
+       "notAfter": "2023-09-08T00:04:00+04:00"
+     })
+]]></sourcecode>
+        <t>If the client is unable to fulfill authorizations against an ancestor domain, the client should not include the <tt>ancestorDomain</tt> field.</t>
+        <t>Server newOrder handling generally follows the process documented in ACME (<xref section="7.4" sectionFormat="of" target="RFC8555"/>). If the server is willing to allow subdomain authorizations for the domain specified in <tt>ancestorDomain</tt>, then it creates an authorization object against that ancestor domain and includes the <tt>subdomainAuthAllowed</tt> flag with a value of true.</t>
+        <t>If the server policy does not allow creation of subdomain authorizations against that ancestor domain, then it can create an authorization object for the indicated identifier value and <bcp14>SHOULD NOT</bcp14> include the <tt>subdomainAuthAllowed</tt> flag. As the client requested a subdomain authorization for the ancestor domain and not for the indicated identifier, there is no need for the server to include the <tt>subdomainAuthAllowed</tt> flag in the authorization object for the indicated identifier.</t>
+      </section>
+      <section anchor="directory-object-metadata">
+        <name>Directory Object Metadata</name>
+        <t>This document defines a new <tt>subdomainAuthAllowed</tt> ACME directory metadata field. An ACME server can advertise support for authorization of subdomains by including the <tt>subdomainAuthAllowed</tt> boolean flag in its "ACME Directory Metadata Fields" registry:</t>
+        <dl>
+          <dt><tt>subdomainAuthAllowed</tt> (optional, bool):</dt>
+          <dd>Indicates if an ACME 
+   server supports authorization of subdomains.</dd>
+        </dl>
+        <t>If not specified, then the assumed default value is false. If an ACME server supports authorization of subdomains, it can indicate this by including this field with a value of "true".</t>
+      </section>
+    </section>
+    <section anchor="illustrative-call-flow">
+      <name>Illustrative Call Flow</name>
+      <t>The call flow illustrated here uses the ACME pre-authorization flow using DNS-based proof of ownership.</t>
+      <artwork><![CDATA[
++--------+                   +------+     +-----+
+| Client |                   | ACME |     | DNS |
++--------+                   +------+     +-----+
+    |                            |           |
+ Step 1: Pre-authorization of ancestor domain.
+    |                            |           |
+    | POST /newAuthz             |           |
+    | "example.org"              |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 201 authorizations         |           |
+    |<---------------------------|           |
+    |                            |           |
+    | Publish DNS TXT            |           |
+    | "example.org"              |           |
+    |--------------------------------------->|
+    |                            |           |
+    | POST /challenge            |           |
+    |--------------------------->|           |
+    |                            | Verify    |
+    |                            |---------->|
+    | 200 status=valid           |           |
+    |<---------------------------|           |
+    |                            |           |
+    | Delete DNS TXT             |           |
+    | "example.org"              |           |
+    |--------------------------------------->|
+    |                            |           |
+ Step 2: Place order for sub1.example.org.
+    |                            |           |
+    | POST /newOrder             |           |
+    | "sub1.example.org"         |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 201 status=ready           |           |
+    |<---------------------------|           |
+    |                            |           |
+    | POST /finalize             |           |
+    | CSR SAN "sub1.example.org" |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 200 OK status=valid        |           |
+    |<---------------------------|           |
+    |                            |           |
+    | POST /certificate          |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 200 OK                     |           |
+    | PEM SAN "sub1.example.org" |           |
+    |<---------------------------|           |
+    |                            |           |
+ Step 3: Place order for sub2.example.org.
+    |                            |           |
+    | POST /newOrder             |           |
+    | "sub2.example.org"         |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 201 status=ready           |           |
+    |<---------------------------|           |
+    |                            |           |
+    | POST /finalize             |           |
+    | CSR SAN "sub2.example.org" |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 200 OK status=valid        |           |
+    |<---------------------------|           |
+    |                            |           |
+    | POST /certificate          |           |
+    |--------------------------->|           |
+    |                            |           |
+    | 200 OK                     |           |
+    | PEM SAN "sub2.example.org" |           |
+    |<---------------------------|           |
+]]></artwork>
+
+<ul>
+  <li>
+    <t>Step 1: Pre-authorization of ancestor domain.</t>
+    <t>
+The client sends a newAuthz request for the ancestor domain and includes the <tt>subdomainAuthAllowed</tt> flag in the identifier object.</t>
+
+      <sourcecode type="http-message"><![CDATA[
+POST /acme/new-authz HTTP/1.1
+Host: example.com
+Content-Type: application/jose+json
+
+{
+  "protected": base64url({
+    "alg": "ES256",
+    "kid": "https://example.com/acme/acct/evOfKhNU60wg",
+    "nonce": "uQpSjlRb4vQVCjVYAyyUWg",
+    "url": "https://example.com/acme/new-authz"
+  }),
+  "payload": base64url({
+    "identifier": {
+      "type": "dns",
+      "value": "example.org",
+      "subdomainAuthAllowed": true
+    }
+  }),
+  "signature": "nuSDISbWG8mMgE7H...QyVUL68yzf3Zawps"
+}
+]]></sourcecode>
+
+      <t>The server creates and returns an authorization object for the identifier that includes the <tt>subdomainAuthAllowed</tt> flag. The object is initially in "pending" state.</t>
+      <sourcecode type="json"><![CDATA[
+{
+  "status": "pending",
+  "expires": "2023-09-01T14:09:07.99Z",
+
+  "identifier": {
+    "type": "dns",
+    "value": "example.org"
+  },
+
+  "challenges": [
+    {
+      "url": "https://example.com/acme/chall/prV_B7yEyA4",
+      "type": "dns-01",
+      "status": "pending",
+      "token": "DGyRejmCefe7v4NfDGDKfA",
+      "validated": "2023-08-01T12:05:58.16Z"
+    }
+  ],
+
+  "subdomainAuthAllowed": true
+}
+]]></sourcecode>
+      <t>The example illustrates the client completing a DNS challenge by publishing a DNS TXT record. The client then posts to the challenge resource to inform the server that it can validate the challenge.</t>
+      <t>Once the server validates the challenge by checking the DNS TXT record, the server will transition the authorization object and associated challenge object status to "valid".</t>
+      <t>The call flow above illustrates the ACME server replying to the client's challenge with status of "valid" after the ACME server has validated the DNS challenge. However, the validation flow may take some time. If this is the case, the ACME server may reply to the client's challenge immediately with a status of "processing" and the client will then need to poll the authorization resource to see when it is finalized. Refer to <xref section="7.5.1" sectionFormat="of" target="RFC8555"/> for more details.</t>
+</li>
+
+  <li>
+    <t>Step 2: The client places a newOrder for <tt>sub1.example.org</tt>.</t>
+    <t>   
+    The client sends a newOrder request to the server and includes the subdomain identifier. Note that the identifier is a subdomain of the ancestor domain that has been pre-authorized in Step 1. The client does not need to include the <tt>subdomainAuthAllowed</tt> field in the <tt>identifier</tt> object, as it has already pre-authorized the ancestor domain.</t>
+
+      <sourcecode type="http-message"><![CDATA[
+POST /acme/new-order HTTP/1.1
+Host: example.com
+Content-Type: application/jose+json
+
+{
+  "protected": base64url({
+    "alg": "ES256",
+    "kid": "https://example.com/acme/acct/evOfKhNU60wg",
+    "nonce": "5XJ1L3lEkMG7tR6pA00clA",
+    "url": "https://example.com/acme/new-order"
+  }),
+  "payload": base64url({
+    "identifiers": [
+      { "type": "dns", "value": "sub1.example.org" }
+    ],
+    "notBefore": "2023-09-01T00:04:00+04:00",
+    "notAfter": "2023-09-08T00:04:00+04:00"
+  }),
+  "signature": "H6ZXtGjTZyUnPeKn...wEA4TklBdh3e454g"
+}
+]]></sourcecode>
+      <t>As an authorization object already exists for the ancestor domain, the server replies with an order object with a status of "ready" that includes a link to the existing "valid" authorization object.</t>
+      <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 201 Created
+Replay-Nonce: MYAuvOpaoIiywTezizk5vw
+Link: <https://example.com/acme/directory>;rel="index"
+Location: https://example.com/acme/order/TOlocE8rfgo
+
+{
+  "status": "ready",
+  "expires": "2023-09-01T14:09:07.99Z",
+
+  "notBefore": "2023-09-01T00:00:00Z",
+  "notAfter": "2023-09-08T00:00:00Z",
+
+  "identifiers": [
+    { "type": "dns", "value": "sub1.example.org" }
+  ],
+
+  "authorizations": [
+    "https://example.com/acme/authz/PAniVnsZcis"
+  ],
+
+  "finalize": "https://example.com/acme/order/TOlocrfgo/finalize"
+}
+]]></sourcecode>
+      <t>The client can proceed to finalize the order by posting a CSR to the <tt>finalize</tt> resource. The client can then download the certificate for <tt>sub1.example.org</tt>.</t>
+    </li>
+
+  <li>
+    <t>Step 3: The client places a newOrder for <tt>sub2.example.org</tt>.  </t>
+    <t>
+    The client sends a newOrder request to the server and includes the subdomain identifier. Note that the identifier is a subdomain of the ancestor domain that has been pre-authorized in Step 1. The client does not need to include the <tt>subdomainAuthAllowed</tt> field in the <tt>identifier</tt> object, as it has already pre-authorized the ancestor domain.</t>
+
+      <sourcecode type="http-message"><![CDATA[
+POST /acme/new-order HTTP/1.1
+Host: example.com
+Content-Type: application/jose+json
+
+{
+  "protected": base64url({
+    "alg": "ES256",
+    "kid": "https://example.com/acme/acct/evOfKhNU60wg",
+    "nonce": "5XJ1L3lEkMG7tR6pA00clA",
+    "url": "https://example.com/acme/new-order"
+  }),
+  "payload": base64url({
+    "identifiers": [
+      { "type": "dns", "value": "sub2.example.org" }
+    ],
+    "notBefore": "2023-09-01T00:04:00+04:00",
+    "notAfter": "2023-09-08T00:04:00+04:00"
+  }),
+  "signature": "H6ZXtGjTZyUnPeKn...wEA4TklBdh3e454g"
+}
+]]></sourcecode>
+      <t>As an authorization object already exists for the ancestor domain, the server replies with an order object with a status of "ready" that includes a link to the existing "valid" authorization object.</t>
+      <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 201 Created
+Replay-Nonce: MYAuvOpaoIiywTezizk5vw
+Link: <https://example.com/acme/directory>;rel="index"
+Location: https://example.com/acme/order/TOlocE8rfgo
+
+{
+  "status": "ready",
+  "expires": "2023-09-01T14:09:07.99Z",
+
+  "notBefore": "2023-09-01T00:00:00Z",
+  "notAfter": "2023-09-08T00:00:00Z",
+
+  "identifiers": [
+    { "type": "dns", "value": "sub2.example.org" }
+  ],
+
+  "authorizations": [
+    "https://example.com/acme/authz/PAniVnsZcis"
+  ],
+
+  "finalize": "https://example.com/acme/order/ROni7rdde/finalize"
+}
+]]></sourcecode>
+      <t>The client can proceed to finalize the order by posting a CSR to the <tt>finalize</tt> resource. The client can then download the certificate for <tt>sub2.example.org</tt>.</t>
+
+  </li>
+</ul>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="authorization-object-fields-registry">
+        <name>Authorization Object Fields Registry</name>
+        <t>The following field has been added to the "ACME Authorization Object Fields" registry defined in ACME <xref target="RFC8555"/>.</t>
+        <table anchor="iana1">
+          <name/>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Field Type</th>
+              <th>Configurable</th>
+              <th>Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>subdomainAuthAllowed</td>
+              <td>boolean</td>
+              <td>false</td>
+              <td>RFC 9444</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="directory-object-metadata-fields-registry">
+        <name>Directory Object Metadata Fields Registry</name>
+        <t>The following field has been added to the "ACME Directory Metadata Fields" registry defined in <xref target="RFC8555"/>.</t>
+        <table anchor="iana2">
+          <name/>
+          <thead>
+            <tr>
+              <th>Field Name</th>
+              <th>Field Type</th>
+              <th>Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>subdomainAuthAllowed</td>
+              <td>boolean</td>
+              <td>RFC 9444</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document specifies enhancements to ACME <xref target="RFC8555"/> that optimize the protocol flows for issuance of certificates for subdomains. The underlying goal of ACME for Subdomains remains the same as that of ACME: managing certificates that attest to identifier/key bindings for these subdomains. Thus, ACME for Subdomains has the same two security goals as ACME:</t>
+      <ol spacing="normal" type="(%d)"><li>Only an entity that controls an identifier can get an authorization for that identifier.</li>
+        <li>Once authorized, an account key's authorizations cannot be improperly used by another account.</li>
+      </ol>
+      <t>ACME for Subdomains makes no changes to:</t>
+      <ul spacing="normal">
+        <li>account or account key management</li>
+        <li>ACME channel establishment, security mechanisms, or threat model</li>
+        <li>validation channel establishment, security mechanisms, or threat model</li>
+      </ul>
+      <t>Therefore, all Security Considerations in ACME in the following areas are equally applicable to ACME for Subdomains:</t>
+      <ul spacing="normal">
+        <li>Threat Model</li>
+        <li>Integrity of Authorizations</li>
+        <li>Denial-of-Service Considerations</li>
+        <li>Server-Side Request Forgery</li>
+        <li>CA Policy Considerations</li>
+      </ul>
+      <t>The only exception is that in order to satisfy goal (1) above, this document assumes that control over a domain may imply control over a subdomain; therefore, authorization for certificate issuance for the former may imply authorization for certificate issuance for the latter.  
+In many ecosystems, this is a safe assumption, especially because control over the domain can often be leveraged to successfully demonstrate control over subdomains anyway, for example, by temporarily modifying DNS for the subdomain to point to a server the ancestor domain owner controls, rendering the distinction moot.  For example, the CA/Browser Forum Baseline Requirements may consider control of an ancestor domain sufficient for issuance of certificates for subdomains, but only if specific processes and procedures are used for validating ownership of the ancestor domain.</t>
+      <t>In ecosystems where control of an ancestor domain may not imply control over subdomains or authorization for issuance of certificates for subdomains, a more complicated threat analysis and server policy might be needed.</t>
+      <t>Some additional comments on ACME server policy are given later in this section.</t>
+      <section anchor="client-account-security">
+        <name>Client Account Security</name>
+        <t>There may be scenarios were a client wishes to deactivate an authorization object for an ancestor domain or deactivate its account completely. For example, a client may want to do this if an account key is compromised or if an authorization object covering domains subordinate to an ancestor domain is no longer needed. The client can deactivate an authorization using the mechanism specified in <xref section="7.5.2" sectionFormat="comma" target="RFC8555"/> and can deactivate an account using the mechanism specified in <xref section="7.3.6" sectionFormat="comma" target="RFC8555"/>.</t>
+      </section>
+      <section anchor="subdomain-determination">
+        <name>Subdomain Determination</name>
+        <t>The <xref target="RFC8499"/> definition of a subdomain is reproduced in <xref target="terminology"/>. When comparing domains to determine if one is a subdomain of the other, it is important to compare entire labels and not rely on a string prefix match. Relying on string prefix matches may yield incorrect results.</t>
+      </section>
+      <section anchor="acme-server-policy-considerations">
+        <name>ACME Server Policy Considerations</name>
+        <t>The ACME for Subdomains and the ACME specifications do not mandate any specific ACME server or CA policies, or any specific use cases for issuance of certificates. For example, an ACME server could be used:</t>
+        <ul spacing="normal">
+          <li>to issue Web PKI certificates where the ACME server must comply with CA/Browser Forum Baseline Requirements <xref target="CAB"/>.</li>
+          <li>as a Private CA for issuance of certificates within an organization. The organization could enforce whatever policies they desire on the ACME server.</li>
+          <li>for issuance of Internet of Things (IoT) device certificates. There are currently no IoT device certificate policies that are generally enforced across the industry. Organizations issuing IoT device certificates can enforce whatever policies they desire on the ACME server.</li>
+        </ul>
+        <t>ACME server policy could specify whether:</t>
+        <ul spacing="normal">
+          <li>issuance of subdomain certificates is allowed based on proof of ownership of an ancestor domain.</li>
+          <li>issuance of subdomain certificates is allowed, but only for a specific set of ancestor domains.</li>
+          <li>DNS-based or HTTP-based proof of ownership, or both, are allowed.</li>
+        </ul>
+        <t>The CA policy considerations listed in <xref section="10.5" sectionFormat="comma" target="RFC8555"/> are equally applicable here. These include, but are not limited to:</t>
+
+        <ul spacing="normal">
+          <li>Is the claimed identifier syntactically valid?</li>
+          <li><t>For domain names:</t>
+	  <ul>
+            <li>Is the name on the Public Suffix List?</li>
+            <li>Is the name a high-value name?</li>
+	  </ul>
+	  </li>
+          <li>Is the key in the CSR sufficiently strong?</li>
+        </ul>
+        <t>Refer to <xref section="10.5" sectionFormat="comma" target="RFC8555"/> for more CA policy considerations.</t>
+        <t>ACME server policy specification is explicitly out of scope of this document.</t>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8555.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8499.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <reference anchor="CAB" target="https://cabforum.org/baseline-requirements-documents/">
+          <front>
+            <title>Baseline Requirements for the Issuance and
+Management of Publicly-Trusted Certificates</title>
+            <author>
+              <organization>CA/Browser Forum</organization>
+            </author>
+          </front>
+	</reference>
+
+        <reference anchor="ACME-Identifier-Types" target="https://www.iana.org/assignments/acme/">
+          <front>
+            <title>ACME Identifier Types</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="ACME-Validation-Methods" target="https://www.iana.org/assignments/acme/">
+          <front>
+            <title>ACME Validation Methods</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.0819.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1034.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2986.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8738.xml"/>
+      </references>
+    </references>
+  </back>
+</rfc>

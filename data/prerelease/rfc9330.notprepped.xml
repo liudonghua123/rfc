@@ -1,0 +1,2382 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+<!ENTITY nbsp    "&#160;">
+<!ENTITY zwsp   "&#8203;">
+<!ENTITY nbhy   "&#8209;">
+<!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="info" consensus="true" docName="draft-ietf-tsvwg-l4s-arch-20" number="9330" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+<front>
+  <title abbrev="L4S Architecture">Low Latency, Low Loss, and Scalable
+  Throughput (L4S) Internet Service: Architecture</title>
+  <seriesInfo name="RFC" value="9330"/>
+  <author fullname="Bob Briscoe" initials="B." surname="Briscoe" role="editor">
+    <organization>Independent</organization>
+    <address>
+      <postal>
+        <street/>
+        <country>United Kingdom</country>
+      </postal>
+      <email>ietf@bobbriscoe.net</email>
+      <uri>https://bobbriscoe.net/</uri>
+    </address>
+  </author>
+  <author fullname="Koen De Schepper" initials="K." surname="De Schepper">
+    <organization>Nokia Bell Labs</organization>
+    <address>
+      <postal>
+        <street/>
+        <city>Antwerp</city>
+        <country>Belgium</country>
+      </postal>
+      <email>koen.de_schepper@nokia.com</email>
+      <uri>https://www.bell-labs.com/about/researcher-profiles/koende_schepper/</uri>
+    </address>
+  </author>
+  <author fullname="Marcelo Bagnulo" initials="M." surname="Bagnulo">
+    <organization>Universidad Carlos III de Madrid</organization>
+    <address>
+      <postal>
+        <street>Av. Universidad 30</street>
+        <city>Madrid</city>
+        <code>28911</code>
+        <country>Spain</country>
+      </postal>
+      <phone>34 91 6249500</phone>
+      <email>marcelo@it.uc3m.es</email>
+      <uri>https://www.it.uc3m.es</uri>
+    </address>
+  </author>
+  <author fullname="Greg White" initials="G." surname="White">
+    <organization>CableLabs</organization>
+    <address>
+      <postal>
+        <street/>
+        <country>United States of America</country>
+      </postal>
+      <email>G.White@CableLabs.com</email>
+    </address>
+  </author>
+  <date year="2023" month="January"/>
+  <area>tsv</area>
+  <workgroup>tsvwg</workgroup>
+  <keyword>Performance</keyword>
+  <keyword>Queuing Delay</keyword>
+  <keyword>One Way Delay</keyword>
+  <keyword>Round-Trip Time</keyword>
+  <keyword>RTT</keyword>
+  <keyword>Jitter</keyword>
+  <keyword>Congestion Control</keyword>
+  <keyword>Congestion Avoidance</keyword>
+  <keyword>Quality of Service</keyword>
+  <keyword>QoS</keyword>
+  <keyword>Quality of Experience</keyword>
+  <keyword>QoE</keyword>
+  <keyword>Active Queue Management</keyword>
+  <keyword>AQM</keyword>
+  <keyword>Explicit Congestion Notification</keyword>
+  <keyword>ECN</keyword>
+  <keyword>Pacing</keyword>
+  <keyword>Burstiness</keyword>
+
+  <abstract>
+    <t>This document describes the L4S architecture, which enables Internet 
+    applications to achieve low queuing latency, low congestion loss, and scalable
+    throughput control. L4S is based on the insight that the root cause of
+    queuing delay is in the capacity-seeking congestion controllers of
+    senders, not in the queue itself. With the L4S architecture, all Internet
+    applications could (but do not have to) transition away from congestion
+    control algorithms that cause substantial queuing delay and instead adopt a new class
+    of congestion controls that can seek capacity with very little queuing.
+    These are aided by a modified form of Explicit Congestion Notification
+    (ECN) from the network. With this new architecture, applications can
+    have both low latency and high throughput.</t>
+    <t>The architecture primarily concerns incremental deployment. It
+    defines mechanisms that allow the new class of L4S congestion controls
+    to coexist with 'Classic' congestion controls in a shared network. The
+    aim is for L4S latency and throughput to be usually much better (and
+    rarely worse) while typically not impacting Classic performance.</t>
+  </abstract>
+</front>
+<middle>
+  <section anchor="l4sps_intro" numbered="true" toc="default">
+    <name>Introduction</name>
+    <t>At any one time, it is increasingly common for all of the traffic in
+    a bottleneck link (e.g., a household's Internet access or Wi-Fi) to come from
+    applications that prefer low delay: interactive web, web services,
+    voice, conversational video, interactive video, interactive remote
+    presence, instant messaging, online and cloud-rendered gaming, remote desktop, cloud-based
+    applications, cloud-rendered virtual reality or augmented reality, and video-assisted remote control of machinery and
+    industrial processes. In the last decade or so, much has been done to
+    reduce propagation delay by placing caches or servers closer to users.
+    However, queuing remains a major, albeit intermittent, component of
+    latency. For instance, spikes of hundreds of milliseconds are not
+    uncommon, even with state-of-the-art Active Queue Management
+    (AQM) <xref target="COBALT" format="default"/> <xref target="DOCSIS3AQM" format="default"/>. A Classic AQM in an
+    access network bottleneck is typically configured to buffer the sawteeth of 
+    lone flows, which can cause peak overall
+    network delay to roughly double during a long-running flow, relative to
+    expected base (unloaded) path delay <xref target="BufferSize" format="default"/>.
+    Low loss is also important because, for interactive applications, losses
+    translate into even longer retransmission delays.</t>
+    <t>It has been demonstrated that, once access network bit rates reach
+    levels now common in the developed world, increasing link capacity
+    offers diminishing returns if latency (delay) is not addressed <xref target="Dukkipati06" format="default"/> <xref target="Rajiullah15" format="default"/>. Therefore, the
+    goal is an Internet service with very low queuing latency, very low
+    loss, and scalable throughput. Very low queuing latency means less
+    than 1 millisecond (ms) on average and less than about 2 ms at
+    the 99th percentile. End-to-end delay above 50 ms <xref target="Raaen14" format="default"/>, or even above 20 ms <xref target="NASA04" format="default"/>,
+    starts to feel unnatural for more demanding interactive applications. Therefore,
+    removing unnecessary delay variability increases the reach of these
+    applications (the distance over which they are comfortable to use) and/or 
+    provides additional latency budget that can be used for enhanced processing. This
+    document describes the L4S architecture for achieving these goals.</t>
+    <t>Differentiated services (Diffserv) offers Expedited Forwarding
+    (EF) <xref target="RFC3246" format="default"/> for some packets at the expense of
+    others, but this makes no difference when all (or most) of the traffic
+    at a bottleneck at any one time requires low latency. In contrast, L4S
+    still works well when all traffic is L4S -- a service that gives without
+    taking needs none of the configuration or management baggage (traffic
+    policing or traffic contracts) associated with favouring some traffic
+    flows over others.</t>
+    <t>Queuing delay degrades performance intermittently <xref target="Hohlfeld14" format="default"/>. 
+    It occurs i) when a large enough capacity-seeking
+    (e.g., TCP) flow is running alongside the user's traffic in the
+    bottleneck link, which is typically in the access network, or ii) when the
+    low latency application is itself a large capacity-seeking or adaptive
+    rate flow (e.g., interactive video). 
+    At these times, the performance
+    improvement from L4S must be sufficient for network operators to be motivated 
+    to deploy it.</t>
+    <t>Active Queue Management (AQM) is part of the solution to queuing
+    under load. AQM improves performance for all traffic, but there is a
+    limit to how much queuing delay can be reduced by solely changing the
+    network without addressing the root of the problem.</t>
+    <t>The root of the problem is the presence of standard congestion
+    control (Reno <xref target="RFC5681" format="default"/>) or compatible variants
+    (e.g., CUBIC <xref target="RFC8312" format="default"/>) that are used in TCP and
+    in other transports, such as QUIC <xref target="RFC9000" format="default"/>.
+    We shall use
+    the term 'Classic' for these Reno-friendly congestion controls. 
+    Classic
+    congestion controls induce relatively large sawtooth-shaped excursions
+    of queue occupancy. So if a network operator naively
+    attempts to reduce queuing delay by configuring an AQM to operate at a
+    shallower queue, a Classic congestion control will significantly
+    underutilize the link at the bottom of every sawtooth. These sawteeth have 
+    also been growing in duration as flow rate scales (see <xref target="l4sps_why_primary_components" format="default"/> 
+    and <xref target="RFC3649" format="default"/>).</t>
+    <t>It has been demonstrated that, if the sending host replaces a Classic
+    congestion control with a 'Scalable' alternative, the performance under load of all the above
+    interactive applications can be significantly improved once a suitable AQM is
+    deployed in the network. 
+    Taking the example solution cited below that uses Data Center TCP (DCTCP) 
+    <xref target="RFC8257" format="default"/> and a Dual-Queue Coupled AQM <xref target="RFC9332"
+      format="default"/> on a DSL or Ethernet link, 
+    queuing delay under heavy load is roughly 1-2 ms at
+    the 99th percentile without losing link utilization <xref target="L4Seval22" format="default"/> <xref target="DualPI2Linux" format="default"/> (for other link types,
+    see <xref target="l4sarch_link-specifics" format="default"/>). 
+    This compares with
+    5-20 ms on <em>average</em> with a Classic
+    congestion control and current state-of-the-art AQMs, such as
+    Flow Queue CoDel <xref target="RFC8290" format="default"/>, Proportional Integral controller Enhanced (PIE) <xref target="RFC8033" format="default"/>, or DOCSIS PIE <xref target="RFC8034" format="default"/> and about
+    20-30 ms at the 99th percentile <xref target="DualPI2Linux" format="default"/>.</t>
+    <t>L4S is designed for incremental deployment. It is possible to deploy
+    the L4S service at a bottleneck link alongside the existing best efforts
+    service <xref target="DualPI2Linux" format="default"/> so that unmodified
+    applications can start using it as soon as the sender's stack is
+    updated. Access networks are typically designed with one link as the
+    bottleneck for each site (which might be a home, small enterprise, or
+    mobile device), so deployment at either or both ends of this link should
+    give nearly all the benefit in the respective direction. 
+    With some
+    transport protocols, namely TCP <xref target="I-D.ietf-tcpm-accurate-ecn" format="default"/>, the sender has to check that
+    the receiver has been suitably updated to give more accurate feedback,
+    whereas with more recent transport protocols, such as QUIC <xref target="RFC9000" format="default"/> and Datagram Congestion Control Protocol (DCCP) <xref target="RFC4340" format="default"/>, all
+    receivers have always been suitable.</t>
+    <t>This document presents the L4S architecture. It consists of three
+    components: network support to isolate L4S traffic from Classic traffic;
+    protocol features that allow network elements to identify L4S traffic;
+    and host support for L4S congestion controls. The protocol is defined
+    separately in <xref target="RFC9331" format="default"/> as an experimental
+    change to Explicit Congestion Notification (ECN). This document
+    describes and justifies the component parts and how they interact to
+    provide the low latency, low loss, and scalable Internet service. It also
+    details the approach to incremental deployment, as briefly summarized
+    above.</t>
+    <section numbered="true" toc="default">
+      <name>Document Roadmap</name>
+      <t>This document describes the L4S architecture in three passes. First,
+      the brief overview in <xref target="l4s-arch_arch_overview" format="default"/> gives the very high-level idea and states the main
+      components with minimal rationale. This is only intended to give some
+      context for the terminology definitions that follow in <xref target="l4sps_Terminology" format="default"/> and to explain the structure of the rest
+      of the document. Then, <xref target="l4sps_components" format="default"/> goes into more
+      detail on each component with some rationale but still mostly stating
+      what the architecture is, rather than why. Finally, <xref target="l4sps_rationale" format="default"/> justifies why each element of the solution
+      was chosen (<xref target="l4sps_why_primary_components" format="default"/>) and why
+      these choices were different from other solutions (<xref target="l4sps_why-not" format="default"/>).</t>
+      <t>After the architecture has been described, <xref target="l4sarch_applicability" format="default"/> 
+      clarifies its applicability by describing the applications and use cases 
+      that motivated the design, the challenges applying the architecture to 
+      various link technologies, and various incremental deployment models 
+      (including the two main deployment topologies, different sequences for 
+      incremental deployment, and various interactions with preexisting 
+      approaches). The document
+      ends with the usual tailpieces, including extensive discussion of
+      traffic policing and other security considerations in <xref target="l4sps_Security_Considerations" format="default"/>.</t>
+    </section>
+  </section>
+  <section anchor="l4s-arch_arch_overview" numbered="true" toc="default">
+    <name>L4S Architecture Overview</name>
+    <t>Below, we outline the three main components to the L4S architecture:
+    1) the Scalable congestion control on the sending host; 2) the AQM at
+    the network bottleneck; and 3) the protocol between them.</t>
+    <t>But first, the main point to grasp is that low latency is not
+    provided by the network; low latency results from the careful behaviour
+    of the Scalable congestion controllers used by L4S senders. The network
+    does have a role, primarily to isolate the low latency of the carefully
+    behaving L4S traffic from the higher queuing delay needed by traffic
+    with preexisting Classic behaviour. The network also alters the way it
+    signals queue growth to the transport. It uses the Explicit Congestion
+    Notification (ECN) protocol, but it signals the very start of queue
+    growth immediately, without the smoothing delay typical of Classic
+    AQMs. Because ECN support is essential for L4S, senders use the ECN
+    field as the protocol that allows the network to identify which packets
+    are L4S and which are Classic.</t>
+    <ol spacing="normal" type="%d)">
+      <li><t>Host:</t> 
+      <t>Scalable congestion controls already exist.  They solve the scaling
+      problem with Classic congestion controls, such as Reno or
+      CUBIC. Because flow rate has scaled since TCP congestion control was
+      first designed in 1988, assuming the flow lasts long enough, it now
+      takes hundreds of round trips (and growing) to recover after a
+      congestion signal (whether a loss or an ECN mark), as shown in the
+      examples in <xref target="l4sps_why_primary_components"
+      format="default"/> and <xref target="RFC3649"
+      format="default"/>. Therefore, control of queuing and utilization
+      becomes very slack, and the slightest disturbances (e.g., from new
+      flows starting) prevent a high rate from being attained.</t>
+      <t>With a Scalable congestion control, the average time from one
+      congestion signal to the next (the recovery time) remains invariant as
+      flow rate scales, all other factors being equal.  This maintains
+      the same degree of control over queuing and utilization, whatever the
+      flow rate, as well as ensuring that high throughput is more robust to
+      disturbances. The Scalable control used most widely (in controlled
+      environments) is DCTCP <xref target="RFC8257"
+      format="default"/>, which has been implemented and deployed in
+      Windows Server Editions (since 2012), in Linux, and in
+      FreeBSD.
+      Although DCTCP as-is functions well over wide-area round-trip
+      times (RTTs), most implementations lack certain safety features that would be
+      necessary for use outside controlled environments, like data centres
+      (see <xref target="l4sarch_sec_non-l4s-neck" format="default"/>). Therefore,
+      Scalable congestion control needs to be implemented in TCP and other
+      transport protocols (QUIC, Stream Control Transmission Protocol (SCTP), RTP/RTCP, RTP Media Congestion Avoidance Techniques (RMCAT), etc.). 
+      Indeed,
+      between the present document being drafted and published, the
+      following Scalable congestion controls were implemented: Prague over TCP and QUIC 
+      <xref target="I-D.briscoe-iccrg-prague-congestion-control" format="default"/> <xref target="PragueLinux" format="default"/>, an L4S
+      variant of the RMCAT SCReAM controller <xref target="SCReAM-L4S"
+      format="default"/>, and the L4S ECN part of Bottleneck Bandwidth and Round-trip propagation time (BBRv2) <xref target="BBRv2"
+      format="default"/> intended for TCP and QUIC transports.</t>
+      </li>
+      <li><t>Network:</t>
+      <t>L4S traffic needs to be isolated from the queuing latency of
+      Classic traffic. One queue per application flow (FQ) is one way to
+      achieve this, e.g., FQ-CoDel <xref target="RFC8290"
+      format="default"/>. However, using just two queues is sufficient and
+      does not require inspection of transport layer headers in the network,
+      which is not always possible (see <xref target="l4sps_why-not"
+      format="default"/>). With just two queues, it might seem impossible to
+      know how much capacity to schedule for each queue without inspecting
+      how many flows at any one time are using each.  And it would be
+      undesirable to arbitrarily divide access network capacity into two
+      partitions. The Dual-Queue Coupled AQM was developed as a minimal
+      complexity solution to this problem. It acts like a 'semi-permeable'
+      membrane that partitions latency but not bandwidth. As such, the two
+      queues are for transitioning from Classic to L4S behaviour, not bandwidth
+      prioritization.</t>
+      <t><xref target="l4sps_components" format="default"/> gives a high-level
+      explanation of how the per-flow queue (FQ) and DualQ variants of
+      L4S work, and <xref target="RFC9332"
+      format="default"/> gives a full explanation of the DualQ Coupled AQM
+      framework. A specific marking algorithm is not mandated for L4S
+      AQMs. Appendices of <xref target="RFC9332"
+      format="default"/> give non-normative examples that have been
+      implemented and evaluated and give recommended default parameter
+      settings. It is expected that L4S experiments will improve knowledge
+      of parameter settings and whether the set of marking algorithms needs
+      to be limited.
+      </t>
+      </li>
+      <li><t>Protocol:</t>
+      <t>A sending host needs to distinguish L4S and Classic packets with an
+      identifier so that the network can classify them into their separate
+      treatments. The L4S identifier spec <xref
+      target="RFC9331" format="default"/> concludes that
+      all alternatives involve compromises, but the ECT(1) and Congestion Experienced (CE) codepoints
+      of the ECN field represent a workable solution. As already explained,
+      the network also uses ECN to immediately signal the very start of
+      queue growth to the transport.</t>
+      </li>
+    </ol>
+  </section>
+  <section anchor="l4sps_Terminology" numbered="true" toc="default">
+    <name>Terminology</name>
+    <dl newline="false" spacing="normal">
+      <dt>Classic Congestion Control:</dt>
+      <dd>A congestion control
+      behaviour that can coexist with standard Reno <xref target="RFC5681" format="default"/> without causing significantly negative impact on
+      its flow rate <xref target="RFC5033" format="default"/>. The scaling problem
+      with Classic congestion control is explained, with examples, in
+      <xref target="l4sps_why_primary_components" format="default"/> and in <xref target="RFC3649" format="default"/>.</dd>
+      <dt>Scalable Congestion Control:</dt>
+      <dd>A congestion control
+      where the average time from one congestion signal to the next (the
+      recovery time) remains invariant as flow rate scales, all other
+      factors being equal. 
+      For instance, DCTCP averages 2 congestion
+      signals per round trip, whatever the flow rate, as do other recently
+      developed Scalable congestion controls, e.g., Relentless
+      TCP <xref target="I-D.mathis-iccrg-relentless-tcp" format="default"/>, Prague for TCP and QUIC <xref target="I-D.briscoe-iccrg-prague-congestion-control" format="default"/> <xref target="PragueLinux" format="default"/>, BBRv2 <xref target="BBRv2" format="default"/> <xref target="I-D.cardwell-iccrg-bbr-congestion-control" format="default"/>, and the L4S
+      variant of SCReAM for real-time media <xref target="SCReAM-L4S" format="default"/> <xref target="RFC8298" format="default"/>. See 
+      <xref target="RFC9331" format="default" sectionFormat="of" section="4.3"/> for more
+      explanation.</dd>
+      <dt>Classic Service:</dt>
+      <dd>The Classic service is intended for
+      all the congestion control behaviours that coexist with
+      Reno <xref target="RFC5681" format="default"/> (e.g., Reno itself,
+      CUBIC <xref target="RFC8312" format="default"/>, Compound <xref target="I-D.sridharan-tcpm-ctcp" format="default"/>, and TFRC <xref target="RFC5348" format="default"/>). The term 'Classic queue' means a queue
+          providing the Classic service.</dd>
+        <dt>Low Latency, Low Loss, and Scalable throughput (L4S) service:</dt>
+        <dd>
+          <t>The
+          'L4S' service is intended for traffic from Scalable congestion
+          control algorithms, such as the Prague congestion control <xref target="I-D.briscoe-iccrg-prague-congestion-control" format="default"/>, which was
+          derived from DCTCP  <xref target="RFC8257" format="default"/>. The L4S service
+          is for more general traffic than just Prague -- it allows the
+          set of congestion controls with similar scaling properties to Prague
+          to evolve, such as the examples listed above (Relentless, SCReAM, etc.).
+          The term 'L4S queue' means a queue providing the L4S service.</t>
+          <t>The terms Classic or L4S can also qualify other
+          nouns, such as 'queue', 'codepoint', 'identifier', 'classification',
+          'packet', and 'flow'. For example, an L4S packet means a packet with an
+          L4S identifier sent from an L4S congestion control.</t>
+          <t>Both Classic and L4S services can cope with a
+          proportion of unresponsive or less-responsive traffic as well but,
+          in the L4S case, its rate has to be smooth enough or low enough to
+          not build a queue (e.g., DNS, Voice over IP (VoIP), game sync datagrams,
+          etc.).</t>
+        </dd>
+        <dt>Reno-friendly:</dt>
+        <dd>The subset of Classic traffic that is
+          friendly to the standard Reno congestion control defined for TCP in
+          <xref target="RFC5681" format="default"/>. The TFRC spec <xref target="RFC5348" format="default"/> indirectly implies that 'friendly' is defined as
+          "generally within a factor of two of the sending rate of a TCP flow
+          under the same conditions". Reno-friendly is used here in place of
+          'TCP-friendly', given the latter has become imprecise, because the
+          TCP protocol is now used with so many different congestion control
+          behaviours, and Reno is used in non-TCP transports, such as
+          QUIC <xref target="RFC9000" format="default"/>.</dd>
+        <dt>Classic ECN:</dt>
+        <dd>
+          <t>The original Explicit Congestion
+          Notification (ECN) protocol <xref target="RFC3168" format="default"/> that
+          requires ECN signals to be treated as equivalent to drops, both when
+          generated in the network and when responded to by the sender.</t>
+          <t>For L4S, the names used for the four codepoints of the 2-bit
+	  IP-ECN field are unchanged from those defined in the ECN spec
+	  <xref target="RFC3168" format="default"/>, i.e., Not-ECT, ECT(0),
+	  ECT(1), and CE, where ECT stands for ECN-Capable Transport and CE
+	  stands for Congestion Experienced. A packet marked with the CE
+	  codepoint is termed 'ECN-marked' or sometimes just 'marked' where
+	  the context makes ECN obvious.</t>
+        </dd>
+        <dt>Site:</dt>
+        <dd>A home, mobile device, small enterprise, or
+          campus where the network bottleneck is typically the access link to
+          the site. Not all network arrangements fit this model, but it is a
+          useful, widely applicable generalization.</dd>
+        <dt>Traffic Policing:</dt>
+        <dd>Limiting traffic by dropping packets
+          or shifting them to a lower service class (as opposed to introducing
+          delay, which is termed 'traffic shaping'). Policing can involve
+          limiting the average rate and/or burst size. Policing focused on
+          limiting queuing but not the average flow rate is termed 'congestion
+          policing', 'latency policing', 'burst policing', or 'queue protection' in
+          this document. Otherwise, the term rate policing is used.</dd>
+      </dl>
+    </section>
+    <section anchor="l4sps_components" numbered="true" toc="default">
+      <name>L4S Architecture Components</name>
+      <t>The L4S architecture is composed of the elements in the following
+      three subsections.</t>
+      <section anchor="l4sps_protocol_components" numbered="true" toc="default">
+        <name>Protocol Mechanisms</name>
+        <t>The L4S architecture involves: a) unassignment of the previous use
+        of the identifier; b) reassignment of the same identifier; and c)
+        optional further identifiers:</t>
+        <ol spacing="normal" type="a"><li>
+            <t>An essential aspect of a Scalable congestion control is the use
+            of explicit congestion signals. Classic ECN <xref target="RFC3168" format="default"/> requires an ECN signal to be treated as
+            equivalent to drop, both when it is generated in the network and
+            when it is responded to by hosts. L4S needs networks and hosts to
+            support a more fine-grained meaning for each ECN signal that is
+            less severe than a drop, so that the L4S signals:</t>
+            <ul spacing="normal">
+              <li>can be much more frequent and</li>
+              <li>can be signalled immediately, without the significant delay
+                required to smooth out fluctuations in the queue.</li>
+            </ul>
+            <t>To enable L4S, the Standards Track Classic ECN
+            spec <xref target="RFC3168" format="default"/> has had to be updated to allow
+            L4S packets to depart from the 'equivalent-to-drop' constraint.
+            <xref target="RFC8311" format="default"/> is a Standards Track update to
+	    relax specific requirements in <xref target="RFC3168" format="default"/>
+	    (and certain other Standards
+            Track RFCs), which clears the way for the experimental changes
+            proposed for L4S. Also, the ECT(1) codepoint was previously
+            assigned as the experimental ECN nonce <xref target="RFC3540" format="default"/>, which <xref target="RFC8311" format="default"/> recategorizes as historic to
+            make the codepoint available again.</t>
+          </li>
+          <li>
+            <t><xref target="RFC9331" format="default"/> specifies that
+            ECT(1) is used as the identifier to classify L4S packets into a
+            separate treatment from Classic packets. This satisfies the
+            requirement for identifying an alternative ECN treatment in <xref target="RFC4774" format="default"/>.</t>
+            <t>The CE codepoint is
+            used to indicate Congestion Experienced by both L4S and Classic
+            treatments. This raises the concern that a Classic AQM earlier on
+            the path might have marked some ECT(0) packets as CE. Then, these
+            packets will be erroneously classified into the L4S queue.
+            <xref target="RFC9331" format="default" section="B" sectionFormat="of"/> explains why five unlikely
+            eventualities all have to coincide for this to have any
+            detrimental effect, which even then would only involve a
+            vanishingly small likelihood of a spurious retransmission.</t>
+          </li>
+          <li>A network operator might wish to include certain unresponsive,
+            non-L4S traffic in the L4S queue if it is deemed to be paced smoothly
+            enough and at a low enough rate not to build a queue, for
+            instance, VoIP, low rate datagrams to sync online games,
+            relatively low rate application-limited traffic, DNS, Lightweight Directory Access Protocol (LDAP), etc.
+            This traffic would need to be tagged with specific identifiers,
+            e.g., a low-latency Diffserv codepoint such as Expedited
+            Forwarding (EF) <xref target="RFC3246" format="default"/>, Non-Queue-Building
+            (NQB) <xref target="I-D.ietf-tsvwg-nqb" format="default"/>, or
+            operator-specific identifiers.</li>
+        </ol>
+      </section>
+      <section anchor="l4sps_network_components" numbered="true" toc="default">
+        <name>Network Components</name>
+        <t>The L4S architecture aims to provide low latency without the <em>need</em> for per-flow operations in network
+        components. Nonetheless, the architecture does not preclude per-flow
+        solutions. The following bullets describe the known arrangements: a)
+        the DualQ Coupled AQM with an L4S AQM in one queue coupled from a
+        Classic AQM in the other; b) per-flow queues with an instance of a
+        Classic and an L4S AQM in each queue; and c) Dual queues with per-flow
+        AQMs but no per-flow queues:</t>
+        <ol spacing="normal" type="a"><li>
+            <t>The Dual-Queue Coupled AQM (illustrated in <xref target="l4sps_fig_components" format="default"/>) achieves the 'semi-permeable'
+            membrane property mentioned earlier as follows:</t>
+            <ul spacing="normal">
+              <li>Latency isolation: Two separate queues are used to isolate
+                L4S queuing delay from the larger queue that Classic traffic
+                needs to maintain full utilization.</li>
+              <li>Bandwidth pooling: The two queues act as if they are a
+                single pool of bandwidth in which flows of either type get
+                roughly equal throughput without the scheduler needing to
+                identify any flows. This is achieved by having an AQM in each
+                queue, but the Classic AQM provides a congestion signal to
+                both queues in a manner that ensures a consistent response
+                from the two classes of congestion control. Specifically, the
+                Classic AQM generates a drop/mark probability based on
+                congestion in its own queue, which it uses both to drop/mark
+                packets in its own queue and to affect the marking probability
+                in the L4S queue. The strength of the coupling of the
+                congestion signalling between the two queues is enough to make
+                the L4S flows slow down to leave the right amount of capacity
+                for the Classic flows (as they would if they were the same
+                type of traffic sharing the same queue).</li>
+            </ul>
+            <t>Then, the scheduler can serve the L4S queue with priority
+            (denoted by the '1' on the higher priority input), because the L4S
+            traffic isn't offering up enough traffic to use all the priority
+            that it is given. Therefore:</t>
+            <ul spacing="normal">
+              <li>for latency isolation on short timescales (sub-round-trip),
+                the prioritization of the L4S queue protects its low latency
+                by allowing bursts to dissipate quickly;</li>
+              <li>but for bandwidth pooling on longer timescales (round-trip
+                and longer), the Classic queue creates an equal and opposite
+                pressure against the L4S traffic to ensure that neither has
+                priority when it comes to bandwidth -- the tension between
+                prioritizing L4S and coupling the marking from the Classic AQM
+                results in approximate per-flow fairness.</li>
+            </ul>
+            <t>To protect against the prioritization of persistent L4S traffic
+            deadlocking the Classic queue for a while in some implementations, 
+            it is advisable for the priority to be conditional, not
+            strict (see <xref target="RFC9332" format="default" section="A" sectionFormat="of">the DualQ spec</xref>). </t>
+            <t>When there is no Classic traffic, the L4S
+            queue's own AQM comes into play. It starts congestion
+            marking with a very shallow queue, so L4S traffic maintains very
+            low queuing delay.</t>
+            <t>If either queue becomes persistently overloaded, drop of some
+            ECN-capable packets is introduced, as recommended in <xref
+            target="RFC3168" sectionFormat="of" section="7">the ECN
+            spec</xref> and <xref target="RFC7567" sectionFormat="of"
+            section="4.2.1">the AQM recommendations</xref>. The trade-offs with different approaches 
+            are discussed in <xref
+            target="RFC9332" sectionFormat="of" section="4.2.3">the DualQ
+            spec</xref> (not shown in the figure here).</t>
+            <t>The Dual-Queue Coupled AQM has been specified as
+            generically as possible <xref target="RFC9332" format="default"/> without specifying the
+            particular AQMs to use in the two queues so that designers are
+            free to implement diverse ideas. Informational appendices in that
+            document give pseudocode examples of two different specific AQM
+            approaches: one called DualPI2 (pronounced Dual PI
+            Squared) <xref target="DualPI2Linux" format="default"/> that uses the PI2
+            variant of PIE and a zero-config variant of Random Early Detection (RED) called Curvy RED.
+            A DualQ Coupled AQM based on PIE has also been specified and
+            implemented for Low Latency DOCSIS <xref target="DOCSIS3.1" format="default"/>.</t>
+            <figure anchor="l4sps_fig_components">
+              <name>Components of an L4S DualQ Coupled AQM Solution</name>
+              <artwork align="center" name="" type="" alt=""><![CDATA[
+              (3)                  (2)
+              .-------^------..------------^------------------.
+ ,-(1)-----.                               _____
+; ________  :            L4S  -------.    |     |
+:|Scalable| :               _\      ||__\_|mark |
+:| sender | :  __________  / /      ||  / |_____|\   _________
+:|________|\; |          |/   -------'       ^    \1|condit'nl|
+ `---------'\_|  IP-ECN  |          Coupling :     \|priority |_\
+  ________  / |Classifier|                   :     /|scheduler| /
+ |Classic |/  |__________|\   -------.     __:__  / |_________|
+ | sender |                \_\ || | ||__\_|mark/|/
+ |________|                  / || | ||  / |drop |
+                      Classic -------'    |_____|
+
+
+(1) Scalable sending host
+(2) Isolation in separate network queues
+(3) Packet identification protocol
+]]></artwork>
+            </figure>
+          </li>
+          <li>Per-Flow Queues and AQMs: A scheduler with per-flow queues, such
+            as FQ-CoDel or FQ-PIE, can be used for L4S. For instance, within
+            each queue of an FQ-CoDel system, as well as a CoDel AQM, there is
+            typically also the option of ECN marking at an immediate
+            (unsmoothed) shallow threshold to support use in data centres (see
+            <xref target="RFC8290" sectionFormat="of" section="5.2.7">the FQ-CoDel spec</xref>). In
+            Linux, this has been modified so that the shallow threshold can be
+            solely applied to ECT(1) packets <xref target="FQ_CoDel_Thresh" format="default"/>. Then, if there is a flow of Not-ECT or
+            ECT(0) packets in the per-flow queue, the Classic AQM
+            (e.g., CoDel) is applied; whereas, if there is a flow of ECT(1)
+            packets in the queue, the shallower (typically sub-millisecond)
+            threshold is applied.
+	    In addition, ECT(0) and Not-ECT packets
+            could potentially be classified into a separate flow queue from
+            ECT(1) and CE packets to avoid them mixing if they share a common
+            flow identifier (e.g., in a VPN).</li>
+          <li>
+            <t>Dual queues but per-flow AQMs: It should also be possible to
+            use dual queues for isolation but with per-flow marking to
+            control flow rates (instead of the coupled per-queue marking of
+            the Dual-Queue Coupled AQM). One of the two queues would be for
+            isolating L4S packets, which would be classified by the ECN
+            codepoint. Flow rates could be controlled by flow-specific
+            marking. The policy goal of the marking could be to differentiate
+            flow rates (e.g., <xref target="Nadas20" format="default"/>, which requires
+            additional signalling of a per-flow 'value') or to equalize
+            flow rates (perhaps in a similar way to Approx Fair
+            CoDel <xref target="AFCD" format="default"/> <xref target="I-D.morton-tsvwg-codel-approx-fair" format="default"/> but with two queues
+            not one).</t>
+            <t>Note that, whenever the term
+            'DualQ' is used loosely without saying whether marking is
+            per queue or per flow, it means a dual-queue AQM with per-queue
+            marking.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="l4sps_host_components" numbered="true" toc="default">
+        <name>Host Mechanisms</name>
+        <t>The L4S architecture includes two main mechanisms in the end host
+        that we enumerate next:</t>
+        <ol spacing="normal" type="a"><li>
+            <t>Scalable congestion control at the sender: <xref target="l4s-arch_arch_overview" format="default"/> defines a Scalable congestion
+            control as one where the average time from one congestion signal
+            to the next (the recovery time) remains invariant as flow rate
+            scales, all other factors being equal. DCTCP is the most
+            widely used example. It has been documented as an informational
+            record of the protocol currently in use in controlled
+            environments <xref target="RFC8257" format="default"/>. A list of safety
+            and performance improvements for a Scalable congestion control to
+            be usable on the public Internet has been drawn up (see the so-called
+            'Prague L4S requirements' in <xref target="RFC9331" format="default" sectionFormat="of" section="A"/>). 
+            The subset that involve
+            risk of harm to others have been captured as normative
+            requirements in <xref target="RFC9331" format="default" sectionFormat="of" section="4"/>. TCP Prague <xref target="I-D.briscoe-iccrg-prague-congestion-control" format="default"/> has been
+            implemented in Linux as a reference implementation to address
+            these requirements <xref target="PragueLinux" format="default"/>.</t>
+            <t>Transport protocols other than TCP use various
+            congestion controls that are designed to be friendly with Reno.
+            Before they can use the L4S service, they will need to be updated
+            to implement a Scalable congestion response, which they will have
+            to indicate by using the ECT(1) codepoint. Scalable variants are
+            under consideration for more recent transport protocols
+            (e.g., QUIC), and the L4S ECN part of BBRv2 <xref target="BBRv2" format="default"/> <xref target="I-D.cardwell-iccrg-bbr-congestion-control" format="default"/> is a Scalable
+            congestion control intended for the TCP and QUIC transports,
+            amongst others. Also, an L4S variant of the RMCAT SCReAM
+            controller <xref target="RFC8298" format="default"/> has been
+            implemented <xref target="SCReAM-L4S" format="default"/> for media transported
+            over RTP.</t>
+            <t> <xref target="RFC9331" format="default" sectionFormat="of" section="4.3">the L4S ECN spec</xref> defines
+            Scalable congestion control in more detail and specifies the
+            requirements that an L4S Scalable congestion control has to comply
+            with.</t>
+          </li>
+          <li>
+            <t>The ECN feedback in some transport protocols is already
+            sufficiently fine-grained for L4S (specifically DCCP <xref target="RFC4340" format="default"/> and QUIC <xref target="RFC9000" format="default"/>). But
+            others either require updates or are in the process of being
+            updated:</t>
+            <ul spacing="normal">
+              <li>For the case of TCP, the feedback protocol for ECN embeds
+                the assumption from Classic ECN <xref target="RFC3168" format="default"/>
+                that an ECN mark is equivalent to a drop, making it unusable
+                for a Scalable TCP. Therefore, the implementation of TCP
+                receivers will have to be upgraded <xref target="RFC7560" format="default"/>. 
+                Work to standardize and implement more
+                accurate ECN feedback for TCP (AccECN) is in
+                progress <xref target="I-D.ietf-tcpm-accurate-ecn" format="default"/>
+                <xref target="PragueLinux" format="default"/>.</li>
+              <li>ECN feedback was only roughly sketched in the appendix of
+                the now obsoleted second specification of SCTP <xref target="RFC4960" format="default"/>, while a fuller specification was proposed
+                in a long-expired document <xref target="I-D.stewart-tsvwg-sctpecn" format="default"/>. A new design would need
+                to be implemented and deployed before SCTP could support
+                L4S.</li>
+              <li>For RTP, sufficient ECN feedback was defined in <xref target="RFC6679" format="default"/>, but <xref target="RFC8888" format="default"/> defines the
+                latest Standards Track improvements.</li>
+            </ul>
+          </li>
+        </ol>
+      </section>
+    </section>
+    <section anchor="l4sps_rationale" numbered="true" toc="default">
+      <name>Rationale</name>
+      <section anchor="l4sps_why_primary_components" numbered="true" toc="default">
+        <name>Why These Primary Components?</name>
+        <dl newline="false" spacing="normal">
+          <dt>Explicit congestion signalling (protocol):</dt>
+          <dd>
+            <t>Explicit
+            congestion signalling is a key part of the L4S approach. In
+            contrast, use of drop as a congestion signal creates tension
+            because drop is both an impairment (less would be better) and a
+            useful signal (more would be better):</t>
+            <ul spacing="normal">
+              <li>Explicit congestion signals can be used many times per
+                round trip to keep tight control without any impairment.
+                Under heavy load, even more explicit signals can be applied
+                so that the queue can be kept short whatever the load. In
+                contrast, Classic AQMs have to introduce very high packet drop
+                at high load to keep the queue short. By using ECN, an L4S
+                congestion control's sawtooth reduction can be smaller and
+                therefore return to the operating point more often, without
+                worrying that more sawteeth will cause more signals. The
+                consequent smaller amplitude sawteeth fit between an empty
+                queue and a very shallow marking threshold (~1 ms in the
+                public Internet), so queue delay variation can be very low,
+                without risk of underutilization.</li>
+              <li>Explicit congestion signals can be emitted immediately to
+                track fluctuations of the queue. L4S shifts smoothing from the
+                network to the host. The network doesn't know the round-trip
+                times (RTTs) of any of the flows. So if the network is responsible
+                for smoothing (as in the Classic approach), it has to assume a
+                worst case RTT, otherwise long RTT flows would become
+                unstable. This delays Classic congestion signals by 100-200
+                ms. In contrast, each host knows its own RTT. So,
+                in the L4S approach, the host can smooth each flow over its
+                own RTT, introducing no more smoothing delay than strictly
+                necessary (usually only a few milliseconds). A host can also
+                choose not to introduce any smoothing delay if appropriate,
+                e.g., during flow start-up.</li>
+            </ul>
+            <t>Neither of the above are feasible if explicit congestion
+            signalling has to be considered 'equivalent to drop' (as was
+            required with Classic ECN <xref target="RFC3168" format="default"/>), because
+            drop is an impairment as well as a signal. So drop cannot be
+            excessively frequent, and drop cannot be immediate; otherwise, too
+            many drops would turn out to have been due to only a transient
+            fluctuation in the queue that would not have warranted dropping a
+            packet in hindsight. Therefore, in an L4S AQM, the L4S queue uses
+            a new L4S variant of ECN that is not equivalent to drop (see
+            <xref target="RFC9331" format="default" sectionFormat="of" section="5.2">the L4S ECN spec</xref>), while the Classic queue
+            uses either Classic ECN <xref target="RFC3168" format="default"/> or drop,
+            which are still equivalent to each other.</t>
+            <t>Before
+            Classic ECN was standardized, there were various proposals to give
+            an ECN mark a different meaning from drop. However, there was no
+            particular reason to agree on any one of the alternative meanings,
+            so 'equivalent to drop' was the only compromise that could be
+            reached. <xref target="RFC3168" format="default"/> contains a statement that:</t>
+                <ul empty="true">
+		<li><t indent="1">An environment where all end nodes were
+		ECN-Capable could allow new criteria to be developed for
+		setting the CE codepoint, and new congestion control
+		mechanisms for end-node reaction to CE packets. However, this
+		is a research issue, and as such is not addressed in this
+		document.</t></li></ul>
+          </dd>
+          <dt>Latency isolation (network):</dt>
+          <dd>L4S congestion controls
+            keep queue delay low, whereas Classic congestion controls need a
+            queue of the order of the RTT to avoid underutilization. One
+            queue cannot have two lengths; therefore, L4S traffic needs to be
+            isolated in a separate queue (e.g., DualQ) or queues
+            (e.g., FQ).</dd>
+          <dt>Coupled congestion notification:</dt>
+          <dd>Coupling the
+            congestion notification between two queues as in the DualQ Coupled
+            AQM is not necessarily essential, but it is a simple way to allow
+            senders to determine their rate packet by packet, rather than be
+            overridden by a network scheduler. An alternative is for a network
+            scheduler to control the rate of each application flow (see the
+            discussion in <xref target="l4sps_why-not" format="default"/>).</dd>
+          <dt>L4S packet identifier (protocol):</dt>
+          <dd>Once there are at
+            least two treatments in the network, hosts need an identifier at
+            the IP layer to distinguish which treatment they intend to
+            use.</dd>
+          <dt>Scalable congestion notification:</dt>
+          <dd>A Scalable
+            congestion control in the host keeps the signalling frequency from
+            the network high, whatever the flow rate, so that queue delay
+            variations can be small when conditions are stable, and rate can
+            track variations in available capacity as rapidly as possible
+            otherwise.</dd>
+          <dt>Low loss:</dt>
+          <dd>Latency is not the only concern of L4S.
+            The 'Low Loss' part of the name denotes that L4S generally
+            achieves zero congestion loss due to its use of ECN. Otherwise,
+            loss would itself cause delay, particularly for short flows, due
+            to retransmission delay <xref target="RFC2884" format="default"/>.</dd>
+          <dt>Scalable throughput:</dt>
+          <dd>
+            <t>The 'Scalable throughput' part
+            of the name denotes that the per-flow throughput of Scalable
+            congestion controls should scale indefinitely, avoiding the
+            imminent scaling problems with Reno-friendly congestion control
+            algorithms <xref target="RFC3649" format="default"/>. It was known when TCP
+            congestion avoidance was first developed in 1988 that it would not
+            scale to high bandwidth-delay products (see footnote 6 in <xref target="TCP-CA" format="default"/>). Today, regular broadband flow rates over WAN
+            distances are already beyond the scaling range of Classic Reno
+            congestion control. So 'less unscalable' CUBIC <xref target="RFC8312" format="default"/> and Compound <xref target="I-D.sridharan-tcpm-ctcp" format="default"/> variants of TCP have been
+            successfully deployed. However, these are now approaching their
+            scaling limits. </t>
+            <t>For instance, we will
+            consider a scenario with a maximum RTT of 30 ms at the peak
+            of each sawtooth. As Reno packet rate scales 8 times from 1,250 to
+            10,000 packet/s (from 15 to 120 Mb/s with 1500 B
+            packets), the time to recover from a congestion event rises
+            proportionately by 8 times as well, from 422 ms to 3.38 s. It
+            is clearly problematic for a congestion control to take multiple
+            seconds to recover from each congestion event. CUBIC <xref target="RFC8312" format="default"/> was developed to be less unscalable, but it is
+            approaching its scaling limit; with the same max RTT of
+            30 ms, at 120 Mb/s, CUBIC is still fully in its
+            Reno-friendly mode, so it takes about 4.3 s to recover.
+            However, once flow rate scales by 8 times again to 960 Mb/s it
+            enters true CUBIC mode, with a recovery time of 12.2 s. From
+            then on, each further scaling by 8 times doubles CUBIC's recovery time
+            (because the cube root of 8 is 2), e.g., at 7.68 Gb/s, the
+            recovery time is 24.3 s. In contrast, a Scalable congestion
+            control like DCTCP or Prague induces 2 congestion signals per
+            round trip on average, which remains invariant for any flow rate,
+            keeping dynamic control very tight.</t>
+            <t>For a
+            feel of where the global average lone-flow download sits on this
+            scale at the time of writing (2021), according to <xref target="BDPdata" format="default"/>, the global average fixed access capacity was 103
+            Mb/s in 2020 and the average base RTT to a CDN was 25 to 34 ms in 2019.
+            Averaging of per-country data was weighted by Internet user
+            population (data collected globally is necessarily of variable
+            quality, but the paper does double-check that the outcome compares
+            well against a second source). So a lone CUBIC flow would at best
+            take about 200 round trips (5 s) to recover from each of its
+            sawtooth reductions, if the flow even lasted that long. This is
+            described as 'at best' because it assumes everyone uses an AQM,
+            whereas in reality, most users still have a (probably bloated)
+            tail-drop buffer. 
+            In the tail-drop case, the likely average recovery
+            time would be at least 4 times 5 s, if not more, because RTT under load
+            would be at least double that of an AQM, and the recovery time of Reno-friendly flows depends
+            on the square of RTT.</t>
+            <t>Although work on
+            scaling congestion controls tends to start with TCP as the
+            transport, the above is not intended to exclude other transports
+            (e.g., SCTP and QUIC) or less elastic algorithms
+            (e.g., RMCAT), which all tend to adopt the same or similar
+            developments.</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="l4sps_why-not" numbered="true" toc="default">
+        <name>What L4S Adds to Existing Approaches</name>
+        <t>All the following approaches address some part of the same problem
+        space as L4S. In each case, it is shown that L4S complements them or
+        improves on them, rather than being a mutually exclusive
+        alternative:</t>
+        <dl newline="false" spacing="normal">
+          <dt>Diffserv:</dt>
+          <dd>
+            <t>Diffserv addresses the problem of
+            bandwidth apportionment for important traffic as well as queuing
+            latency for delay-sensitive traffic. Of these, L4S solely
+            addresses the problem of queuing latency. Diffserv will still be
+            necessary where important traffic requires priority (e.g., for
+            commercial reasons or for protection of critical infrastructure
+            traffic) -- see <xref target="I-D.briscoe-tsvwg-l4s-diffserv" format="default"/>.
+            Nonetheless, the L4S approach can provide low latency for all
+            traffic within each Diffserv class (including the case where there
+            is only the one default Diffserv class).</t>
+            <t>Also, Diffserv can only provide a latency benefit
+            if a small subset of the traffic on a bottleneck link requests low
+            latency. As already explained, it has no effect when all the
+            applications in use at one time at a single site (e.g., a home, small
+            business, or mobile device) require low latency. In contrast,
+            because L4S works for all traffic, it needs none of the management
+            baggage (traffic policing or traffic contracts) associated with
+            favouring some packets over others. This lack of management
+            baggage ought to give L4S a better chance of end-to-end
+            deployment.</t>
+            
+            <t>In particular, if networks do not trust end systems to identify which 
+            packets should be favoured, they assign packets to Diffserv classes 
+            themselves. However, the techniques available to such networks, like 
+            inspection of flow identifiers or deeper inspection of application 
+            signatures, do not always sit well with encryption of the layers above 
+            IP <xref target="RFC8404" format="default"/>. In these cases, users 
+            can have either privacy or Quality of Service (QoS), but not both.</t>
+            <t>As with Diffserv,
+            the L4S identifier is in the IP header. But, in contrast to
+            Diffserv, the L4S identifier does not convey a want or a need for
+            a certain level of quality. Rather, it promises a certain
+            behaviour (Scalable congestion response), which networks can
+            objectively verify if they need to. This is because low delay
+            depends on collective host behaviour, whereas bandwidth priority
+            depends on network behaviour.</t>
+          </dd>
+          <dt>State-of-the-art AQMs:</dt>
+          <dd>AQMs for Classic traffic, such as PIE and FQ-CoDel,
+            give a significant reduction in queuing delay relative to no AQM
+            at all. L4S is intended to complement these AQMs and should not
+            distract from the need to deploy them as widely as possible.
+            Nonetheless, AQMs alone cannot reduce queuing delay too far
+            without significantly reducing link utilization, because the root
+            cause of the problem is on the host -- where Classic congestion
+            controls use large sawtoothing rate variations. The L4S approach
+            resolves this tension between delay and utilization by enabling
+            hosts to minimize the amplitude of their sawteeth. A single-queue
+            Classic AQM is not sufficient to allow hosts to use small sawteeth
+            for two reasons: i) smaller sawteeth would not get lower delay in
+            an AQM designed for larger amplitude Classic sawteeth, because a
+            queue can only have one length at a time and ii) much smaller
+            sawteeth implies much more frequent sawteeth, so L4S flows would
+            drive a Classic AQM into a high level of ECN-marking, which would
+            appear as heavy congestion to Classic flows, which in turn would
+            greatly reduce their rate as a result (see <xref target="l4sarch_sec_classic-ecn-neck" format="default"/>).</dd>
+          <dt>Per-flow queuing or marking:</dt>
+          <dd>
+            <t>Similarly, per-flow
+            approaches, such as FQ-CoDel or Approx Fair CoDel <xref target="AFCD" format="default"/>, are not incompatible with the L4S approach.
+            However, per-flow queuing alone is not enough -- it only isolates
+            the queuing of one flow from others, not from itself. Per-flow
+            implementations need to have support for Scalable congestion
+            control added, which has already been done for FQ-CoDel in Linux
+            (see <xref target="RFC8290" sectionFormat="of" section="5.2.7"/> and <xref target="FQ_CoDel_Thresh" format="default"/>). Without this simple modification,
+            per-flow AQMs, like FQ-CoDel, would still not be able to support
+            applications that need both very low delay and high bandwidth,
+            e.g., video-based control of remote procedures or interactive
+            cloud-based video (see Note <xref format="counter" target="l4sarch_note_app_shuffle"/> below).</t>
+            <t>Although per-flow techniques are not incompatible
+            with L4S, it is important to have the DualQ alternative. This is
+            because handling end-to-end (layer 4) flows in the network (layer
+            3 or 2) precludes some important end-to-end functions. For
+            instance:</t>
+            <ol spacing="normal" type="a"><li>
+                <t>Per-flow forms of L4S, like FQ-CoDel, are incompatible with
+                full end-to-end encryption of transport layer identifiers for
+                privacy and confidentiality (e.g., IPsec or encrypted VPN
+                tunnels, as opposed to DTLS over UDP), because they require
+                packet inspection to access the end-to-end transport flow
+                identifiers. </t>
+                <t>In contrast, the DualQ
+                form of L4S requires no deeper inspection than the IP layer.
+                So as long as operators take the DualQ approach, their users
+                can have both very low queuing delay and full end-to-end
+                encryption <xref target="RFC8404" format="default"/>.</t>
+              </li>
+              <li>
+                <t>With per-flow forms of L4S, the network takes over control of
+                the relative rates of each application flow. Some see it as
+                an advantage that the network will prevent some flows running
+                faster than others. Others consider it an inherent part of the
+                Internet's appeal that applications can control their rate
+                while taking account of the needs of others via congestion
+                signals.
+                They maintain that this has allowed applications with
+                interesting rate behaviours to evolve, for instance: i) a variable
+                bit-rate video that varies around an equal share, rather than
+                being forced to remain equal at every instant or ii) end-to-end
+                scavenger behaviours <xref target="RFC6817" format="default"/> that use
+                less than an equal share of capacity <xref target="LEDBAT_AQM" format="default"/>.</t>
+                <t>The L4S
+                architecture does not require the IETF to commit to one
+                approach over the other, because it supports both so that the
+                'market' can decide. Nonetheless, in the spirit of 'Do one
+                thing and do it well' <xref target="McIlroy78" format="default"/>, the
+                DualQ option provides low delay without prejudging the issue
+                of flow-rate control. Then, flow rate policing can be added
+                separately if desired. In contrast to scheduling, a policer would allow application control up to a
+                point, but the network would still be able to set the point at
+                which it intervened to prevent one flow completely starving
+                another.</t>
+              </li>
+            </ol>
+            <t>Note: </t>
+            <ol spacing="normal" type="1">
+	      <li anchor="l4sarch_note_app_shuffle">It might seem that
+                self-inflicted queuing delay within a per-flow queue should
+                not be counted, because if the delay wasn't in the network, it
+                would just shift to the sender. However, modern adaptive
+                applications, e.g., HTTP/2 <xref target="RFC9113" format="default"/>
+                or some interactive media applications (see <xref target="l4sarch_apps" format="default"/>), can keep low latency objects at the
+                front of their local send queue by shuffling priorities of
+                other objects dependent on the progress of other transfers
+                (for example, see <xref target="lowat" format="default"/>). They cannot shuffle
+                objects once they have released them into the network.</li>
+            </ol>
+          </dd>
+          <dt>Alternative Back-off ECN (ABE):</dt>
+          <dd>Here again, L4S is
+            not an alternative to ABE but a complement that introduces much
+            lower queuing delay. ABE <xref target="RFC8511" format="default"/> alters the
+            host behaviour in response to ECN marking to utilize a link better
+            and give ECN flows faster throughput. It uses ECT(0) and assumes
+            the network still treats ECN and drop the same. Therefore, ABE
+            exploits any lower queuing delay that AQMs can provide. But, as
+            explained above, AQMs still cannot reduce queuing delay too much
+            without losing link utilization (to allow for other, non-ABE,
+            flows).</dd>
+          <dt>BBR:</dt>
+          <dd>
+            <t>Bottleneck Bandwidth and Round-trip propagation
+            time (BBR) <xref target="I-D.cardwell-iccrg-bbr-congestion-control" format="default"/> controls
+            queuing delay end-to-end without needing any special logic in the
+            network, such as an AQM. So it works pretty much on any path. BBR
+            keeps queuing delay reasonably low, but perhaps not quite as low
+            as with state-of-the-art AQMs, such as PIE or FQ-CoDel, and
+            certainly nowhere near as low as with L4S. Queuing delay is also
+            not consistently low, due to BBR's regular bandwidth probing
+            spikes and its aggressive flow start-up phase.</t>
+            <t>L4S complements BBR. Indeed, BBRv2 can use L4S ECN
+            where available and a Scalable L4S congestion control behaviour in
+            response to any ECN signalling from the path <xref target="BBRv2" format="default"/>. The L4S ECN signal complements the delay-based
+            congestion control aspects of BBR with an explicit indication that
+            hosts can use, both to converge on a fair rate and to keep below a
+            shallow queue target set by the network. Without L4S ECN, both
+            these aspects need to be assumed or estimated.</t>
+          </dd>
+        </dl>
+      </section>
+    </section>
+    <section anchor="l4sarch_applicability" numbered="true" toc="default">
+      <name>Applicability</name>
+      <section anchor="l4sarch_apps" numbered="true" toc="default">
+        <name>Applications</name>
+        <t>A transport layer that solves the current latency issues will
+        provide new service, product, and application opportunities.</t>
+        <t>With the L4S approach, the following existing applications also
+        experience significantly better quality of experience under load:
+        </t>
+        <ul spacing="normal">
+          <li>gaming, including cloud-based gaming;</li>
+          <li>VoIP;</li>
+          <li>video conferencing;</li>
+          <li>web browsing;</li>
+          <li>(adaptive) video streaming; and</li>
+          <li>instant messaging.</li>
+        </ul>
+        <t>The significantly lower queuing latency also enables some
+        interactive application functions to be offloaded to the cloud that
+        would hardly even be usable today, including:</t>
+        <ul spacing="normal">
+          <li>cloud-based interactive video and</li>
+          <li>cloud-based virtual and augmented reality.</li>
+        </ul>
+        <t>The above two applications have been successfully demonstrated with
+        L4S, both running together over a 40 Mb/s broadband access link
+        loaded up with the numerous other latency-sensitive applications in
+        the previous list, as well as numerous downloads, with all sharing the same
+        bottleneck queue simultaneously <xref target="L4Sdemo16" format="default"/> <xref target="L4Sdemo16-Video" format="default"/>. For
+        the former, a panoramic video of a football stadium could be swiped
+        and pinched so that, on the fly, a proxy in the cloud could generate a
+        sub-window of the match video under the finger-gesture control of each
+        user. For the latter, a virtual reality headset displayed a viewport
+        taken from a 360-degree camera in a racing car. The user's head
+        movements controlled the viewport extracted by a cloud-based proxy. In
+        both cases, with a 7 ms end-to-end base delay, the additional
+        queuing delay of roughly 1 ms was so low that it seemed the video
+        was generated locally. </t>
+        <t>Using a swiping finger gesture or head movement to pan a video are
+        extremely latency-demanding actions -- far more demanding than
+        VoIP -- because human vision can detect extremely low delays of the
+        order of single milliseconds when delay is translated into a visual
+        lag between a video and a reference point (the finger or the
+        orientation of the head sensed by the balance system in the inner ear,
+        i.e., the vestibular system). With an alternative AQM, the video
+        noticeably lagged behind the finger gestures and head movements.</t>
+        <t>Without the low queuing delay of L4S, cloud-based applications like
+        these would not be credible without significantly more access-network bandwidth 
+        (to deliver all possible areas of the video that might be viewed) and
+        more local processing, which would increase the weight and power
+        consumption of head-mounted displays. When all interactive processing
+        can be done in the cloud, only the data to be rendered for the end
+        user needs to be sent.</t>
+        <t>Other low latency high bandwidth applications, such as:</t>
+        <ul spacing="normal">
+          <li>interactive remote presence and</li>
+          <li>video-assisted remote control of machinery or industrial
+            processes</li>
+        </ul>
+        <t>are not credible at all without very low queuing delay. No
+        amount of extra access bandwidth or local processing can make up for
+        lost time.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Use Cases</name>
+        <t>The following use cases for L4S are being considered by various
+        interested parties:</t>
+        <ul spacing="normal">
+          <li>where the bottleneck is one of various types of access network,
+            e.g., DSL, Passive Optical Networks (PONs), DOCSIS cable,
+            mobile, satellite; or where it's a Wi-Fi link (see <xref target="l4sarch_link-specifics" format="default"/> for
+            some technology-specific details)</li>
+          <li>
+            <t>private networks of heterogeneous data centres, where there is
+            no single administrator that can arrange for all the simultaneous
+            changes to senders, receivers, and networks needed to deploy
+            DCTCP:</t>
+            <ul spacing="normal">
+              <li>a set of private data centres interconnected over a wide
+                area with separate administrations but within the same
+                company</li>
+              <li>a set of data centres operated by separate companies
+                interconnected by a community of interest network
+                (e.g., for the finance sector)</li>
+              <li>multi-tenant (cloud) data centres where tenants choose
+                their operating system stack (Infrastructure as a Service
+                (IaaS))</li>
+            </ul>
+          </li>
+          <li>
+            <t>different types of transport (or application) congestion
+            control:</t>
+            <ul spacing="normal">
+              <li>elastic (TCP/SCTP);</li>
+              <li>real-time (RTP, RMCAT); and</li>
+              <li>query-response (DNS/LDAP).</li>
+            </ul>
+          </li>
+          <li>
+            <t>where low delay QoS is required but without
+            inspecting or intervening above the IP layer <xref target="RFC8404" format="default"/>:</t>
+            <ul spacing="normal">
+              <li>Mobile and other networks have tended to inspect higher
+                layers in order to guess application QoS requirements.
+                However, with growing demand for support of privacy and
+                encryption, L4S offers an alternative. There is no need to
+                select which traffic to favour for queuing when L4S can give
+                favourable queuing to all traffic.</li>
+            </ul>
+          </li>
+          <li>If queuing delay is minimized, applications with a fixed delay
+            budget can communicate over longer distances or via more circuitous paths, e.g., longer
+            chains of service functions <xref target="RFC7665" format="default"/> or of onion
+            routers.</li>
+          <li>If delay jitter is minimized, it is possible to reduce the
+            dejitter buffers on the receiving end of video streaming, which
+            should improve the interactive experience.</li>
+        </ul>
+      </section>
+      <section anchor="l4sarch_link-specifics" numbered="true" toc="default">
+        <name>Applicability with Specific Link Technologies</name>
+        <t>Certain link technologies aggregate data from multiple packets into
+        bursts and buffer incoming packets while building each burst. Wi-Fi,
+        PON, and cable all involve such packet aggregation, whereas fixed
+        Ethernet and DSL do not. No sender, whether L4S or not, can do
+        anything to reduce the buffering needed for packet aggregation. So an
+        AQM should not count this buffering as part of the queue that it
+        controls, given no amount of congestion signals will reduce it.</t>
+        <t>Certain link technologies also add buffering for other reasons,
+        specifically:</t>
+        <ul spacing="normal">
+          <li>Radio links (cellular, Wi-Fi, or satellite) that are distant from
+            the source are particularly challenging. The radio link capacity
+            can vary rapidly by orders of magnitude, so it is considered
+            desirable to hold a standing queue that can utilize sudden
+            increases of capacity.</li>
+          <li>Cellular networks are further complicated by a perceived need
+            to buffer in order to make hand-overs imperceptible.</li>
+        </ul>
+        <t>L4S cannot remove the need for all these different forms of
+        buffering. However, by removing 'the longest pole in the tent'
+        (buffering for the large sawteeth of Classic congestion controls), L4S
+        exposes all these 'shorter poles' to greater scrutiny.</t>
+        <t>Until now, the buffering needed for these additional reasons tended
+        to be over-specified -- with the excuse that none were 'the longest
+        pole in the tent'. But having removed the 'longest pole', it becomes
+        worthwhile to minimize them, for instance, reducing packet aggregation
+        burst sizes and MAC scheduling intervals.</t>
+        <t>Also, certain link types, particularly radio-based links, are far
+        more prone to transmission losses. <xref target="l4sarch_sec_non-l4s-neck" format="default"/> explains how an L4S response to
+        loss has to be as drastic as a Classic response. Nonetheless, research
+        referred to in the same section has demonstrated potential for
+        considerably more effective loss repair at the link layer, due to the
+        relaxed ordering constraints of L4S packets.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Deployment Considerations</name>
+        <t>L4S AQMs, whether DualQ <xref target="RFC9332" format="default"/> or FQ <xref target="RFC8290" format="default"/>, are in themselves an incremental deployment
+        mechanism for L4S -- so that L4S traffic can coexist with existing
+        Classic (Reno-friendly) traffic. <xref target="l4sarch_deploy_top" format="default"/>
+        explains why only deploying an L4S AQM in one node at each end of the
+        access link will realize nearly all the benefit of L4S.</t>
+        <t>L4S involves both the network and end systems, so <xref target="l4s_arch_deploy_seq" format="default"/> suggests some typical sequences to
+        deploy each part and why there will be an immediate and significant
+        benefit after deploying just one part.</t>
+        <t>Sections <xref target="l4sarch_sec_non-l4s-neck" format="counter"/> and <xref target="l4sarch_sec_classic-ecn-neck" format="counter"/> describe the converse
+        incremental deployment case where there is no L4S AQM at the network
+        bottleneck, so any L4S flow traversing this bottleneck has to take
+        care in case it is competing with Classic traffic.</t>
+        <section anchor="l4sarch_deploy_top" numbered="true" toc="default">
+          <name>Deployment Topology</name>
+          <t>L4S AQMs will not have to be deployed throughout the Internet
+          before L4S can benefit anyone. Operators of public Internet access
+          networks typically design their networks so that the bottleneck will
+          nearly always occur at one known (logical) link. This confines the
+          cost of queue management technology to one place.</t>
+          <t>The case of mesh networks is different and will be discussed
+          later in this section. 
+          However, the known-bottleneck case is generally
+          true for Internet access to all sorts of different 'sites', where
+          the word 'site' includes home networks, small- to medium-sized
+          campus or enterprise networks and even cellular devices (<xref
+	  target="l4sarch_fig_access_topology" format="default"/>).
+	  Also, this known-bottleneck
+          case tends to be applicable whatever the access link technology,
+          whether xDSL, cable, PON, cellular, line of sight wireless, or
+          satellite.</t>
+          <t>Therefore, the full benefit of the L4S service should be
+          available in the downstream direction when an L4S AQM is deployed at
+          the ingress to this bottleneck link. And similarly, the full
+          upstream service will typically be available once an L4S AQM is deployed at
+          the ingress into the upstream link. (Of course, multihomed sites
+          would only see the full benefit once all their access links were
+          covered.)</t>
+          <figure anchor="l4sarch_fig_access_topology">
+            <name>Likely Location of DualQ (DQ) Deployments in Common Access Topologies</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+                                         ______
+                                        (      )
+                      __          __  (          )
+                     |DQ\________/DQ|( enterprise )
+                 ___ |__/        \__| ( /campus  )
+                (   )                   (______)
+              (      )                           ___||_
++----+      (          )  __                 __ /      \
+| DC |-----(    Core    )|DQ\_______________/DQ|| home |
++----+      (          ) |__/               \__||______|
+               (_____) __       
+                      |DQ\__/\        __ ,===.
+                      |__/    \  ____/DQ||| ||mobile
+                               \/    \__|||_||device
+                                         | o |
+                                         `---'
+
+]]></artwork>
+          </figure>
+          <t>Deployment in mesh topologies depends on how overbooked the core
+          is. If the core is non-blocking, or at least generously provisioned
+          so that the edges are nearly always the bottlenecks, it would only
+          be necessary to deploy an L4S AQM at the edge bottlenecks.
+	  For
+          example, some data-centre networks are designed with the bottleneck
+          in the hypervisor or host Network Interface Controllers (NICs), while others
+	  bottleneck at the
+          top-of-rack switch (both the output ports facing hosts and those
+          facing the core).</t>
+          <t>An L4S AQM would often next be needed where the Wi-Fi links in a
+          home sometimes become the bottleneck. Also an L4S AQM would
+          eventually need to be deployed at any other persistent
+          bottlenecks, such as network interconnections, e.g., some public
+          Internet exchange points and the ingress and egress to WAN links
+          interconnecting data centres.</t>
+        </section>
+        <section anchor="l4s_arch_deploy_seq" numbered="true" toc="default">
+          <name>Deployment Sequences</name>
+          <t>For any one L4S flow to provide benefit, it requires three (or
+          sometimes two) parts to have been deployed: i) the congestion
+          control at the sender; ii) the AQM at the bottleneck; and iii) older
+          transports (namely TCP) need upgraded receiver feedback too. This
+          was the same deployment problem that ECN faced <xref target="RFC8170" format="default"/>, so we have learned from that experience.</t>
+          <t>Firstly, L4S deployment exploits the fact that DCTCP already
+          exists on many Internet hosts (e.g., Windows, FreeBSD, and Linux), both
+          servers and clients. Therefore, an L4S AQM can be deployed at a
+          network bottleneck to immediately give a working deployment of all
+          the L4S parts for testing, as long as the ECT(0) codepoint is
+          switched to ECT(1). DCTCP needs some safety concerns to be fixed for
+          general use over the public Internet (see <xref target="RFC9331" format="default" sectionFormat="of" section="4.3">the L4S ECN spec</xref>), but DCTCP is
+          not on by default, so these issues can be managed within controlled
+          deployments or controlled trials.</t>
+          <t>Secondly, the performance improvement with L4S is so significant
+          that it enables new interactive services and products that were not
+          previously possible. It is much easier for companies to initiate new
+          work on deployment if there is budget for a new product trial.
+          In contrast, if there were only an incremental performance improvement
+          (as with Classic ECN), spending on deployment tends to be much
+          harder to justify.</t>
+          <t>Thirdly, the L4S identifier is defined so that network
+          operators can initially enable L4S exclusively for certain customers or
+          certain applications. However, this is carefully defined so that it does
+          not compromise future evolution towards L4S as an Internet-wide
+          service. This is because the L4S identifier is defined not only as
+          the end-to-end ECN field, but it can also optionally be combined
+          with any other packet header or some status of a customer or their
+          access link (see <xref target="RFC9331" format="default" sectionFormat="of" section="5.4"/>). Operators could do this
+          anyway, even if it were not blessed by the IETF. However, it is best
+          for the IETF to specify that, if they use their own local
+          identifier, it must be in combination with the IETF's identifier, ECT(1).
+          Then, if an operator has opted for an exclusive local-use approach,
+          they only have to remove this extra rule later to make the service
+          work across the Internet -- it will already traverse middleboxes, peerings,
+          etc.
+          </t>
+          <figure anchor="l4s_arch_fig_deploy_seq">
+            <name>Example L4S Deployment Sequence</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
++-+--------------------+----------------------+---------------------+
+| | Servers or proxies |      Access link     |             Clients |
++-+--------------------+----------------------+---------------------+
+|0| DCTCP (existing)   |                      |    DCTCP (existing) |
++-+--------------------+----------------------+---------------------+
+|1|                    |Add L4S AQM downstream|                     |
+| |       WORKS DOWNSTREAM FOR CONTROLLED DEPLOYMENTS/TRIALS        |
++-+--------------------+----------------------+---------------------+
+|2| Upgrade DCTCP to   |                      |Replace DCTCP feedb'k|
+| | TCP Prague         |                      |         with AccECN |
+| |                 FULLY     WORKS     DOWNSTREAM                  |
++-+--------------------+----------------------+---------------------+
+| |                    |                      |    Upgrade DCTCP to |
+|3|                    | Add L4S AQM upstream |          TCP Prague |
+| |                    |                      |                     |
+| |              FULLY WORKS UPSTREAM AND DOWNSTREAM                |
++-+--------------------+----------------------+---------------------+
+
+]]></artwork>
+          </figure>
+          <t><xref target="l4s_arch_fig_deploy_seq" format="default"/> illustrates some example
+          sequences in which the parts of L4S might be deployed. It consists
+          of the following stages, preceded by a presumption that DCTCP is
+          already installed at both ends:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>DCTCP is not applicable for use over the public Internet, so
+              it is emphasized here that any DCTCP flow has to be completely
+              contained within a controlled trial environment. </t>
+              <t>Within this trial environment, once an L4S AQM
+              has been deployed, the trial DCTCP flow will experience
+              immediate benefit, without any other deployment being needed. In
+              this example, downstream deployment is first, but in other
+              scenarios, the upstream might be deployed first. If no AQM at all
+              was previously deployed for the downstream access, an L4S AQM
+              greatly improves the Classic service (as well as adding the L4S
+              service). If an AQM was already deployed, the Classic service
+              will be unchanged (and L4S will add an improvement on top).</t>
+            </li>
+            <li>
+              <t>In this stage, the name 'TCP Prague' <xref target="I-D.briscoe-iccrg-prague-congestion-control" format="default"/> is used
+              to represent a variant of DCTCP that is designed to be used in a
+              production Internet environment (that is, it has to comply with
+              all the requirements in <xref target="RFC9331" format="default" section="4" sectionFormat="of">the L4S ECN spec</xref>, which then means it can be
+              used over the public Internet). If the application is primarily
+              unidirectional, 'TCP Prague' at the sending end will provide all 
+              the benefit needed, as long as the receiving end supports Accurate ECN (AccECN) 
+              feedback <xref target="I-D.ietf-tcpm-accurate-ecn" format="default"/>.</t>
+              <t>For TCP transports,
+               AccECN feedback is needed at the other
+              end, but it is a generic ECN feedback facility that is already
+              planned to be deployed for other purposes, e.g., DCTCP and BBR.
+              The two ends can be deployed in either order because, in TCP,
+              an L4S congestion control only enables itself if it has
+              negotiated the use of AccECN feedback with the other end during
+              the connection handshake. Thus, deployment of TCP Prague on a
+              server enables L4S trials to move to a production service in one
+              direction, wherever AccECN is deployed at the other end. This
+              stage might be further motivated by the performance improvements
+              of TCP Prague relative to DCTCP (see  <xref target="RFC9331" format="default" sectionFormat="of" section="A.2">the L4S ECN spec</xref>).</t>
+              <t>Unlike TCP, from the outset, QUIC ECN
+              feedback <xref target="RFC9000" format="default"/> has supported L4S.
+              Therefore, if the transport is QUIC, one-ended deployment of a
+              Prague congestion control at this stage is simple and
+              sufficient.</t>
+              <t>For QUIC, if a proxy sits in
+              the path between multiple origin servers and the access
+              bottlenecks to multiple clients, then upgrading the proxy with a
+              Scalable congestion control would provide the benefits of L4S
+              over all the clients' downstream bottlenecks in one go --
+              whether or not all the origin servers were upgraded. Conversely,
+              where a proxy has not been upgraded, the clients served by it
+              will not benefit from L4S at all in the downstream, even when
+              any origin server behind the proxy has been upgraded to support
+              L4S.</t>
+              <t>For TCP, a proxy upgraded to support
+              'TCP Prague' would provide the benefits of L4S downstream to all
+              clients that support AccECN (whether or not they support L4S as
+              well). And in the upstream, the proxy would also support AccECN
+              as a receiver, so that any client deploying its own L4S support
+              would benefit in the upstream direction, irrespective of whether
+              any origin server beyond the proxy supported AccECN.</t>
+            </li>
+            <li>This is a two-move stage to enable L4S upstream. An L4S AQM
+              or TCP Prague can be deployed in either order as already
+              explained. To motivate the first of two independent moves, the
+              deferred benefit of enabling new services after the second move
+              has to be worth it to cover the first mover's investment risk.
+              As explained already, the potential for new interactive services
+              provides this motivation. An L4S AQM also improves the upstream
+              Classic service significantly if no other AQM has already been
+              deployed.</li>
+          </ol>
+          <t>Note that other deployment sequences might occur. For
+          instance, the upstream might be deployed first; a non-TCP protocol
+          might be used end to end, e.g., QUIC and RTP; a body, such as the
+          3GPP, might require L4S to be implemented in 5G user equipment; or
+          other random acts of kindness might arise.</t>
+        </section>
+        <section anchor="l4sarch_sec_non-l4s-neck" numbered="true" toc="default">
+          <name>L4S Flow but Non-ECN Bottleneck</name>
+          <t>If L4S is enabled between two hosts, the L4S sender is required
+          to coexist safely with Reno in response to any drop (see <xref target="RFC9331" format="default" sectionFormat="of" section="4.3">the L4S ECN spec</xref>).</t>
+          <t>Unfortunately, as well as protecting Classic traffic, this rule
+          degrades the L4S service whenever there is any loss, even if the
+          cause is not persistent congestion at a bottleneck, for example:</t>
+          <ul spacing="normal">
+            <li>congestion loss at other transient bottlenecks, e.g., due
+              to bursts in shallower queues;</li>
+            <li>transmission errors, e.g., due to electrical
+              interference; and</li>
+            <li>rate policing.</li>
+          </ul>
+          <t>Three complementary approaches are in progress to address this
+          issue, but they are all currently research:</t>
+          <ul spacing="normal">
+            <li>In Prague congestion control, ignore certain losses deemed
+              unlikely to be due to congestion (using some ideas from
+              BBR <xref target="I-D.cardwell-iccrg-bbr-congestion-control" format="default"/> regarding
+              isolated losses). This could mask any of the above types of loss
+              while still coexisting with drop-based congestion controls.</li>
+            <li>A combination of Recent Acknowledgement (RACK) <xref target="RFC8985" format="default"/>, L4S, and link retransmission without
+              resequencing could repair transmission errors without the head
+              of line blocking delay usually associated with link-layer
+              retransmission <xref target="UnorderedLTE" format="default"/> <xref target="RFC9331" format="default"/>.</li>
+            <li>Hybrid ECN/drop rate policers (see <xref target="l4s_arch_sec_policing" format="default"/>).</li>
+          </ul>
+          <t>L4S deployment scenarios that minimize these issues
+          (e.g., over wireline networks) can proceed in parallel to this
+          research, in the expectation that research success could continually
+          widen L4S applicability.</t>
+        </section>
+        <section anchor="l4sarch_sec_classic-ecn-neck" numbered="true" toc="default">
+          <name>L4S Flow but Classic ECN Bottleneck</name>
+          <t>Classic ECN support is starting to materialize on the Internet as
+          an increased level of CE marking. It is hard to detect whether this
+          is all due to the addition of support for ECN in implementations of
+          FQ-CoDel and/or FQ-COBALT, which is not generally problematic,
+          because flow queue (FQ) scheduling inherently prevents a flow from
+          exceeding the 'fair' rate irrespective of its aggressiveness.
+          However, some of this Classic ECN marking might be due to
+          single-queue ECN deployment. This case is discussed in
+          <xref target="RFC9331" format="default" sectionFormat="of" section="4.3"> the L4S ECN spec</xref>.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>L4S AQM Deployment within Tunnels</name>
+          <t>An L4S AQM uses the ECN field to signal congestion. So in common
+          with Classic ECN, if the AQM is within a tunnel or at a lower layer,
+          correct functioning of ECN signalling requires standards-compliant propagation
+          of the ECN field up the layers <xref target="RFC6040" format="default"/> <xref target="I-D.ietf-tsvwg-rfc6040update-shim" format="default"/> <xref target="I-D.ietf-tsvwg-ecn-encap-guidelines" format="default"/>.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="l4sps_IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+    <section anchor="l4sps_Security_Considerations" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <section numbered="true" toc="default">
+        <name>Traffic Rate (Non-)Policing</name>
+        <section numbered="true" toc="default">
+          <name>(Non-)Policing Rate per Flow</name>
+          <t>In the current Internet, ISPs usually enforce separation between
+          the capacity of shared links assigned to different 'sites'
+          (e.g., households, businesses, or mobile users -- see terminology
+          in <xref target="l4sps_Terminology" format="default"/>) using some form of
+          scheduler <xref target="RFC0970" format="default"/>. And they use various
+          techniques, like redirection to traffic scrubbing facilities, to deal
+          with flooding attacks. However, there has never been a universal
+          need to police the rate of individual application flows -- the
+          Internet has generally always relied on self-restraint of congestion
+          controls at senders for sharing intra-'site' capacity.</t>
+          <t>L4S has been designed not to upset this status quo. If a DualQ is
+          used to provide L4S service, <xref target="RFC9332" format="default" sectionFormat="of" section="4.2"/> explains how it is
+          designed to give no more rate advantage to unresponsive flows than a
+          single-queue AQM would, whether or not there is traffic
+          overload.</t>
+          <t>Also, in case per-flow rate policing is ever required, it can be
+          added because it is orthogonal to the distinction between L4S and
+          Classic. As explained in <xref target="l4sps_why-not" format="default"/>, the DualQ
+          variant of L4S provides low delay without prejudging the issue of
+          flow-rate control. So if flow-rate control is needed,
+          per-flow queuing (FQ) with L4S support can be used instead, or flow
+          rate policing can be added as a modular addition to a DualQ.
+          However, per-flow rate control is not usually deployed as a security
+          mechanism, because an active attacker can just shard its traffic
+          over more flow identifiers if the rate of each is restricted.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>(Non-)Policing L4S Service Rate</name>
+          <t><xref target="l4sps_why-not" format="default"/> explains how Diffserv only makes a
+          difference if some packets get less favourable treatment than
+          others, which typically requires traffic rate policing for a low
+          latency class. In contrast, it should not be necessary to
+          rate-police access to the L4S service to protect the Classic
+          service, because L4S is designed to reduce delay without harming the
+          delay or rate of any Classic traffic. </t>
+          <t>During early deployment (and perhaps always), some networks will
+          not offer the L4S service. In general, these networks should not
+          need to police L4S traffic. They are required (by both the ECN
+          spec <xref target="RFC3168" format="default"/> and the L4S ECN spec <xref target="RFC9331" format="default"/>) not to change the L4S
+          identifier, which would interfere with end-to-end congestion
+          control. If they already treat ECN traffic as Not-ECT, they can
+          merely treat L4S traffic as Not-ECT too. At a bottleneck, such
+          networks will introduce some queuing and dropping. When a Scalable
+          congestion control detects a drop, it will have to respond safely
+          with respect to Classic congestion controls (as required in 
+          <xref target="RFC9331" format="default" sectionFormat="of" section="4.3"/>). This will
+          degrade the L4S service to be no better (but never worse) than
+          Classic best efforts whenever a non-ECN bottleneck is encountered
+          on a path (see <xref target="l4sarch_sec_non-l4s-neck" format="default"/>).</t>
+          <t>In cases that are expected to be rare, networks that solely
+          support Classic ECN <xref target="RFC3168" format="default"/> in a single queue
+          bottleneck might opt to police L4S traffic so as to protect
+          competing Classic ECN traffic (for instance, see
+          <xref target="I-D.ietf-tsvwg-l4sops" format="default" sectionFormat="of"
+	  section="6.1.3">the L4S operational guidance</xref>). However, <xref
+       	  target="RFC9331" format="default" sectionFormat="of"
+	  section="4.3"> the L4S ECN spec</xref> recommends
+          that the sender adapts its congestion response to properly coexist
+          with Classic ECN flows, i.e., reverting to the self-restraint
+          approach.</t>
+          <t>Certain network operators might choose to restrict access to the
+          L4S service, perhaps only to selected premium customers as a
+          value-added service. Their packet classifier (item 2 in <xref target="l4sps_fig_components" format="default"/>) could identify such customers
+          against some other field (e.g., source address range), as well as
+          classifying on the ECN field. If only the ECN L4S identifier
+          matched, but not (say) the source address, the classifier could
+          direct these packets (from non-premium customers) into the Classic
+          queue. Explaining clearly how operators can use additional local
+          classifiers (see <xref target="RFC9331" section="5.4" sectionFormat="of"/>) is intended to remove any
+          motivation to clear the L4S identifier. Then at least the L4S ECN
+          identifier will be more likely to survive end to end, even though the
+          service may not be supported at every hop.
+	  Such local arrangements
+          would only require simple registered/not-registered packet
+          classification, rather than the managed, application-specific
+          traffic policing against customer-specific traffic contracts that
+          Diffserv uses.</t>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>'Latency Friendliness'</name>
+        <t>Like the Classic service, the L4S service relies on self-restraint to
+        limit the rate in response to congestion. In addition, the L4S
+        service requires self-restraint in terms of limiting latency
+        (burstiness). It is hoped that self-interest and guidance on dynamic
+        behaviour (especially flow start-up, which might need to be
+        standardized) will be sufficient to prevent transports from sending
+        excessive bursts of L4S traffic, given the application's own latency
+        will suffer most from such behaviour.</t>
+        <t>Because the L4S service can reduce delay without discernibly
+        increasing the delay of any Classic traffic, it should not be
+        necessary to police L4S traffic to protect the delay of Classic traffic.
+        However, whether burst policing becomes necessary to protect other L4S
+        traffic remains to be seen. Without it, there will be potential for
+        attacks on the low latency of the L4S service.</t>
+        <t>If needed, various arrangements could be used to address this
+        concern:</t>
+        <dl newline="false" spacing="normal">
+          <dt>Local bottleneck queue protection:</dt>
+          <dd>A per-flow
+            (5-tuple) queue protection function <xref target="I-D.briscoe-docsis-q-protection" format="default"/> has been developed for
+            the low latency queue in DOCSIS, which has adopted the DualQ L4S
+            architecture. It protects the low latency service from any
+            queue-building flows that accidentally or maliciously classify
+            themselves into the low latency queue. It is designed to score
+            flows based solely on their contribution to queuing (not flow rate
+            in itself). Then, if the shared low latency queue is at risk of
+            exceeding a threshold, the function redirects enough packets of
+            the highest scoring flow(s) into the Classic queue to preserve low
+            latency.</dd>
+          <dt>Distributed traffic scrubbing:</dt>
+          <dd>Rather than policing
+            locally at each bottleneck, it may only be necessary to address
+            problems reactively, e.g., punitively target any deployments
+            of new bursty malware, in a similar way to how traffic from 
+            flooding attack sources is rerouted via scrubbing facilities.</dd>
+          <dt>Local bottleneck per-flow scheduling:</dt>
+          <dd>Per-flow
+            scheduling should inherently isolate non-bursty flows from bursty flows
+            (see <xref target="l4sps_why-not" format="default"/> for discussion of the merits
+            of per-flow scheduling relative to per-flow policing).</dd>
+          <dt>Distributed access subnet queue protection:</dt>
+          <dd>Per-flow
+            queue protection could be arranged for a queue structure
+            distributed across a subnet intercommunicating using lower layer
+            control messages (see Section 2.1.4 of <xref target="QDyn" format="default"/>). For
+            instance, in a radio access network, user equipment already sends
+            regular buffer status reports to a radio network controller, which
+            could use this information to remotely police individual
+            flows.</dd>
+          <dt>Distributed Congestion Exposure to ingress policers:</dt>
+          <dd>The
+            Congestion Exposure (ConEx) architecture <xref target="RFC7713" format="default"/> uses an egress audit to motivate senders to
+            truthfully signal path congestion in-band, where it can be used by
+            ingress policers. An edge-to-edge variant of this architecture is
+            also possible.</dd>
+          <dt>Distributed domain-edge traffic conditioning:</dt>
+          <dd>An
+            architecture similar to Diffserv <xref target="RFC2475" format="default"/> may
+            be preferred, where traffic is proactively conditioned on entry to
+            a domain, rather than reactively policed only if it leads to
+            queuing once combined with other traffic at a bottleneck.</dd>
+            <dt>Distributed core network queue protection:</dt>
+          <dd>The
+            policing function could be divided between per-flow mechanisms at
+            the network ingress that characterize the burstiness of each flow
+            into a signal carried with the traffic and per-class mechanisms
+            at bottlenecks that act on these signals if queuing actually
+            occurs once the traffic converges. This would be somewhat similar
+            to <xref target="Nadas20" format="default"/>, which is in turn similar to the idea
+            behind core stateless fair queuing.</dd>
+        </dl>
+        <t>No single one of these possible queue protection capabilities is
+        considered an essential part of the L4S architecture, which works
+        without any of them under non-attack conditions (much as the Internet
+        normally works without per-flow rate policing). 
+        Indeed, even where
+        latency policers are deployed, under normal circumstances, they would
+        not intervene, and if operators found they were not necessary, they
+        could disable them. Part of the L4S experiment will be to see whether
+        such a function is necessary and which arrangements are most
+        appropriate to the size of the problem.</t>
+      </section>
+      <section anchor="l4s_arch_sec_policing" numbered="true" toc="default">
+        <name>Interaction between Rate Policing and L4S</name>
+        <t>As mentioned in <xref target="l4sps_why-not" format="default"/>, L4S should remove
+        the need for low latency Diffserv classes. However, those Diffserv
+        classes that give certain applications or users priority over
+        capacity would still be applicable in certain scenarios
+        (e.g., corporate networks). Then, within such Diffserv classes,
+        L4S would often be applicable to give traffic low latency and low loss
+        as well. Within such a Diffserv class, the bandwidth available to a
+        user or application is often limited by a rate policer. Similarly, in
+        the default Diffserv class, rate policers are sometimes used to
+        partition shared capacity.</t>
+        <t>A Classic rate policer drops any packets exceeding a set rate,
+        usually also giving a burst allowance (variants exist where the
+        policer re-marks noncompliant traffic to a discard-eligible Diffserv
+        codepoint, so they can be dropped elsewhere during contention).
+        Whenever L4S traffic encounters one of these rate policers, it will
+        experience drops and the source will have to fall back to a Classic
+        congestion control, thus losing the benefits of L4S (<xref target="l4sarch_sec_non-l4s-neck" format="default"/>). So in networks that already use
+        rate policers and plan to deploy L4S, it will be preferable to
+        redesign these rate policers to be more friendly to the L4S
+        service.</t>
+        <t>L4S-friendly rate policing is currently a research area (note that
+        this is not the same as latency policing). It might be achieved by
+        setting a threshold where ECN marking is introduced, such that it is
+        just under the policed rate or just under the burst allowance where
+        drop is introduced. For instance, the two-rate, three-colour
+        marker <xref target="RFC2698" format="default"/> or a PCN threshold and
+        excess-rate marker <xref target="RFC5670" format="default"/> could mark ECN at the
+        lower rate and drop at the higher. Or an existing rate policer could
+        have congestion-rate policing added, e.g., using the 'local'
+        (non-ConEx) variant of the ConEx aggregate congestion
+        policer <xref target="I-D.briscoe-conex-policing" format="default"/>. It might
+        also be possible to design Scalable congestion controls to respond
+        less catastrophically to loss that has not been preceded by a period
+        of increasing delay.</t>
+        <t>The design of L4S-friendly rate policers will require a separate,
+        dedicated document. For further discussion of the interaction between
+        L4S and Diffserv, see <xref target="I-D.briscoe-tsvwg-l4s-diffserv" format="default"/>.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>ECN Integrity</name>
+        <t>Various ways have been developed to protect the integrity of the
+        congestion feedback loop (whether signalled by loss, Classic ECN, or
+        L4S ECN) against misbehaviour by the receiver, sender, or network (or
+        all three). Brief details of each, including applicability, pros, and
+        cons, are given in <xref target="RFC9331" format="default" sectionFormat="of" section="C.1">the L4S ECN spec</xref>.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Privacy Considerations</name>
+        <t>As discussed in <xref target="l4sps_why-not" format="default"/>, the L4S
+        architecture does not preclude approaches that inspect end-to-end
+        transport layer identifiers. For instance, L4S support has been added
+        to FQ-CoDel, which classifies by application flow identifier in the network.
+        However, the main innovation of L4S is the DualQ AQM framework that
+        does not need to inspect any deeper than the outermost IP header,
+        because the L4S identifier is in the IP-ECN field.</t>
+        <t>Thus, the L4S architecture enables very low queuing delay without
+        <em>requiring</em> inspection of information above
+        the IP layer. This means that users who want to encrypt application
+        flow identifiers, e.g., in IPsec or other encrypted VPN tunnels,
+        don't have to sacrifice low delay <xref target="RFC8404" format="default"/>.</t>
+        <t>Because L4S can provide low delay for a broad set of applications
+        that choose to use it, there is no need for individual applications or
+        classes within that broad set to be distinguishable in any way while
+        traversing networks. This removes much of the ability to correlate
+        between the delay requirements of traffic and other identifying
+        features <xref target="RFC6973" format="default"/>. There may be some types of
+        traffic that prefer not to use L4S, but the coarse binary
+        categorization of traffic reveals very little that could be exploited
+        to compromise privacy.</t>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+<displayreference target="I-D.ietf-tcpm-accurate-ecn" to="ACCECN"/>
+<displayreference target="I-D.ietf-tsvwg-nqb" to="NQB-PHB"/>
+<displayreference target="I-D.briscoe-conex-policing" to="CONG-POLICING"/>
+<displayreference target="I-D.stewart-tsvwg-sctpecn" to="ECN-SCTP"/>
+<displayreference target="I-D.sridharan-tcpm-ctcp" to="CTCP"/>
+<displayreference target="I-D.ietf-tsvwg-rfc6040update-shim" to="ECN-SHIM"/>
+<displayreference target="I-D.ietf-tsvwg-ecn-encap-guidelines" to="ECN-ENCAP"/>
+<displayreference target="I-D.ietf-tsvwg-l4sops" to="L4SOPS"/>
+<displayreference target="I-D.briscoe-tsvwg-l4s-diffserv" to="L4S-DIFFSERV"/>
+<displayreference target="I-D.briscoe-docsis-q-protection" to="DOCSIS-Q-PROT"/>
+<displayreference target="I-D.cardwell-iccrg-bbr-congestion-control" to="BBR-CC"/>
+<displayreference target="I-D.briscoe-iccrg-prague-congestion-control" to="PRAGUE-CC"/>
+<displayreference target="I-D.morton-tsvwg-codel-approx-fair" to="CODEL-APPROX-FAIR"/>
+<displayreference target="I-D.mathis-iccrg-relentless-tcp" to="RELENTLESS"/>
+    <references>
+      <name>Informative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.0970.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2475.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2698.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2884.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3168.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4774.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6679.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3540.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3246.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3649.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4340.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4960.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5033.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5348.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5670.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5681.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6040.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6817.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6973.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7560.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7665.xml"/>
+
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-tcpm-accurate-ecn.xml"/>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7713.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7567.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8033.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8034.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8170.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8257.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8290.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8298.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8311.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8312.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8404.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8511.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8888.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8985.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9000.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9113.xml"/>
+
+<reference anchor="RFC9332" target="https://www.rfc-editor.org/info/rfc9332">
+  <front>
+    <title>Dual-Queue Coupled Active Queue Management (AQM) for Low Latency, Low Loss, and Scalable Throughput (L4S)</title>
+    <author initials="K" surname="De Schepper" fullname="Koen De Schepper">
+      <organization>Nokia Bell Labs</organization>
+    </author>
+    <author initials="B" surname="Briscoe" fullname="Bob Briscoe" role="editor">
+      <organization>Independent</organization>
+    </author>
+    <author initials="G" surname="White" fullname="Greg White">
+      <organization>CableLabs</organization>
+    </author>
+    <date month="January" year="2023"/>
+  </front>
+  <seriesInfo name="RFC" value="9332"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9332"/>
+</reference>
+
+<reference anchor="RFC9331" target="https://www.rfc-editor.org/info/rfc9331">
+  <front>
+    <title>The Explicit Congestion Notification (ECN) Protocol for Low Latency, Low Loss, and Scalable Throughput (L4S)</title>
+    <author initials="K" surname="De Schepper" fullname="Koen De Schepper">
+      <organization>Nokia Bell Labs</organization>
+    </author>
+    <author initials="B" surname="Briscoe" fullname="Bob Briscoe" role="editor">
+      <organization>Independent</organization>
+    </author>
+    <date month="January" year="2023"/>
+  </front>
+  <seriesInfo name="RFC" value="9331"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9331"/>
+</reference>
+
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-tsvwg-nqb.xml"/>
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.briscoe-conex-policing.xml"/>
+
+<reference anchor='I-D.stewart-tsvwg-sctpecn' target="https://datatracker.ietf.org/doc/html/draft-stewart-tsvwg-sctpecn-05">
+<front>
+<title>ECN for Stream Control Transmission Protocol (SCTP)</title>
+
+<author initials='R' surname='Stewart' fullname='Randall Stewart'>
+    <organization />
+</author>
+
+<author initials='M' surname='Tuexen' fullname='Michael Tuexen'>
+    <organization />
+</author>
+
+<author initials='X' surname='Dong' fullname='Xuesong Dong'>
+    <organization />
+</author>
+
+<date month='January' day='15' year='2014' />
+</front>
+
+<seriesInfo name='Internet-Draft' value='draft-stewart-tsvwg-sctpecn-05' />
+</reference>
+
+
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.sridharan-tcpm-ctcp.xml"/>
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-tsvwg-rfc6040update-shim.xml"/>
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-tsvwg-ecn-encap-guidelines.xml"/>
+
+<reference anchor="I-D.ietf-tsvwg-l4sops" target="https://datatracker.ietf.org/doc/html/draft-ietf-tsvwg-l4sops-03">
+  <front>
+  <title>
+  Operational Guidance for Deployment of L4S in the Internet
+</title>
+<author fullname="Greg White" initials="G." surname="White" role="editor">
+<organization>CableLabs</organization>
+</author>
+<date month="April" day="28" year="2022"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-ietf-tsvwg-l4sops-03"/>
+</reference>
+
+<xi:include 
+href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.briscoe-tsvwg-l4s-diffserv.xml"/>
+
+<reference anchor="I-D.briscoe-docsis-q-protection" target="https://datatracker.ietf.org/doc/html/draft-briscoe-docsis-q-protection-06">
+  <front>
+    <title>The DOCSIS® Queue Protection Algorithm to Preserve Low Latency</title>
+    <author initials="B" surname="Briscoe" fullname="Bob Briscoe" role="editor">
+      <organization>Independent</organization>
+    </author>
+    <author initials="G" surname="White" fullname="Greg White">
+      <organization>CableLabs</organization>
+    </author>
+    <date day="13" month="May" year="2022"/>
+  </front>
+  <seriesInfo name="Internet-Draft" value="draft-briscoe-docsis-q-protection-06"/>
+</reference>
+
+<reference anchor='I-D.cardwell-iccrg-bbr-congestion-control' target="https://datatracker.ietf.org/doc/html/draft-cardwell-iccrg-bbr-congestion-control-02">
+<front>
+<title>BBR Congestion Control</title>
+
+<author initials='N' surname='Cardwell' fullname='Neal Cardwell'>
+    <organization />
+</author>
+
+<author initials='Y' surname='Cheng' fullname='Yuchung Cheng'>
+    <organization />
+</author>
+
+<author initials='S' surname='Hassas Yeganeh' fullname='Soheil Hassas Yeganeh'>
+    <organization />
+</author>
+
+<author initials='I' surname='Swett' fullname='Ian Swett'>
+    <organization />
+</author>
+
+<author initials='V' surname='Jacobson' fullname='Van Jacobson'>
+    <organization />
+</author>
+
+<date month='March' day='7' year='2022' />
+</front>
+
+<seriesInfo name='Internet-Draft' value='draft-cardwell-iccrg-bbr-congestion-control-02' />
+</reference>
+
+
+
+
+<reference anchor="I-D.briscoe-iccrg-prague-congestion-control" target="https://datatracker.ietf.org/doc/html/draft-briscoe-iccrg-prague-congestion-control-01">
+  <front>
+    <title>Prague Congestion Control</title>
+    <author initials="K" surname="De Schepper">
+      <organization>Nokia Bell Labs</organization>
+    </author>
+    <author initials="O" surname="Tilmans" fullname="Olivier Tilmans">
+      <organization>Nokia Bell Labs</organization>
+    </author>
+    <author initials="B" surname="Briscoe" fullname="Bob Briscoe" role="editor">
+      <organization>Independent</organization>
+    </author>
+    <date day="11" month="July" year="2022"/>
+  </front>
+  <seriesInfo name="Internet-Draft" value="draft-briscoe-iccrg-prague-congestion-control-01"/>
+</reference>
+
+<reference anchor='I-D.morton-tsvwg-codel-approx-fair'>
+<front>
+<title>Controlled Delay Approximate Fairness AQM</title>
+
+<author initials='J' surname='Morton' fullname='Jonathan Morton'>
+    <organization />
+</author>
+
+<author initials='P' surname='Heist' fullname='Peter Heist'>
+    <organization />
+</author>
+
+<date month='March' day='9' year='2020' />
+</front>
+
+<seriesInfo name='Internet-Draft' value='draft-morton-tsvwg-codel-approx-fair-01' />
+</reference>
+
+
+
+
+
+      <reference anchor="Hohlfeld14" target="https://doi.acm.org/10.1145/2663716.2663730">
+        <front>
+          <title>A QoE Perspective on Sizing Network Buffers</title>
+          <author fullname="Oliver Hohlfeld" initials="O." surname="Hohlfeld ">
+            <organization/>
+          </author>
+          <author fullname="Enric Pujol" initials="E." surname="Pujol">
+            <organization/>
+            </author>
+          <author fullname="Florin Ciucu" initials="F." surname="Ciucu">
+            <organization/>
+          </author>
+          <author fullname="Anja Feldmann" initials="A." surname="Feldmann">
+            <organization/>
+          </author>
+          <author fullname="Paul Barford" initials="P." surname="Barford">
+            <organization/>
+          </author>
+          <date month="November" year="2014"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1145/2663716.2663730"/>
+	<refcontent>IMC '14: Proceedings of the 2014 Conference on Internet Measurement, pp. 333-346</refcontent>
+      </reference>
+
+<xi:include
+href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.mathis-iccrg-relentless-tcp.xml"/> 
+
+      <reference anchor="L4Seval22" target="https://arxiv.org/abs/2209.01078">
+        <front>
+          <title>Dual Queue Coupled AQM: Deployable Very Low Queuing Delay for
+          All</title>
+          <author fullname="Koen De Schepper" initials="K."
+                  surname="De Schepper">
+            <organization>Nokia Bell Labs</organization>
+          </author>
+          <author fullname="Olga Albisser" initials="O." surname="Albisser">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <author fullname="Olivier" initials="O." surname="Tilmans">
+            <organization>Nokia Bell Labs</organization>
+          </author>
+          <author fullname="Bob Briscoe" initials="B." surname="Briscoe">
+            <organization>Independent (bobbriscoe.net)</organization>
+          </author>
+          <date month="September" year="2022"/>
+        </front>
+        <seriesInfo name="DOI" value="10.48550/arXiv.2209.01078"/>
+        <refcontent>TR-BB-2022-001, arXiv:2209.01078 [cs.NI]</refcontent>
+        <format target="https://arxiv.org/pdf/2209.01078" type="PDF"/>
+      </reference>
+
+      <reference anchor="L4Sdemo16" target="https://dl.acm.org/citation.cfm?doid=2910017.2910633">
+        <front>
+          <title>Ultra-Low Delay for All: Live Experience, Live
+          Analysis</title>
+          <author fullname="Olga Bondarenko" initials="O." surname="Bondarenko">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <author fullname="Koen De Schepper" initials="K." surname="De Schepper">
+            <organization>Bell Labs</organization>
+          </author>
+          <author fullname="Ing-jyh Tsang" initials="I." surname="Tsang">
+            <organization>Bell Labs</organization>
+          </author>
+          <author fullname="Bob Briscoe" initials="B." surname="Briscoe">
+            <organization>BT</organization>
+          </author>
+	  <author fullname="Andreas Petlund" initials="A." surname="Petlund">
+            <organization></organization>
+          </author>
+	  <author fullname="Carstan Griwodz" initials="C." surname="Griwodz">
+            <organization></organization>
+          </author>
+          <date month="May" year="2016"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1145/2910017.2910633"/>
+	<refcontent>Proceedings of the 7th International Conference on Multimedia Systems, Article No. 33, pp. 1-4</refcontent>
+      </reference>
+
+<reference anchor="L4Sdemo16-Video" target="https://riteproject.eu/dctth/#1511dispatchwg">
+        <front>
+          <title>Videos used in IETF dispatch WG 'Ultra-Low Queuing Delay for All Apps' slot</title>
+          <author>
+          </author>
+        </front>
+      </reference>
+
+      <reference anchor="TCP-CA" target="https://ee.lbl.gov/papers/congavoid.pdf">
+        <front>
+          <title>Congestion Avoidance and Control</title>
+          <author fullname="Van Jacobson" initials="V." surname="Jacobson">
+            <organization/>
+          </author>
+          <author fullname="Michael J. Karels" initials="M."
+                  surname="Karels">
+            <organization/>
+          </author>
+          <date month="November" year="1988"/>
+        </front>
+        <seriesInfo name="Laurence Berkeley Labs Technical Report" value=""/>
+        <format target="https://ee.lbl.gov/papers/congavoid.pdf" type="PDF"/>
+      </reference>
+
+      <reference anchor="UnorderedLTE">
+        <front>
+          <title>Implementing immediate forwarding for 4G in a network
+          simulator</title>
+          <author fullname="Magnus Vevik Austrheim" initials="M." surname="Austrheim">
+            <organization/>
+          </author>
+          <date year="2018"/>
+        </front>
+        <refcontent>Master's Thesis, University of Oslo</refcontent>
+      </reference>
+
+<reference anchor="PragueLinux" target="https://www.netdevconf.org/0x13/session.html?talk-tcp-prague-l4s">
+        <front>
+          <title>Implementing the 'TCP Prague' Requirements for Low Latency
+          Low Loss Scalable Throughput (L4S)</title>
+          <author fullname="Bob Briscoe" initials="B." surname="Briscoe">
+            <organization>Independent</organization>
+          </author>
+          <author fullname="Koen De Schepper" initials="K." surname="De Schepper">
+            <organization>Nokia Bell Labs</organization>
+          </author>
+          <author fullname="Olga Albisser" initials="O." surname="Albisser">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <author fullname="Joakim Misund" initials="J." surname="Misund">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <author fullname="Olivier Tilmans" initials="O." surname="Tilmans">
+            <organization>Nokia Bell Labs</organization>
+          </author>
+          <author fullname="Mirja Kühlewind" initials="M." surname="Kühlewind">
+            <organization>ETH Zurich</organization>
+          </author>
+          <author fullname="Asad Sajjad Ahmed" initials="A.S." surname="Ahmed">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <date month="March" year="2019"/>
+        </front>
+        <refcontent>Proceedings Linux Netdev 0x13</refcontent>
+        <format target="https://www.files.netdevconf.org/f/4d6939d5f1fb404fafd1/?dl=1" type="PDF"/>
+      </reference>
+
+      <reference anchor="DualPI2Linux" target="https://www.netdevconf.org/0x13/session.html?talk-DUALPI2-AQM">
+        <front>
+          <title>DUALPI2 - Low Latency, Low Loss and Scalable (L4S)
+          AQM</title>
+          <author fullname="Olga Albisser" initials="O." surname="Albisser">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <author fullname="Koen De Schepper" initials="K." surname="De Schepper">
+            <organization>Nokia Bell Labs</organization>
+          </author>
+          <author fullname="Bob Briscoe" initials="B." surname="Briscoe">
+            <organization>Independent</organization>
+          </author>
+          <author fullname="Olivier Tilmans" initials="O." surname="Tilmans">
+            <organization>Nokia Bell Labs</organization>
+          </author>
+          <author fullname="Henrik Steen" initials="H." surname="Steen">
+            <organization>Simula Research Lab</organization>
+          </author>
+          <date month="March" year="2019"/>
+        </front>
+        <refcontent>Proceedings of Linux Netdev 0x13</refcontent>
+        <format target="https://www.files.netdevconf.org/f/febbe8c6a05b4ceab641/?dl=1" type="PDF"/>
+      </reference>
+
+<reference anchor="DOCSIS3.1" target="https://specification-search.cablelabs.com/CM-SP-MULPIv3.1">
+        <front>
+          <title>MAC and Upper Layer Protocols Interface (MULPI)
+          Specification, CM-SP-MULPIv3.1</title>
+          <author fullname="" surname="">
+            <organization>CableLabs</organization>
+          </author>
+          <date day="21" month="January" year="2019"/>
+        </front>
+        <seriesInfo name="Data-Over-Cable Service Interface Specifications DOCSIS 3.1" value="Version i17 or later"/>
+      </reference>
+
+      <reference anchor="AFCD" target="https://doi.org/10.1016/j.jnca.2016.03.021">
+        <front>
+          <title>Towards fair and low latency next generation high speed
+          networks: AFCD queuing</title>
+          <author fullname="Lin Xue" initials="L." surname="Xue">
+            <organization/>
+          </author>
+          <author fullname="Suman Kumar" initials="S." surname="Kumar">
+            <organization/>
+          </author>
+          <author fullname="Cheng Cui" initials="C." surname="Cui">
+            <organization/>
+          </author>
+          <author fullname="Praveenkumar Kondikoppa" initials="P." surname="Kondikoppa">
+            <organization/>
+          </author>
+          <author fullname="Chui-Hui Chiu" initials="C-H." surname="Chiu">
+            <organization/>
+          </author>
+          <author fullname="Seung-Jong Park" initials="S-J." surname="Park">
+            <organization/>
+          </author>
+          <date month="July" year="2016"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1016/j.jnca.2016.03.021"/>
+        <refcontent>Journal of Network and Computer Applications, Volume 70, pp. 183-193</refcontent>
+      </reference>
+
+      <reference anchor="Nadas20" target="https://doi.org/10.1145/3404868.3406669">
+        <front>
+          <title>A Congestion Control Independent L4S Scheduler</title>
+          <author fullname="Szilveszter Nádas" initials="S." surname="Nádas">
+            <organization/>
+          </author>
+          <author fullname="Gergő Gombos" initials="G." surname="Gombos">
+            <organization/>
+          </author>
+          <author fullname="Ferenc Fejes" initials="F." surname="Fejes">
+            <organization/>
+          </author>
+          <author fullname="Sándor Laki" initials="S." surname="Laki">
+            <organization/>
+          </author>
+          <date month="July" year="2020"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1145/3404868.3406669"/>
+	<refcontent>ANRW '20: Proceedings of the Applied Networking Research Workshop, pp. 45-51</refcontent>
+      </reference>
+
+      <reference anchor="QDyn" target="https://arxiv.org/abs/1904.07044">
+        <front>
+          <title>Rapid Signalling of Queue Dynamics</title>
+          <author fullname="Bob Briscoe" initials="B." surname="Briscoe">
+            <organization>bobbriscoe.net Ltd</organization>
+          </author>
+          <date month="April" year="2019"/>
+        </front>
+	<seriesInfo name="DOI" value="10.48550/arXiv.1904.07044"/>
+        <refcontent>TR-BB-2017-001, arXiv:1904.07044 [cs.NI]</refcontent>
+        <format target="https://arxiv.org/pdf/1904.07044" type="PDF"/>
+      </reference>
+
+      <reference anchor="McIlroy78" target="https://archive.org/details/bstj57-6-1899">
+        <front>
+          <title>UNIX Time-Sharing System: Foreword</title>
+          <author fullname="Doug McIlroy" initials="M.D." surname="McIlroy">
+            <organization/>
+          </author>
+          <author initials="E. N." surname="Pinson">
+            <organization/>
+          </author>
+          <author initials="B. A." surname="Tague">
+            <organization/>
+          </author>
+          <date month="July" year="1978"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1002/j.1538-7305.1978.tb02135.x"/>
+        <refcontent>The Bell System Technical Journal 57: 6, pp. 1899-1904</refcontent>
+      </reference>
+
+      <reference anchor="LEDBAT_AQM" target="https://ieeexplore.ieee.org/document/8109367">
+        <front>
+          <title>Characterising LEDBAT Performance Through Bottlenecks Using
+          PIE, FQ-CoDel and FQ-PIE Active Queue Management</title>
+          <author fullname="Rasool Al-Saadi" initials="R." surname="Al-Saadi">
+            <organization/>
+          </author>
+          <author fullname="Grenville Armitage" initials="G." surname="Armitage">
+            <organization/>
+          </author>
+          <author fullname="Jason But" initials="J." surname="But">
+            <organization/>
+          </author>
+          <date month="October" year="2017"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1109/LCN.2017.22"/>
+        <refcontent>IEEE 42nd Conference on Local Computer Networks (LCN)</refcontent>
+      </reference>
+<reference anchor="BBRv2" target="https://github.com/google/bbr">
+        <front>
+          <title>TCP BBR v2 Alpha/Preview Release</title>
+          <author>
+            <organization/>
+          </author>
+          <date month="June" year="2022" />
+          </front>
+	<refcontent>commit 17700ca</refcontent>
+      </reference>
+
+      <reference anchor="SCReAM-L4S" target="https://github.com/EricssonResearch/scream">
+        <front>
+          <title>SCReAM</title>
+          <author>
+            <organization/>
+          </author>
+          <date month="June" year="2022"/>
+        </front>
+      <refcontent>commit fda6c53</refcontent>
+      </reference>
+
+      <reference anchor="BDPdata" target="https://arxiv.org/abs/2107.01003">
+        <front>
+          <title>PI2 Parameters</title>
+          <author fullname="Bob Briscoe" initials="B." surname="Briscoe">
+            <organization/>
+          </author>
+          <date month="October" year="2021"/>
+        </front>
+	<seriesInfo name="DOI" value="10.48550/arXiv.2107.01003"/>
+        <refcontent>TR-BB-2021-001, arXiv:2107.01003 [cs.NI]</refcontent>
+      </reference>
+
+      <reference anchor="BufferSize" target="https://doi.org/10.1145/1015467.1015499">
+        <front>
+          <title>Sizing Router Buffers</title>
+          <author fullname="Guido Appenzeller" initials="G." surname="Appenzeller">
+            <organization>Stanford University</organization>
+          </author>
+          <author fullname="Isaac Keslassy" initials="I." surname="Keslassy">
+            <organization>Stanford University</organization>
+          </author>
+          <author fullname="Nick McKeown" initials="N." surname="McKeown">
+            <organization>Stanford University</organization>
+          </author>
+          <date month="October" year="2004"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1145/1015467.1015499"/>
+        <refcontent>SIGCOMM '04: Proceedings of the 2004 conference on Applications, technologies, architectures, and protocols for computer communications, pp. 281-292</refcontent>
+      </reference>
+
+      <reference anchor="COBALT" target="https://ieeexplore.ieee.org/abstract/document/8847054">
+        <front>
+          <title>Design and Evaluation of COBALT Queue Discipline</title>
+          <author fullname="Jendaipou Palmei" initials="J." surname="Palmei">
+            <organization/>
+          </author>
+          <author fullname="Shefali Gupta" initials="S." surname="Gupta">
+            <organization/>
+          </author>
+          <author fullname="Pasquale Imputato" initials="P." surname="Imputato">
+            <organization/>
+          </author>
+          <author fullname="Jonathan Morton" initials="J." surname="Morton">
+            <organization/>
+          </author>
+          <author fullname="Mohit P. Tahiliani" initials="M. P." surname="Tahiliani">
+            <organization/>
+          </author>
+          <author fullname="Stefan Avallone" initials="S." surname="Avallone">
+            <organization/>
+          </author>
+          <author fullname="Dave Täht" initials="D." surname="Täht">
+            <organization/>
+          </author>
+          <date month="July" year="2019"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1109/LANMAN.2019.8847054"/>
+	<refcontent>IEEE International Symposium on Local and Metropolitan Area Networks (LANMAN)</refcontent>
+      </reference>
+
+      <reference anchor="DOCSIS3AQM" target="https://www.cablelabs.com/wp-content/uploads/2013/11/Active_Queue_Management_Algorithms_DOCSIS_3_0.pdf">
+        <front>
+          <title>Active Queue Management Algorithms for DOCSIS 3.0: A
+          Simulation Study of CoDel, SFQ-CoDel and PIE in DOCSIS 3.0
+          Networks</title>
+          <author fullname="Greg White" initials="G." surname="White">
+            <organization/>
+          </author>
+          <date month="April" year="2013"/>
+        </front>
+        <refcontent>CableLabs Technical Report</refcontent>
+      </reference>
+
+<reference anchor="FQ_CoDel_Thresh" target="https://git.kernel.org/pub/scm/linux/kernel/git/netdev/net-next.git/commit/?id=dfcb63ce1de6b10b">
+        <front>
+          <title>fq_codel: generalise ce_threshold marking for subset of
+          traffic</title>
+          <author>
+            <organization/>
+          </author>
+          <date month="October" year="2021"/>
+        </front>
+      <refcontent>commit dfcb63ce1de6b10b</refcontent>
+      </reference>
+
+      <reference anchor="Dukkipati06" target="https://dl.acm.org/doi/10.1145/1111322.1111336">
+        <front>
+          <title>Why Flow-Completion Time is the Right Metric for Congestion
+          Control</title>
+          <author fullname="Nandita Dukkipati" initials="N." surname="Dukkipati">
+            <organization>Stanford University</organization>
+          </author>
+          <author fullname="Nick McKeown" initials="N." surname="McKeown">
+            <organization>Stanford University</organization>
+          </author>
+          <date month="January" year="2006"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1145/1111322.1111336"/>
+        <refcontent>ACM SIGCOMM Computer Communication Review, Volume 36, Issue 1, pp. 59-62</refcontent>
+      </reference>
+
+      <reference anchor="Rajiullah15" target="https://www.diva-portal.org/smash/get/diva2:846109/FULLTEXT01.pdf">
+        <front>
+          <title>Towards a Low Latency Internet: Understanding and
+          Solutions</title>
+          <author fullname="Mohammad Rajiullah" initials="M." surname="Rajiullah">
+            <organization>Karlstad University Studies</organization>
+          </author>
+          <date year="2015"/>
+        </front>
+        <refcontent>Dissertation, Karlstad University</refcontent>
+      </reference>
+
+      <reference anchor="lowat" target="https://blog.cloudflare.com/http-2-prioritization-with-nginx/">
+        <front>
+          <title>Optimizing HTTP/2 prioritization with BBR and
+          tcp_notsent_lowat</title>
+          <author fullname="Patrick Meenan" initials="P." surname="Meenan">
+            <organization>Cloudflare</organization>
+          </author>
+          <date month="October" year="2018"/>
+        </front>
+        <refcontent>Cloudflare Blog</refcontent>
+      </reference>
+
+      <reference anchor="NASA04" target="https://ntrs.nasa.gov/api/citations/20120009198/downloads/20120009198.pdf?attachment=true">
+        <front>
+          <title>Latency Requirements for Head-Worn Display S/EVS
+          Applications</title>
+          <author fullname="Randall E. Bailey" initials="R." surname="Bailey">
+            <organization>NASA Langley Research Center</organization>
+          </author>
+          <author fullname="J.J. (Trey) Arthur III" initials="J." surname="Trey Arthur III">
+            <organization>NASA Langley Research Center</organization>
+          </author>
+          <author fullname="Steven P. Williams" initials="S." surname="Williams">
+            <organization>NASA Langley Research Center</organization>
+          </author>
+          <date month="April" year="2004"/>
+        </front>
+	<seriesInfo name="DOI" value="10.1117/12.554462"/>
+	<refcontent>Proceedings of SPIE 5424</refcontent>
+      </reference>
+
+<reference anchor="Raaen14" target="http://ojs.bibsys.no/index.php/NIK/article/view/9/6">
+        <front>
+          <title>Latency Thresholds for Usability in Games: A Survey</title>
+          <author fullname="Kjetil Raaen" initials="K." surname="Raaen">
+            <organization/>
+          </author>
+          <author fullname="Tor-Morten Grønli" initials="T-M." surname="Grønli">
+            <organization/>
+          </author>
+          <date year="2014"/>
+        </front>
+        <refcontent>Norsk IKT-konferanse for forskning og utdanning (Norwegian 
+        ICT conference for research and education)</refcontent>
+      </reference>
+    </references>
+
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>Thanks to <contact fullname="Richard Scheffenegger"/>, <contact
+      fullname="Wes Eddy"/>, <contact fullname="Karen Nielsen"/>, <contact
+      fullname="David Black"/>, <contact fullname="Jake Holland"/>, <contact
+      fullname="Vidhi Goel"/>, <contact fullname="Ermin Sakic"/>, <contact
+      fullname="Praveen Balasubramanian"/>, <contact fullname="Gorry
+      Fairhurst"/>, <contact fullname="Mirja Kuehlewind"/>, <contact
+      fullname="Philip Eardley"/>, <contact fullname="Neal Cardwell"/>,
+      <contact fullname="Pete Heist"/>, and <contact fullname="Martin Duke"/>
+      for their useful review comments. Thanks also to the area reviewers:
+      <contact fullname="Marco Tiloca"/>, <contact fullname="Lars Eggert"/>,
+      <contact fullname="Roman Danyliw"/>, and <contact fullname="Éric
+      Vyncke"/>.</t>
+      <t><contact fullname="Bob Briscoe"/> and <contact fullname="Koen De
+      Schepper"/> were partly funded by the European Community under its Seventh
+      Framework Programme through the Reducing Internet Transport Latency
+      (RITE) project (ICT-317700). The contribution of <contact fullname="Koen
+      De Schepper"/> was also partly funded by the 5Growth and DAEMON EU H2020
+      projects. <contact fullname="Bob Briscoe"/> was also partly funded by the
+      Research Council of Norway through the TimeIn project, partly by
+      CableLabs, and partly by the Comcast Innovation Fund. The views expressed
+      here are solely those of the authors.</t>
+    </section>
+  </back> 
+</rfc>

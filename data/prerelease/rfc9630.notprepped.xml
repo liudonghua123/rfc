@@ -1,0 +1,438 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-mboned-multicast-telemetry-12" number="9630" consensus="true" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="Multicast Telemetry">Multicast On-Path Telemetry Using In Situ Operations, Administration, and Maintenance (IOAM)</title>
+    <seriesInfo name="RFC" value="9630"/>
+    <author fullname="Haoyu Song" initials="H." surname="Song">
+      <organization>Futurewei Technologies</organization>
+      <address>
+        <postal>
+          <street>2330 Central Expressway</street>
+          <city>Santa Clara</city><region>CA</region>
+          <country>United States of America</country>
+        </postal>
+        <email>hsong@futurewei.com</email>
+      </address>
+    </author>
+    <author fullname="Mike McBride" initials="M." surname="McBride">
+      <organization>Futurewei Technologies</organization>
+      <address>
+        <postal>
+          <street>2330 Central Expressway</street>
+          <city>Santa Clara</city><region>CA</region>
+          <country>United States of America</country>
+        </postal>
+        <email>mmcbride@futurewei.com</email>
+      </address>
+    </author>
+    <author fullname="Greg Mirsky" initials="G." surname="Mirsky">
+      <organization>Ericsson</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>gregimirsky@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Gyan Mishra" initials="G. " surname="Mishra">
+      <organization>Verizon Inc.</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>gyan.s.mishra@verizon.com</email>
+      </address>
+    </author>
+    <author initials="H" surname="Asaeda" fullname="Hitoshi Asaeda">
+      <organization abbrev="NICT">National Institute of Information and Communications Technology</organization>
+      <address>
+        <postal>
+          <country>Japan</country>
+        </postal>
+        <email>asaeda@nict.go.jp</email>
+      </address>
+    </author>
+    <author fullname="Tianran Zhou" initials="T. " surname="Zhou">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <postal>
+          <city>Beijing</city>
+          <country>China</country>
+        </postal>
+        <email>zhoutianran@huawei.com</email>
+      </address>
+    </author>
+    <date month="August" year="2024"/>
+    <area>OPS</area>
+    <workgroup>mboned</workgroup>
+    <keyword>Multicast</keyword>
+    <keyword>Telemetry</keyword>
+    <abstract>
+      <t>This document specifies two solutions to meet the requirements of
+      on-path telemetry for multicast traffic using IOAM.  While
+      IOAM is advantageous for multicast traffic telemetry, some unique
+      challenges are present.  This document provides the solutions based on
+      the IOAM trace option and direct export option to support the
+      telemetry data correlation and the multicast tree reconstruction without
+      incurring data redundancy.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>IP multicast has had many useful applications for several decades. 
+	    <xref target="I-D.ietf-pim-multicast-lessons-learned" format="default"/> provides a thorough historical perspective about the design and
+      deployment of many of the multicast routing protocols in use with various applications. We will mention of few of these throughout this 
+      document and in the Application Considerations section (<xref target="application-considerations"/>). IP multicast has been used by residential broadband customers across operator networks, 
+      private MPLS customers, and internal customers within corporate intranets.  IP multicast has provided real-time interactive online meetings or 
+      podcasts, IPTV, and financial markets' real-time data, all of which rely  on UDP's unreliable transport. End-to-end QoS, therefore, 
+      should be a critical component of multicast deployments in order to provide a good end-user experience within a specific operational domain. 
+      In multicast real-time media streaming, if a single packet is lost within a keyframe and 
+      cannot be recovered using forward error correction, many receivers will be unable to decode subsequent frames 
+      within the Group of Pictures (GoP), which results in video freezes or black pictures until another keyframe is delivered. Unexpectedly long 
+      delays in delivery of packets can cause timeouts with similar results. Multicast packet loss and delays can therefore affect application 
+      performance and the user experience within a domain.</t>
+      <t>It is essential to monitor the performance of multicast traffic. New on-path telemetry techniques, such as 
+		   IOAM <xref target="RFC9197" format="default"/>, 
+		   IOAM Direct Export (DEX) <xref target="RFC9326" format="default"/>,
+        IOAM Postcard-Based Telemetry - Marking (PBT-M) <xref target="I-D.song-ippm-postcard-based-telemetry" format="default"/>, and
+	       Hybrid Two-Step (HTS) <xref target="I-D.ietf-ippm-hybrid-two-step" format="default"/>, 
+		   complement existing active OAM performance monitoring methods like ICMP ping <xref target="RFC0792" format="default"/>. However, multicast traffic's unique characteristics 
+		   present challenges in applying these techniques efficiently.</t>
+      <t>The IP multicast packet data for a particular (S,G) state remains identical across different branches to multiple receivers <xref target="RFC7761" format="default"/>. 
+		When IOAM trace data is added to multicast packets, each replicated packet retains telemetry data for its entire forwarding path. 
+		This results in redundant data collection for common path segments, unnecessarily consuming extra network bandwidth. 
+		For large multicast trees, this redundancy is substantial. Using solutions like IOAM DEX could be more efficient by eliminating data redundancy, 
+		but IOAM DEX lacks a branch identifier, complicating telemetry data correlation and multicast tree reconstruction.</t>
+      <t>This document provides two solutions to the IOAM data-redundancy problem based on the IOAM standards. The requirements for multicast traffic telemetry
+           are discussed along with the issues of the existing on-path telemetry techniques. We propose modifications and extensions 
+           to make these techniques adapt to multicast in order for the original multicast tree to be correctly reconstructed while
+           eliminating redundant data. This document does not cover the operational considerations such as how to enable the telemetry on a subset of the traffic to avoid overloading 
+		   the network or the data collector.</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+         <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+         </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Requirements for Multicast Traffic Telemetry</name>
+      <t> Multicast traffic is forwarded through a multicast tree. With PIM <xref target="RFC7761" format="default"/> and Point-to-Multipoint (P2MP), the forwarding
+	    tree is established and maintained by the multicast routing protocol. </t>
+      <t> The requirements for multicast traffic telemetry that are addressed by the solutions in this document are:</t>
+      <ul spacing="normal">
+        <li>
+          <t> Reconstruct and visualize the multicast tree through data-plane monitoring.</t>
+        </li>
+        <li>
+          <t> Gather the multicast packet delay and jitter performance on each path. </t>
+        </li>
+        <li>
+          <t> Find the multicast packet-drop location and reason. </t>
+        </li>
+      </ul>
+      <t> In order to meet all of these requirements, we need the ability to directly monitor the multicast traffic and derive data from the multicast packets. 
+	    The conventional OAM mechanisms, such as multicast ping <xref target="RFC6450" format="default"/>, trace <xref target="RFC8487" format="default"/>, and 
+	    RTCP <xref target="RFC3605" format="default"/>, are not sufficient to meet all of these requirements. The telemetry methods in this document meet
+	    these requirements by providing granular hop-by-hop network monitoring along with the reduction of data redundancy.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Issues of Existing Techniques</name>
+      <t> On-path telemetry techniques that directly retrieve data from multicast traffic's live network experience are ideal for
+		addressing the aforementioned requirements. The representative techniques include  
+	       IOAM Trace option <xref target="RFC9197" format="default"/>, 
+		   IOAM DEX option <xref target="RFC9326" format="default"/>, and 
+	       PBT-M <xref target="I-D.song-ippm-postcard-based-telemetry" format="default"/>. However, 
+	       unlike unicast, multicast poses some unique challenges to applying these techniques. </t>
+      <t> Multicast packets are replicated at each branch fork node in the corresponding multicast tree. Therefore, there are 
+            multiple copies of the original multicast packet in the network.</t>
+      <t> When the IOAM trace option is utilized for on-path data collection, partial trace data is replicated into the packet 
+		copy for each branch of the multicast tree. Consequently, at the leaves of the multicast tree, each copy of the multicast packet 
+		contains a complete trace. This results in data redundancy, as most of the data (except from the final leaf branch) appears in multiple copies, 
+		where only one is sufficient. This redundancy introduces unnecessary header overhead, wastes network bandwidth, and complicates data processing. 
+		The larger the multicast tree or the longer the multicast path, the more severe the redundancy problem becomes.</t>
+      <t> The postcard-based solutions (e.g., IOAM DEX) can eliminate data redundancy because each 
+	        node on the multicast tree sends a postcard with only local data. However, these methods cannot accurately track and correlate the tree branches due to the absence of branching 
+	        information. For instance, in the multicast tree shown in <xref target="figure_1" format="default"/>, Node B has two branches, one to Node C and the 
+	        other to node D; further, Node C leads to Node E, and Node D leads to Node F (not shown). When applying postcard-based methods, it is impossible to determine whether Node E 
+	        is the next hop of Node C or Node D from the received postcards alone, unless one correlates the exporting nodes with knowledge about the tree collected by other 
+	        means (e.g., mtrace). Such correlation is undesirable because it introduces extra work and complexity. </t>
+      <t> The fundamental reason for this problem is that there is not an identifier (either implicit or explicit) to correlate the 
+		data on each branch. </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Modifications and Extensions Based on Existing Solutions</name>
+      <t>We provide two solutions to address the above issues. One is based on IOAM DEX and requires an extension to the DEX Option-Type header. 
+	    The second solution combines the IOAM trace option and postcards for redundancy removal.</t>
+      <section numbered="true" toc="default" anchor="per-hop-postcard-using-ioam-dex">
+        <name>Per-Hop Postcard Using IOAM DEX</name>
+        <t>One way to mitigate the postcard-based telemetry's tree-tracking weakness is to augment it with a branch identifier field. This works for
+	       the IOAM DEX option because the DEX Option-Type header can be used to hold 
+		   the branch identifier. To make the branch identifier 
+	       globally unique, the Branching Node ID plus an index is used. For example, as shown in <xref target="figure_1" format="default"/>, Node B has two branches: one to Node C and the other to 
+	       Node D. Node B may use [B, 0] as the branch identifier for the branch to C, and [B, 1] for the branch to D. The identifier is carried with the multicast packet until the 
+	       next branch fork node. Each node <bcp14>MUST</bcp14> export the branch identifier in the received IOAM DEX header in the postcards it sends. 
+	       The branch identifier, along with the other fields such as Flow ID and Sequence Number, is sufficient for the data collector to 
+	       reconstruct the topology of the multicast tree.</t>
+        <t><xref target="figure_1" format="default"/> shows an example of this solution. "P" stands for the postcard packet. The square brackets contains the branch identifier. The 
+            curly braces contain the telemetry data about a specific node. </t>
+        <figure anchor="figure_1">
+          <name>Per-Hop Postcard</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+P:[A,0]{A}  P:[A,0]{B} P:[B,1]{D}  P:[B,0]{C}   P:[B,0]{E}
+     ^            ^          ^        ^           ^
+     :            :          :        :           :
+     :            :          :        :           :
+     :            :          :      +-:-+       +-:-+  
+     :            :          :      |   |       |   |
+     :            :      +---:----->| C |------>| E |-...
+   +-:-+        +-:-+    |   :      |   |       |   |
+   |   |        |   |----+   :      +---+       +---+
+   | A |------->| B |        :               
+   |   |        |   |--+   +-:-+             
+   +---+        +---+  |   |   |
+                       +-->| D |--...
+                           |   |
+                           +---+
+]]></artwork>
+        </figure>
+        <t> Each branch fork node needs to generate a unique branch identifier (i.e., Multicast Branch ID) for each branch in its multicast tree instance and include 
+	       it in the IOAM DEX Option-Type header. The Multicast Branch ID remains unchanged until the next branch fork node. The Multicast Branch ID contains two parts: 
+		   the Branching Node ID and an Interface Index. </t>
+        <t> Conforming to the node ID specification in IOAM <xref target="RFC9197" format="default"/>, the Branching Node ID is a 3-octet unsigned integer. 
+	       The Interface Index is a two-octet unsigned integer. As shown in <xref target="figure_2" format="default"/>, the Multicast Branch ID consumes 8 octets in total. The three unused octets <bcp14>MUST</bcp14> be set to 0; 
+		   otherwise, the header is considered malformed and the packet <bcp14>MUST</bcp14> be dropped. </t>
+        <figure anchor="figure_2">
+          <name>Multicast Branch ID Format</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+  0                   1                   2                   3 
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |       Branching Node ID                       |     unused    |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |       Interface Index         |           unused              |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+   
+]]></artwork>
+        </figure>
+        <t> <xref target="figure_3" format="default"/> shows that the Multicast Branch ID is carried as an optional field after the Flow ID and Sequence Number optional fields
+			in the IOAM DEX option header. Two bits "N" and "I" (i.e., the third and fourth bits in the Extension-Flags field) are reserved to indicate the presence of 
+			the optional Multicast Branch ID field. "N" stands for the Branching Node ID, and "I" stands for the Interface Index. If "N" and "I" are both set to 1, the optional Multicast 
+			Branch ID field is present. Two Extension-Flag bits are used because <xref target="RFC9326" format="default"/> specifies that each extension flag only indicates the presence of a 4-octet optional data field, 
+			while we need more than 4 octets to encode the Multicast Branch ID. 
+			The two flag bits <bcp14>MUST</bcp14> be both set or cleared; otherwise, the header is considered malformed and the packet <bcp14>MUST</bcp14> be dropped. </t>
+        <figure anchor="figure_3">
+          <name>Carrying the Multicast Branch ID in the IOAM DEX Option-Type Header</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+  0                   1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |        Namespace-ID           |     Flags     |F|S|N|I|E-Flags|
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |               IOAM-Trace-Type                 |   Reserved    |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                         Flow ID (optional)                    |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                     Sequence Number (optional)                |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |          Multicast Branch ID (as shown in Figure 2)           |
+ |                            (optional)                         |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        </figure>
+       <t> Once a node gets the branch ID information from the upstream node, it <bcp14>MUST</bcp14> carry this information in its 
+	   telemetry data export postcards so the original multicast tree can be correctly reconstructed based on the postcards. </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Per-Section Postcard for IOAM Trace</name>
+        <t>The second solution is a combination of the IOAM trace option <xref target="RFC9197" format="default"/> and the postcard-based telemetry <xref target="I-D.song-opsawg-ifit-framework" format="default"/>. 
+		 To avoid data redundancy, at each branch fork node, the trace data accumulated up to this node is exported
+		by a postcard before the packet is replicated. In this solution, each branch also needs to maintain some identifier to help correlate the postcards
+		for each tree section. The natural way to accomplish this is to simply carry the branch fork node's data (including its ID) in the trace of each branch. 
+		This is also necessary because each replicated multicast packet can have different telemetry data pertaining to this particular copy (e.g., node 
+		delay, egress timestamp, and egress interface). As a consequence,  the local data exported by each branch fork node can only contain the common 
+		data shared by all the replicated packets (e.g., ingress interface and ingress timestamp). </t>
+        <t><xref target="figure_4" format="default"/> shows an example in a segment of a multicast tree. Node B and D are two branch fork nodes, and they will export 
+	     a postcard covering the trace data for the previous section. The end node of each path will also need to export the data of the last section as a 
+	     postcard.</t>
+        <figure anchor="figure_4">
+          <name>Per-Section Postcard</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+             P:{A,B'}            P:{B1,C,D'} 
+                ^                     ^
+                :                     :
+                :                     :
+                :                     :    {D1}
+                :                     :    +--...
+                :        +---+      +---+  |
+                :   {B1} |   |{B1,C}|   |--+ {D2}
+                :    +-->| C |----->| D |-----...
+    +---+     +---+  |   |   |      |   |--+
+    |   | {A} |   |--+   +---+      +---+  |
+    | A |---->| B |                        +--...
+    |   |     |   |--+   +---+             {D3} 
+    +---+     +---+  |   |   |{B2,E}
+                     +-->| E |--...
+                    {B2} |   |
+                         +---+
+]]></artwork>
+        </figure>
+        <t>There is no need to modify the IOAM trace option header format as specified in <xref target="RFC9197" format="default"/>. We just need to configure the branch fork nodes, as well as the leaf nodes, to 
+	   export the postcards that contain the trace data collected so far and refresh the IOAM header and data in the packet (e.g., clear the node data list to all zeros and reset the RemainingLen field to the initial value).</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default" anchor="application-considerations">
+      <name>Application Considerations for Multicast Protocols</name>
+      <section numbered="true" toc="default">
+        <name>Mtrace Version 2</name>
+        <t>Mtrace version 2 (Mtrace2) <xref target="RFC8487" format="default"/> is a protocol that allows the tracing of an IP multicast routing path. Mtrace2 provides 
+	  additional information such as the packet rates and losses, as well as other diagnostic information. Unlike unicast traceroute, Mtrace2 traces the path 
+	  that the tree-building messages follow from the receiver to the source. An Mtrace2 client sends an Mtrace2 Query to a Last-Hop Router (LHR), and the LHR 
+	  forwards the packet as an Mtrace2 Request towards the source or a Rendezvous Point (RP) after appending a response block. Each router along the 
+	  path proceeds with the same operations. When the First-Hop Router (FHR) receives the Request packet, it appends its own response block, turns the 
+	  Request packet into a Reply, and unicasts the Reply back to the Mtrace2 client. </t>
+        <t>New on-path telemetry techniques will enhance Mtrace2, and other existing OAM solutions, with more granular and real-time network status data through 
+	  direct measurements. There are various multicast protocols that are used to forward the multicast data. Each will require its own unique on-path telemetry solution. 
+	  Mtrace2 doesn't integrate with IOAM directly, but network management systems may use Mtrace2 to learn about routers of interest. </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Application in PIM</name>
+        <t>PIM - Sparse Mode (PIM-SM) <xref target="RFC7761" format="default"/> is the most widely used multicast routing protocol deployed today. PIM - Source-Specific Multicast (PIM-SSM), however, is the preferred method due to 
+      its simplicity and removal of network source discovery complexity. With PIM, control plane state is established in the network in order to forward multicast 
+      UDP data packets. PIM utilizes network-based source discovery. PIM-SSM, however, utilizes application-based source discovery. IP multicast packets fall within the range 
+	  of 224.0.0.0 through 239.255.255.255 for IPv4 and ff00::/8 for IPv6. The telemetry solution will need to work within these IP address ranges and provide telemetry data for this UDP traffic. </t>
+        <t>A proposed solution for encapsulating the telemetry instruction header and metadata in IPv6 packets is described in 
+	  <xref target="RFC9486" format="default"/>. </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Application of MVPN PMSI Tunnel Attribute</name>
+        <t>IOAM, and the recommendations of this document, are equally applicable to multicast MPLS forwarded packets as described in <xref target="RFC6514"/>.
+      Multipoint Label Distribution Protocol (mLDP), P2MP RSVP-TE, Ingress Replication (IR), and PIM Multicast Distribution Tree (MDT) SAFI with GRE Transport are all commonly 
+      used within a Multicast VPN (MVPN) environment utilizing MVPN procedures such as multicast in MPLS/BGP IP VPNs <xref target="RFC6513" format="default"/> 
+      and BGP encoding and procedures for multicast in MPLS/BGP IP VPNs <xref target="RFC6514" format="default"/>. mLDP LDP
+      extensions for P2MP and multipoint-to-multipoint (MP2MP) label switched paths (LSPs) <xref target="RFC6388" format="default"/> provide extensions to LDP to establish point-to-multipoint (P2MP) and
+      MP2MP LSPs in MPLS networks. The telemetry solution will need to be able to follow these P2MP and MP2MP paths.  
+      The telemetry instruction header and data should be encapsulated into MPLS packets on P2MP and MP2MP paths. </t>
+      </section>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The schemes discussed in this document share the same security considerations for the IOAM trace option <xref target="RFC9197" format="default"/> and the IOAM DEX 
+      option <xref target="RFC9326" format="default"/>. In particular, since multicast has a built-in nature for packet amplification, the possible amplification risk for the DEX-based 
+      scheme is greater than the case of unicast. Hence, stricter mechanisms for protections need to be applied. In addition to selecting packets to enable DEX and to limit the exported traffic rate, we can also allow only a subset of the nodes in a multicast tree to  process the option and export the data (e.g., only the branching nodes in the 
+      multicast tree are configured to process the option). </t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>IANA has registered two Extension-Flags, as described in <xref target="per-hop-postcard-using-ioam-dex"/>, in the "IOAM DEX Extension-Flags" registry.</t>
+      <table anchor="ioam-dex-extension-flags-registry">
+	<name>IOAM DEX Extension-Flags</name>
+	<thead>
+	<tr>
+		<th>Bit</th>
+		<th>Description</th>
+		<th>Reference</th>
+	</tr>
+	</thead>
+	<tbody>
+	<tr>
+		<td>2</td>
+		<td>Multicast Branching Node ID</td>
+		<td>This RFC</td>
+	</tr>
+	<tr>
+		<td>3</td>
+		<td>Multicast Branching Interface Index</td>
+		<td>This RFC</td>
+	</tr>
+	</tbody>
+      </table>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="I-D.song-ippm-postcard-based-telemetry" to="POSTCARD-TELEMETRY"/>
+    <displayreference target="I-D.ietf-ippm-hybrid-two-step" to="HYBRID-TWO-STEP"/>
+    <displayreference target="I-D.ietf-pim-multicast-lessons-learned" to="MULTICAST-LESSONS-LEARNED"/>
+    <displayreference target="I-D.song-opsawg-ifit-framework" to="IFIT-FRAMEWORK"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7761.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6513.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6514.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6388.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9197.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9326.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.0792.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6450.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8487.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3605.xml"/>
+        <reference anchor="I-D.song-ippm-postcard-based-telemetry" target="https://datatracker.ietf.org/doc/html/draft-song-ippm-postcard-based-telemetry-16">
+          <front>
+            <title>
+            On-Path Telemetry using Packet Marking to Trigger Dedicated OAM Packets
+            </title>
+            <author initials="H." surname="Song" fullname="Haoyu Song">
+              <organization>Futurewei Technologies</organization>
+            </author>
+            <author initials="G." surname="Mirsky" fullname="Greg Mirsky">
+              <organization>Ericsson</organization>
+            </author>
+            <author initials="T." surname="Zhou" fullname="Tianran Zhou">
+              <organization>Huawei</organization>
+            </author>
+            <author initials="Z." surname="Li" fullname="Zhenbin Li">
+              <organization>Huawei</organization>
+            </author>
+            <author initials="T." surname="Graf" fullname="Thomas Graf">
+              <organization>Swisscom</organization>
+            </author>
+            <author initials="G." surname="Mishra" fullname="Gyan Mishra">
+              <organization>Verizon Inc.</organization>
+            </author>
+            <author initials="J." surname="Shin" fullname="Jongyoon Shin">
+              <organization>SK Telecom</organization>
+            </author>
+            <author initials="K." surname="Lee" fullname="Kyungtae Lee">
+              <organization>LG U+</organization>
+            </author>
+            <date month="June" day="2" year="2023"/>
+          </front>
+          <seriesInfo name="Internet-Draft" value="draft-song-ippm-postcard-based-telemetry-16"/>
+         </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9486.xml"/>
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/draft-ietf-ippm-hybrid-two-step.xml"/>
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/draft-ietf-pim-multicast-lessons-learned.xml"/>
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/draft-song-opsawg-ifit-framework.xml"/>
+      </references>
+    </references>
+    <section anchor="Acknowledgments" numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>The authors would like to thank <contact fullname="Gunter Van de Velde"/>, <contact fullname="Brett Sheffield"/>, <contact fullname="Éric Vyncke"/>, <contact fullname="Frank Brockners"/>, <contact fullname="Nils Warnke"/>, <contact fullname="Jake Holland"/>, 
+      <contact fullname="Dino Farinacci"/>, <contact fullname="Henrik Nydell"/>, <contact fullname="Zaheduzzaman Sarker"/>, and <contact fullname="Toerless Eckert"/> for their comments and suggestions.</t>
+    </section>
+  </back>
+</rfc>

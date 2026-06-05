@@ -1,0 +1,490 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]> 
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" xml:lang="en" ipr="trust200902" submissionType="IETF" consensus="true" category="std" docName="draft-ietf-tsvwg-sctp-zero-checksum-11" number="9653" updates="" obsoletes="" tocInclude="true" version="3" sortRefs="true" symRefs="true">
+
+  <front>
+    <title abbrev='Zero Checksum for SCTP'>Zero Checksum for the Stream Control Transmission Protocol</title>
+    <seriesInfo name="RFC" value="9653"/>
+    <author initials="M." surname="Tüxen" fullname="Michael Tüxen">
+      <organization abbrev='Münster Univ. of Appl. Sciences'>Münster University of Applied Sciences</organization>
+      <address>
+	<postal>
+          <street>Stegerwaldstrasse 39</street>
+          <city>48565 Steinfurt</city>
+          <country>Germany</country>
+	</postal>
+	<email>tuexen@fh-muenster.de</email>
+      </address>
+    </author>
+
+    <author initials='V.' surname='Boivie' fullname='Victor Boivie'>
+      <organization>Google</organization>
+      <address>
+	<postal>
+	  <street>Kungsbron 2</street>
+	  <city>Stockholm</city>
+	  <code>11122</code>
+	  <country>Sweden</country>
+	</postal>
+	<email>boivie@google.com</email>
+      </address>
+    </author>
+
+    <author initials='F.' surname='Castelli' fullname='Florent Castelli'>
+      <organization>Google</organization>
+      <address>
+	<postal>
+	  <street>Kungsbron 2</street>
+	  <city>Stockholm</city>
+	  <code>11122</code>
+	  <country>Sweden</country>
+	</postal>
+	<email>orphis@google.com</email>
+      </address>
+    </author>
+    
+    <author initials="R." surname="Jesup" fullname="Randell Jesup">
+      <organization abbrev='Mozilla'>Mozilla Corporation</organization>
+      <address>
+	<postal>
+          <street>1835 Horse Shoe Trl</street>
+          <city>Malvern</city>
+          <region>PA</region>
+          <code>19355</code>
+          <country>United States of America</country>
+	</postal>
+	<email>randell-ietf@jesup.org</email>
+      </address>
+    </author>
+
+    <date year="2024" month="September"/>
+
+    <area>WIT</area>
+    <workgroup>tsvwg</workgroup>
+
+<abstract>
+<t>The Stream Control Transmission Protocol (SCTP) uses a 32-bit checksum in
+the common header of each packet to provide some level of data integrity.
+If another method used by SCTP already provides the same or a higher level of
+data integrity, computing this checksum does not provide any additional
+protection but does consume computing resources.</t>
+<t>This document provides a simple extension allowing SCTP to save these
+computing resources by using zero as the checksum in a backwards-compatible
+way.
+It also defines how this feature can be used when SCTP packets are encapsulated
+in Datagram Transport Layer Security (DTLS) packets.</t>
+</abstract>
+</front>
+
+<middle>
+<section>
+<name>Introduction</name>
+<t>SCTP as specified in <xref target="RFC9260"/> uses a CRC32c checksum to
+provide some level of data integrity.
+When using, for example, Datagram Transport Layer Security (DTLS) as the
+lower layer for SCTP as specified in <xref target="RFC8261"/>, using the CRC32c
+checksum does not provide any additional protection over that already provided
+by DTLS.
+However, computing the CRC32c checksum at the sender and receiver sides does
+consume computational resources for no benefit.
+This is particularly important for endpoints that are computationally limited
+and use SCTP over DTLS.</t>
+<t>The extension described in this document allows an SCTP endpoint to declare
+that it accepts SCTP packets with a checksum of zero when using a specific
+alternate error detection method.
+   This declaration
+   happens during the setup of the SCTP association and allows endpoints
+   that support this extension to be interoperable with endpoints that don't.
+To provide this backwards compatibility, endpoints using this extension still
+need to implement the CRC32c checksum algorithm.</t>
+</section>
+
+<section anchor='conventions'>
+<name>Conventions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+</section>
+
+<section anchor='alternate_error_detection_methods'>
+<name>Alternate Error Detection Methods</name>
+<t>SCTP uses a CRC32c checksum to provide some level of data integrity.
+The CRC32c checksum is computed based on the SCTP common header and the chunks
+contained in the packet.
+In particular, the computation of the CRC32c checksum does not involve a pseudo
+header for IPv4 or IPv6 like the computation of the TCP checksum, as specified
+in <xref target='RFC9293'/>, or the UDP checksum, as specified in
+<xref target='RFC0768'/>.</t>
+<t>Zero is a valid result of the CRC32c checksum algorithm.
+For example, the following figure depicts an SCTP packet containing a minimal
+INIT chunk with a correct CRC32c checksum of zero.</t>
+<figure>
+<name>SCTP Packet with a Correct CRC32c Checksum of Zero</name>
+<artwork align='center'>
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   Source Port Number = 5001   |Destination Port Number = 5001 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Verification Tag = 0                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Checksum = 0                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   Type = 1    |Chunk Flags = 0|       Chunk Length = 20       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   Initiate Tag = 0xFCB75CCA                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|       Advertised Receiver Window Credit (a_rwnd) = 1500       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Number of Outbound Streams = 1 | Number of Inbound Streams = 1 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Initial TSN = 0                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</artwork>
+</figure>
+
+<t>Using SCTP in combination with other mechanisms or protocol extensions might
+provide data integrity protection with an equal or lower probability of false
+negatives than the one provided by using the CRC32c checksum algorithm.
+When using such alternate error detection methods, the SCTP common header
+containing the 32-bit checksum field might or might not be visible to
+middleboxes on the paths between the two endpoints.</t>
+<t>Alternate error detection methods have two requirements:</t>
+<ol>
+  <li><t>An alternate error detection method <bcp14>MUST</bcp14> provide an equal
+  or lower probability of false negatives than the one provided by using the
+  CRC32c checksum algorithm.
+  This <bcp14>MAY</bcp14> only apply to packets satisfying some method-specific
+  constraints.</t></li>
+  <li><t>Using an alternate error detection method <bcp14>MUST NOT</bcp14>
+  result in a path failure for more than two retransmission timeouts (RTOs)
+  due to middleboxes on the path expecting correct CRC32c checksums.</t></li>
+</ol>
+<t>To fulfill the second requirement, alternate error detection methods could
+use a heuristic to detect the existence of such middleboxes and use correct
+CRC32c checksums on these affected paths.</t>
+<t>
+   Using DTLS as the lower layer of SCTP as specified in <xref target="RFC8261"/>
+   is one example that fulfills the first requirement.
+Another example is using SCTP Authentication as specified in
+<xref target="RFC4895"/>.
+Of course, this only applies to each SCTP packet having an AUTH chunk as its
+first chunk.
+However, using SCTP Authentication without any heuristic does not fulfill the
+second requirement.
+Since using DTLS as the lower layer of SCTP as specified in
+<xref target="RFC8261"/> also fulfills the second requirement, it can be used
+as an alternate error detection method
+(see <xref target="edm_sctp_over_dtls"/>).</t>
+<t>If an alternate error detection method is used, the computation of the
+CRC32c checksum consumes computational resources without providing any benefit.
+To avoid this, an SCTP endpoint could be willing to accept SCTP packets with
+an incorrect CRC32c checksum value of zero in addition to SCTP packets with
+correct CRC32c checksum values.</t>
+<t>Because zero is a valid result of the CRC32c checksum algorithm, a receiver
+of an SCTP packet containing a checksum value of zero cannot determine whether
+the sender included an incorrect CRC32c checksum of zero to reduce the CPU cost
+or the result of the CRC32c checksum computation was actually zero.
+However, if the receiver is willing to use an alternate error detection method,
+this ambiguity is irrelevant, since the receiver is fine with not using the
+CRC32c checksum to protect incoming packets.</t>
+</section>
+
+<section>
+<name>A New Chunk Parameter</name>
+<t>The Zero Checksum Acceptable Chunk Parameter is defined by the
+following figure.</t>
+<figure>
+<name>Zero Checksum Acceptable Chunk Parameter</name>
+<artwork align="center">
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Type = 0x8001        |          Length = 8           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           Error Detection Method Identifier (EDMID)           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+</artwork>
+</figure>
+<dl newline="true">
+  <dt>Type: 16 bits (unsigned integer)</dt>
+  <dd>
+    This field holds the IANA-defined parameter type for the
+    "Zero Checksum Acceptable" chunk parameter.
+    IANA has assigned the value 32769 (0x8001) for this
+    parameter type.
+  </dd>
+  <dt>Length: 16 bits (unsigned integer)</dt>
+  <dd>
+    This field holds the length in bytes of the chunk parameter;
+    the value <bcp14>MUST</bcp14> be 8.
+  </dd>
+  <dt>Error Detection Method Identifier (EDMID): 32 bits (unsigned integer)</dt>
+  <dd>
+    An IANA-registered value specifying the alternate error detection method
+    the sender of this parameter is willing to use for received packets.
+  </dd>
+</dl>
+<t>All transported integer numbers are in network byte order, a.k.a.
+big endian.</t>
+<t>The Zero Checksum Acceptable Chunk Parameter <bcp14>MAY</bcp14> appear
+in INIT and INIT ACK chunks and <bcp14>MUST NOT</bcp14> appear in any other
+chunk.
+The Parameter <bcp14>MUST NOT</bcp14> appear more than once in any chunk.</t>
+<t>If an endpoint not supporting the extension described in this document
+receives this parameter in an INIT or INIT ACK chunk, it is
+<bcp14>REQUIRED</bcp14> to skip this parameter and continue to process further
+parameters in the chunk.
+This behavior is specified by <xref target="RFC9260"/> because the highest-order
+two bits of the Type are '10'.</t>
+</section>
+
+<section>
+<name>Procedures</name>
+
+<section>
+<name>Declaration of Feature Support</name>
+<t>An endpoint willing to accept SCTP packets with an incorrect checksum of
+zero <bcp14>MUST</bcp14> include the Zero Checksum Acceptable Chunk Parameter
+indicating the alternate error detection method it is willing to use in the
+INIT or INIT ACK chunk it sends.</t>
+<t>An SCTP implementation <bcp14>MAY</bcp14> also require the upper layer to
+indicate that it is fine to use a specific alternate error detection method
+before including the corresponding Zero Checksum Acceptable Chunk Parameter.</t>
+</section>
+
+<section anchor='sender_side_considerations'>
+<name>Sender-Side Considerations</name>
+<t>An SCTP endpoint cannot just use an incorrect CRC32c checksum value of zero
+for all SCTP packets it sends.
+The following restrictions apply:</t>
+<ol>
+<li><t>If an endpoint has not received an INIT or INIT ACK chunk containing a
+Zero Checksum Acceptable Chunk Parameter indicating an alternate error detection
+method it supports from its peer during the association setup,
+it <bcp14>MUST</bcp14> use a correct CRC32c checksum.
+In particular, when an endpoint</t>
+<ol type='%c.'>
+<li><t>sends a packet containing an INIT chunk, it <bcp14>MUST</bcp14> include
+a correct CRC32c checksum in the packet containing the INIT chunk.</t></li>
+<li><t>responds to an "Out of the Blue" (OOTB) SCTP packet, it
+<bcp14>MUST</bcp14> include a correct CRC32c checksum in the response
+packet.</t></li>
+</ol></li>
+<li><t>When an endpoint sends a packet containing a COOKIE ECHO chunk, it
+<bcp14>MUST</bcp14> include a correct CRC32c checksum in the packet containing
+the COOKIE ECHO chunk.</t></li>
+<li><t>When an endpoint supports the dynamic address reconfiguration specified
+in <xref target='RFC5061'/> and sends a packet containing an ASCONF chunk, it
+<bcp14>MUST</bcp14> include a correct CRC32c checksum in the packet containing
+the ASCONF chunk.</t></li>
+<li><t>If an alternate error detection method has some method-specific
+constraints, the sender <bcp14>MUST</bcp14> include a correct CRC32c checksum
+in all packets that don't fulfill these method-specific constraints.</t></li>
+</ol>
+<t>The first restriction allows backwards compatibility.
+The second and third restrictions allow a simpler implementation of the
+extension defined in this document, because looking up the association
+for SCTP packets containing a COOKIE ECHO chunk or an ASCONF chunk might
+be more complex than for other packets.
+Finally, the last restriction covers constraints specific to the alternate error detection method.</t>
+<t>An SCTP endpoint <bcp14>MAY</bcp14> require that the upper layer allow
+the use of the alternate error detection method that was announced by the peer
+before sending packets with an incorrect checksum of zero.</t>
+<t>If none of the above restrictions apply, an endpoint <bcp14>SHOULD</bcp14>
+use zero as the checksum when sending an SCTP packet.</t>
+</section>
+
+<section>
+<name>Receiver-Side Considerations</name>
+
+<t>If an endpoint has sent the Zero Checksum Acceptable Chunk Parameter
+indicating the support of an alternate error detection method in an INIT or     
+INIT ACK chunk, in addition to SCTP packets containing the
+correct CRC32c checksum value it <bcp14>MUST</bcp14> accept SCTP packets that have an
+incorrect checksum value of zero and that fulfill the requirements of
+the announced alternate error detection method used for this association.
+
+Otherwise, the endpoint <bcp14>MUST</bcp14> drop all SCTP packets with an
+incorrect CRC32c checksum.</t>
+<t>In addition to processing OOTB packets with a correct CRC32c checksum as
+specified in <xref target='RFC9260'/>, an SCTP implementation
+<bcp14>MAY</bcp14> also process OOTB packets having an incorrect zero checksum.
+Doing so might result in faster SCTP association failure detection.</t>
+</section>
+</section>
+
+<section anchor='edm_sctp_over_dtls'>
+<name>Error Detection via SCTP over DTLS</name>
+<t>Using SCTP over DTLS as specified in <xref target="RFC8261"/> provides
+a stronger error detection method than using the CRC32c checksum algorithm.
+Since middleboxes will not observe the unencrypted SCTP packet, there is
+no risk in interfering with using zero as an incorrect checksum.
+There are no additional constraints (specific to the error detection method) on packets
+when using DTLS encapsulation.</t>
+</section>
+
+<section>
+<name>Socket API Considerations</name>
+<t>This section describes how the socket API defined in
+<xref target='RFC6458'/> needs to be extended to provide a way for the
+application to control the acceptance of a zero checksum.</t>
+<t>A 'Socket API Considerations' section is contained in all SCTP-related
+specifications published after <xref target='RFC6458'/> describing an extension
+for which implementations using the socket API as specified in
+<xref target='RFC6458'/> would require some extension of the socket API.
+Please note that this section is informational only.</t>
+<t>A socket API implementation based on <xref target='RFC6458'/> is extended by
+supporting one new write-only IPPROTO_SCTP-level socket option.</t>
+
+<section>
+<name>Set Accepting a Zero Checksum (SCTP_ACCEPT_ZERO_CHECKSUM)</name>
+<t>This IPPROTO_SCTP-level socket option with the name SCTP_ACCEPT_ZERO_CHECKSUM
+can be used to control the acceptance of a zero checksum.
+It is a write-only socket option and applies only to future SCTP associations
+on the socket.</t>
+<t>This option expects an unsigned integer.
+Possible values include:</t>
+<dl>
+<dt>SCTP_EDMID_NONE:</dt>
+<dd><t>Disable the use of any alternate error detection method.
+This means that all SCTP packets being received are only accepted if they
+have a correct CRC32c checksum value.</t></dd>
+<dt>SCTP_EDMID_LOWER_LAYER_DTLS:</dt>
+<dd><t>Use the alternate error detection method described in
+<xref target='edm_sctp_over_dtls'/>.</t></dd>
+</dl>
+<t>An implementation might only send packets with an incorrect checksum of zero,
+if the alternate error detection method announced by the peer is also enabled
+locally via this socket option.</t>
+<t>The default for this socket option is that the use of alternate error
+detection methods is disabled.</t>
+</section>
+</section>
+
+<section>
+<name>IANA Considerations</name>
+<t>A new chunk parameter type has been assigned by IANA in the "Chunk Parameter Types" registry for SCTP:</t>
+<table>
+  <name>New Entry in "Chunk Parameter Types" Registry</name>
+  <thead>
+    <tr>
+      <th>ID Value</th>
+      <th>Chunk Parameter Type</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>32769</td>
+    <td>Zero Checksum Acceptable (0x8001)</td>
+    <td>RFC 9653</td></tr>
+  </tbody>
+</table>
+<t>Furthermore, IANA has established a new "Error Detection Method"
+registry for SCTP.
+The assignment of new error detection methods is done through the Specification
+Required policy as defined in <xref target='RFC8126'/>.
+Documentation for a new error detection method <bcp14>MUST</bcp14> contain the
+following information:</t>
+<ol>
+  <li><t>A name of an alternate error detection method.</t></li>
+  <li><t>A reference to a specification describing:</t>
+  <ol type='(%c)'>
+    <li><t>the alternate error detection method,</t></li>
+    <li><t>why the alternate error detection method provides an equal or
+    lower probability of false negatives than the one provided by using the CRC32c
+    checksum,</t></li>
+    <li><t>any constraints (specific to the alternate error detection method) that are referred to in the fourth exception in <xref target='sender_side_considerations'/>, and</t></li>
+    <li><t>why using the alternate error detection method does not result in
+    path failures due to middleboxes expecting correct CRC32c checksums for more
+    than two RTOs.
+    In case the alternate error detection method uses a heuristic for detecting
+    such middleboxes, this heuristic needs to be described.</t></li>
+  </ol></li>
+</ol>
+<t>The initial contents of the registry are as follows:</t>
+<table>
+  <name>Initial Contents of the "Error Detection Method" Registry</name>
+  <thead>
+    <tr><th>ID Value</th>       <th>Error Detection Method</th> <th>Reference</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>0             </td> <td>Reserved</td>             <td>RFC 9653</td></tr>
+    <tr><td>1             </td> <td>SCTP over DTLS</td>       <td>RFC 9653</td></tr>
+    <tr><td>2 - 4294967295</td> <td>Unassigned</td>           <td></td></tr>
+  </tbody>
+</table>
+<t>A designated expert (DE) is expected to ascertain the existence of suitable
+documentation (a specification) as described in <xref target='RFC8126'/> and to
+verify that the document is permanently and publicly available.
+Furthermore, the DE is expected to ensure that the above four points have been
+addressed appropriately.</t>
+</section>
+
+<section>
+<name>Security Considerations</name>
+<t>This document does not change the considerations given in
+<xref target="RFC9260"/>.</t>
+<t>Due to the first requirement in <xref target="alternate_error_detection_methods"/>, using an alternate error 
+   detection method provides an equal or better level of data integrity
+   than the one provided by using the CRC32c checksum algorithm.  The
+   second requirement in <xref target="alternate_error_detection_methods"/> ensures that the
+existence of middleboxes expecting correct CRC32c checksums does not result in
+permanent path failures.</t>
+</section>
+</middle>
+
+<back>
+<references>
+<name>References</name>
+<references>
+<name>Normative References</name>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5061.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8261.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9260.xml"/>
+</references>
+
+<references>
+<name>Informative References</name>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.0768.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4895.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6458.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9293.xml"/>
+</references>
+</references>
+
+<section numbered='false'>
+<name>Acknowledgments</name>
+<t>The authors wish to thank
+<contact fullname="Bernard Aboba"/>,
+<contact fullname="Deb Cooley"/>,
+<contact fullname="Martin Duke"/>,
+<contact fullname="Gorry Fairhurst"/>,
+<contact fullname="Mike Heard"/>,
+<contact fullname="Peter Lei"/>,
+<contact fullname="Nils Ohlmeier"/>,
+<contact fullname="Claudio Porfiri"/>,
+<contact fullname="Greg Skinner"/>,
+<contact fullname="Timo Völker"/>,
+<contact fullname="Éric Vyncke"/>, and
+<contact fullname="Magnus Westerlund"/>
+for their invaluable comments.</t>
+</section>
+
+</back>
+</rfc>

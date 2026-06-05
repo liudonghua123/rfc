@@ -1,0 +1,611 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" submissionType="IETF" docName="draft-ietf-dnssd-update-lease-latest" number="9664" updates="" obsoletes="" ipr="trust200902" version="3" sortRefs="false" consensus="true" symRefs="true" tocDepth="3" tocInclude="true" xml:lang="en">
+
+  <front>
+    <title abbrev='DNS Update Lease'>An EDNS(0) Option to Negotiate Leases on DNS Updates</title>
+    <seriesInfo name="RFC" value="9664"/>
+    <author initials='S.' surname='Cheshire' fullname='Stuart Cheshire'>
+      <organization>Apple Inc.</organization>
+      <address>
+        <postal>
+          <street>One Apple Park Way</street>
+          <city>Cupertino</city>
+          <region>CA</region>
+          <code>95014</code>
+          <country>United States of America</country>
+        </postal>
+        <phone>+1 408 974 3207</phone>
+        <email>cheshire@apple.com</email>
+      </address>
+    </author>
+
+    <author initials="T." surname="Lemon" fullname="Ted Lemon">
+      <organization>Apple Inc.</organization>
+      <address>
+        <postal>
+          <street>P.O. Box 958</street>
+          <city>Brattleboro</city>
+          <region>VT</region>
+          <country>United States of America</country>
+          <code>05302</code>
+        </postal>
+        <email>mellon@fugue.com</email>
+      </address>
+    </author>
+
+    <date month="June" year="2025"/>
+    <area>INT</area>
+    <workgroup>dnssd</workgroup>
+    <keyword>DNS Update</keyword>
+    <abstract>
+      <t>This document describes an EDNS(0) option that can be used between DNS
+      Update Requesters and authoritative DNS servers to include a lifetime (lease duration) in a DNS
+      Update or DNS Update Response, allowing a server to garbage collect stale Resource Records
+      that have been added by DNS Updates if they are not renewed.</t>
+    </abstract>
+  </front>
+
+  <middle>
+
+    <section>
+      <name>Introduction</name>
+      <t>Dynamic Update in the Domain Name System (DNS Update) <xref
+      target="RFC2136"/> allows for a mapping from a persistent hostname to an
+      IP address that changes over time. This capability is particularly
+      beneficial to mobile hosts, whose IP addresses may frequently change
+      with location. However, the mobile nature of such hosts often means that
+      Resource Records (RRs) added using DNS Update are not properly
+      deleted. For instance, consider a mobile user who publishes address RRs
+      via DNS Update. If this user moves their laptop out of range of the
+      Wi-Fi access point, the address RR containing stale information may
+      remain on the authoritative DNS server indefinitely.  Thus, an extension
+      to DNS Update is required to tell the server to automatically delete RRs
+      after a period of time if they are not refreshed.</t>
+    </section>
+
+    <section>
+
+      <name>Conventions and Terminology Used in This Document</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/>
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+      <section>
+	<name>Terminology</name>
+	<dl>
+	  <dt>DNS-SD:</dt><dd>DNS-based Service Discovery <xref target="RFC6763"/></dd>
+	  <dt>EDNS(0):</dt><dd>Extension Mechanisms for DNS <xref target="RFC6891"/></dd>
+          <dt>Update Lease option:</dt><dd>Update Lease EDNS(0) option</dd>
+	  <dt>Lease:</dt><dd>An agreement by an authoritative DNS server to continue to publish a record from the time of registration
+	  until the lease duration has elapsed and then stop publishing it</dd>
+	  <dt>Lease Duration:</dt><dd>The time between the start and end of a lease</dd>
+          <dt>Lease Update Request:</dt><dd>DNS Update Request containing an Update Lease option</dd>
+          <dt>Lease Update Response:</dt><dd>DNS Update Response containing an Update Lease option</dd>
+          <dt>RR:</dt><dd>Resource Record</dd>
+	  <dt>Registration Request:</dt><dd>A Lease Update Request that is constructed with the purpose of adding new
+	  information that is not thought to already be present on the authoritative DNS server</dd>
+	  <dt>Registration:</dt><dd>The result of a successful Registration Request</dd>
+	  <dt>Refresh Request:</dt><dd>A Lease Update Request that extends the lease duration on an existing Registration</dd>
+	  <dt>Refresh:</dt><dd>The result of a successful Refresh Request</dd>
+	</dl>
+      </section>
+    </section>
+
+    <section>
+      <name>Mechanisms</name>
+      <t>The Update Lease option is included in a standard DNS Update Request <xref
+      target="RFC2136"/> within an EDNS(0) OPT pseudo-RR <xref target="RFC6891"/>.</t>
+    </section>
+
+    <section anchor="update">
+      <name>Lease Update Request and Response Format</name>
+      <t>
+      Lease Update Requests and Responses are formatted as standard DNS Update
+      messages <xref target="RFC2136"/>. Such messages <bcp14>MUST</bcp14>
+      include the EDNS(0) OPT RR <xref target="RFC6891"/>.  This OPT RR
+      <bcp14>MUST</bcp14> include an Update Lease EDNS(0) Option as shown
+      below:</t>
+
+<table anchor="lease_opt">
+  <name></name>
+  <thead>
+    <tr>
+      <th>Field Name</th>
+      <th>Field Type</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>OPTION-CODE</td>
+      <td>u_int16_t</td>
+
+      <td>UPDATE-LEASE (2)</td>
+    </tr>
+    <tr>
+      <td>OPTION-LENGTH</td>
+      <td>u_int16_t</td>
+      <td>4 (LEASE) or 8 (LEASE + KEY-LEASE)</td>
+    </tr>
+    <tr>
+      <td>LEASE</td>
+      <td>u_int32_t</td>
+      <td>desired lease duration (Lease Update Request) or granted lease duration (Lease Update response), in seconds</td>
+    </tr>
+    <tr>
+      <td>KEY-LEASE</td>
+      <td>u_int32_t</td>
+      <td>optional desired (or granted) lease duration for KEY RRs, in seconds</td>
+    </tr>
+  </tbody>
+</table>
+
+      <t>Lease Update Requests contain, in the LEASE field of the OPT RDATA, an
+      unsigned 32-bit integer indicating the lease duration in seconds, desired
+      by the Requester, represented in network (big-endian) byte order.
+      In Lease Update Responses, this field contains the actual
+      lease duration granted by the authoritative DNS server. The lease durations granted by the
+      server may be less than, greater than, or equal to the value
+      requested by the Requester.</t>
+
+      <t>There are two variants of the Update Lease option:
+      The 4-byte variant and the 8-byte variant.</t>
+
+      <t>In the 4-byte variant, the LEASE indicated in the
+      Update Lease option applies to all RRs in the Update section.</t>
+
+      <t>In the 8-byte variant, the Update Lease communicates two lease durations.
+      The LEASE indicated in the Update Lease option applies to all RRs in the
+      Update section <em>except</em> for KEY RRs.  The KEY-LEASE indicated in the Update Lease
+      option applies to KEY RRs in the Update section.</t>
+
+      <t>More information about how the two variants are used is given in
+      <xref target="server-behavior" format="default"/>.</t>
+
+      <t>
+	KEY RRs are given a special lease duration because these RRs are used
+	in the DNS-SD Service Registration Protocol <xref target="RFC9665"/> to reserve
+	a name (or names) when the service is not present.
+      </t>
+
+      <t>In the case of a KEY RR and some other RR, obviously the KEY lease duration applies to
+      the KEY RR, and the lease duration applies to the other RR. If more than one RR that is not
+      a KEY RR is added by the Lease Update Request, the lease duration (not the KEY lease duration) is applied to all such
+      RRs. RRs that are removed are permanently removed.</t>
+
+      <section anchor="update-refresh">
+	<name>Types of Lease Update Requests</name>
+	<t>This document describes two types of Lease Update Requests: Registrations and
+	Refreshes. A Registration Request is a Lease Update Request that is intended to
+	add information not already present on the authoritative DNS server. A Refresh Request is
+	intended simply to renew the lease on a previous Registration without
+	changing anything. Registrations and Refreshes are both Lease Update Requests, so the term
+	"Lease Update Request" is used to specify behavior that is the same for both
+	types of DNS Updates.</t>
+
+	<t>In some cases, it may be necessary to add new information without
+	removing old information.  For the purpose of this document, such
+	Lease Update Requests are Registrations, although in effect, they
+	may also refresh whatever information is unchanged from a previous
+	registration.</t>
+      </section>
+
+      <section anchor="requester">
+	<name>Requester Behavior</name>
+	<t>DNS Update Requesters <bcp14>MUST</bcp14> send an Update Lease
+	option with any DNS Update that updates RRs that are not intended to be present
+	indefinitely. The Update Lease option <bcp14>SHOULD</bcp14> specify a
+	lease duration that is no shorter than 1800 seconds (30
+	minutes). Requesters <bcp14>MAY</bcp14> specify a shorter lease duration if
+	they anticipate that the RRs being updated will change more frequently than
+	every 30 minutes.  Requesters that expect the updated RRs to be
+	relatively static <bcp14>SHOULD</bcp14> request appropriately longer
+	lease durations.</t>
+
+	<t>If the DNS Response received by the Requester does not include an
+	Update Lease option, this is an indication that the authoritative DNS server does
+	not support the Update Lease option. In this case, the Requester
+	<bcp14>SHOULD</bcp14> continue sending Refresh Requests (see below) as
+	if the server had returned an identical Update Lease option in its
+	Response.</t>
+
+	<t>If the DNS Response does include an Update Lease option, the
+	Requester <bcp14>MUST</bcp14> use the durations returned in this
+	option when determining when to send Refresh Requests. This is true
+	both if the durations returned by the server are shorter and if they
+	are longer.</t>
+
+	<t>When sending a Registration Request, the Requester <bcp14>MUST</bcp14>
+	delay the initial transmission by a random amount of time across the
+	range of 0-3000 milliseconds, with a granularity of no more than 10
+	milliseconds. This prevents synchronization of multiple devices of the
+	same type at a site upon recovery from a power failure. This
+	requirement applies only to the initial Registration Request on startup; since
+	Refresh Requests include a random factor as well, any synchronization that
+	occurs after such an event should quickly randomize.</t>
+
+	<aside>
+	  <t>The 10 ms granularity is a scheduling requirement intended to
+	  result in an even spread of Requests so that every Request doesn't come an exact number
+	  of seconds after startup. This requirement should not be construed as requiring anything
+	  of the link layer on which the packet is transmitted: the link layer may well impose its
+	  own constraints on the timing at which a message is sent, and this document does not
+	  claim to override such constraints.</t>
+	</aside>
+
+	<aside>
+	  <t>The use of a 3000 ms (3-second) random delay as opposed to some
+	  other random delay is to allow for enough time to meaningfully spread the load when
+	  many devices renew at once, without delaying so long that the delay in discovery of
+	  devices becomes obvious to an end user. A 3-second random delay means that if there are,
+	  for example, 100 devices, and the random number generator spread is even, we would have
+	  one renewal every 30 ms.  In practice, on relatively constrained devices acting as Service Registration Protocol (SRP)
+	  servers, we are seeing the processing time for an SRP registration taking on the order
+	  of 7 ms, so this seems reasonable.</t>
+	</aside>
+
+      </section>
+
+      <section anchor="server-behavior">
+	<name>Server Behavior</name>
+
+	<t>Authoritative DNS servers implementing the Update Lease option
+	<bcp14>MUST</bcp14> include an Update Lease option in response to any
+	successful DNS Update (RCODE=0) that includes an Update Lease option.
+	Servers <bcp14>MAY</bcp14> return lease durations different from those
+	specified by the Requester,
+	granting longer leases to reduce network traffic due to Refreshes
+	or shorter leases to reduce the lifetime of stale data.</t>
+
+        <t>Although both the 4-byte and 8-byte variants are valid on
+        both requesters and servers, older (pre-standard) requesters and servers may exist
+        that support only the 4-byte variant. Therefore, requesters and servers
+        that (as required by this specification) support both variants
+        must account for the possibility that the peer with which they are communicating
+        may be an older implementation that supports only the 4-byte variant.</t>
+
+	<t>A server that receives an 8-byte variant from a requester
+	<bcp14>MUST</bcp14> respond with an 8-byte variant giving the granted lease times.</t>
+
+	<t>A server that receives a 4-byte variant from a requester
+	<bcp14>MUST</bcp14> treat the 4-byte variant as
+	specifying both the lease duration and the KEY lease duration
+	and <bcp14>MUST</bcp14> respond with a 4-byte variant.
+	In this case, the key and the other RRs expire at the same time.</t>
+
+	<t>A requester that receives a 4-byte variant from a server when it sent
+	an 8-byte variant in its request <bcp14>MUST</bcp14> treat the 4-byte variant as
+	specifying both the lease duration and the KEY lease duration.</t>
+
+      </section>
+    </section>
+
+    <section anchor="refresh">
+      <name>Refresh Requests</name>
+
+      <t>A Refresh Request is a DNS Update Request that is sent to the server after an initial
+      DNS Update has been sent in order to prevent the update's RRs from being garbage
+      collected.</t>
+
+      <section>
+	<name>Refresh Request Format</name>
+
+        <t>Refresh Requests and their corresponding responses are formatted
+        like Update Lease Requests and Update Lease Responses (see <xref
+        target="update" format="default"/>). The Refresh Request is
+        constructed with the assumption that the previous Registration or
+        Refresh is still in effect. In the case that the RRs added in a
+        previous update were for some reason garbage collected (e.g., because
+        of a server reboot that resulted in loss of state), the Refresh
+        Request will result in those RRs being added again.</t>
+
+	<t>The Refresh Request <bcp14>SHOULD NOT</bcp14> include any DNS Update
+	prerequisites that will fail if the Requester's previous Registration
+	or Refresh is still in effect. It also <bcp14>SHOULD NOT</bcp14>
+	include prerequisites that would fail if the RRs affected by the
+	previous Registration or Refresh are no longer present; that is, the
+	Refresh Request should also work as a Registration Request.  There may be cases where
+	this is not possible; in which case, the response from the server can
+	be used to determine how to proceed when the Refresh Request fails.</t>
+
+	<t>A Lease Update Request that changes the authoritative DNS server
+	state resulting from a previous Refresh or Registration is a
+	Registration Request, not a Refresh Request.</t>
+
+	<t>In a Refresh Request, the Update Lease option contains the desired
+	new lease duration, and in the corresponding response, the Update
+	Lease option contains the actual granted lease. The lease duration
+	provided in LEASE in the Update Lease option applies to all RRs in the
+	Update section of the Refresh Request, except that when the 8-byte
+	Update Lease variant is sent, the duration specified in KEY-LEASE
+	applies to any KEY RRs included in the Update section.</t>
+      </section>
+
+      <section>
+	<name>Requester Behavior</name>
+
+	<t>A Requester that intends for its RRs from a previous Registration or Refresh to remain active <bcp14>MUST</bcp14>
+	send a Refresh Request before the lease expires; otherwise, the RRs
+	will be removed by the server.</t>
+
+	<t>In order to prevent Registrations expiring, Requesters
+	<bcp14>MUST</bcp14> refresh them. When
+	a Lease Update Request succeeds, the requester computes a time limit that is 80%
+	of the lease duration plus a random offset between 0% and 5% of the lease
+	duration. The random offset is to prevent refreshes from being
+	synchronized. When this time limit has expired, the requester
+	<bcp14>MUST</bcp14> send a Refresh Request if the data in the initial
+	Registration should continue to be advertised.</t>
+
+	<t>For Refresh Requests, the server is expected to return an Update
+	Lease option, if supported, just as with the initial Registration Request. As
+	with the Registration Request, the Requester <bcp14>MUST</bcp14> use the
+	durations returned by the server in the Lease Update Response when determining when to send the
+	next Refresh Request.</t>
+
+	<t>When sending Refresh Requests, the Requester <bcp14>MUST</bcp14>
+	include an Update Lease option, as it did in the initial Registration
+	Request. The Update Lease option <bcp14>MAY</bcp14> either specify the
+	same durations as in the initial Registration Request or use the
+	values returned by the server in the previous Lease Update Response or
+	other desired values as appropriate.  As with responses to
+	Registration Requests, the Requester <bcp14>MUST</bcp14> use the lease
+	durations returned by the server in the response when determining when
+	to send the next Refresh Request.</t>
+
+	<t>If the Requester sends a Refresh Request message and
+	does not receive a response from the authoritative DNS server,
+	then the Requester should implement a reasonable retry strategy
+	to attempt to refresh the record registrations before they expire.
+	Given that 15% - 20% of the lease lifetime still remains,
+	these retransmissions do not need to be overly aggressive.
+	For example, the Requester could retry nine more times,
+	spaced uniformly at equal intervals from the time of the first
+	failed Refresh attempt until the expiration time of the records.
+	After the expiration time of the records, the Refresh Request
+	effectively turns into a new Registration Request, and further
+	retransmissions after this proceed
+	as described in <xref target="retransmission"/>.</t>
+
+	<section>
+	  <name>Coalescing Refresh Requests</name>
+          <t>If the Requester has performed multiple Registrations with a single server for different RRs,
+          the Requester <bcp14>MAY</bcp14> send a Refresh Request containing RRs from all such Registrations to that server in a single
+          Refresh Request. This effectively places all RRs for a Requester on the same expiration
+          schedule, reducing network traffic due to Refreshes.</t>
+
+	  <t>In doing so, the Requester includes in the Refresh Request all existing RRs previously successfully registered on
+	  the server, including those not yet close to expiration, so long as at least one
+	  RR updated in the Refresh Request has elapsed at least 75% of its original lease duration. If the
+	  Requester uses UDP, the Requester <bcp14>MUST NOT</bcp14> coalesce Refresh Requests if doing so would
+	  cause truncation of the Request; in this case, the Requester either sends multiple
+	  Requests or uses TCP to send the complete Refresh Request at once.</t>
+
+	  <t>Requesters <bcp14>SHOULD NOT</bcp14> send a Refresh Request when all of the RRs in the
+	  Refresh Request would have more than 50% of their lease duration remaining before expiry. However,
+	  there may be cases where the Requester needs to send an early Refresh Request, and it <bcp14>MAY</bcp14> do
+	  so. For example, a power-constrained (sleepy) device may need to send a Refresh Request when the radio
+	  is powered so as to avoid having to power it up later.</t>
+
+	  <t>Another case where this may be needed is when the lease duration registered with the
+	  server is no longer appropriate and the Requester wishes to negotiate a different
+	  lease duration. However, in this case, if the server does not honor the requested
+	  lease duration in its response, the Requester <bcp14>MUST NOT</bcp14> retry this negotiation.</t>
+	</section>
+      </section>
+
+      <section>
+	<name>Server Behavior</name>
+        <t>Upon receiving a valid Refresh Request, the server <bcp14>MUST</bcp14> send an acknowledgment. This
+        acknowledgment is a Lease Update Response as described in <xref
+        target="update"/> and contains the new lease duration of the Registration
+        being Refreshed.  The server <bcp14>MUST NOT</bcp14> increment the serial number of a zone
+        as the result of a Refresh Request if the operation does not result in any change to the zone contents.</t>
+
+	<t>However, the server's state may not match what the requester expects.  In this case, a
+	Refresh Request may actually appear to be a Registration Request, from the server's perspective. If the
+	Refresh Request changes the contents of the zone, the server <bcp14>MUST</bcp14> update the zone serial
+	number.</t>
+      </section>
+    </section>
+
+    <section anchor="retransmission">
+      <name>Retransmission Strategy</name>
+      <t>The DNS protocol, including DNS updates, can operate over UDP or TCP. For communication using UDP, reliable
+      transmission must be guaranteed by retransmitting when a DNS UDP message is not acknowledged in a
+      reasonable amount of time.
+      Section <xref target="RFC1035" section="4.2.1" sectionFormat="bare"/>
+      of the DNS specification <xref target="RFC1035"/>
+      provides some guidance on this topic, as does
+      Section <xref target="RFC1536" section="1" sectionFormat="bare"/>
+      of the IETF's guide to common DNS implementation errors <xref target="RFC1536"/>.
+      Section <xref target="RFC8085" section="3.1.3" sectionFormat="bare"/>
+      of the UDP Usage Guidelines <xref target="RFC8085"/>
+      also provides useful guidance that is particularly relevant to DNS.</t>
+    </section>
+
+    <section>
+      <name>Garbage Collection</name>
+
+      <t>If the lease duration of an RR elapses without being refreshed, the authoritative DNS server
+      <bcp14>MUST NOT</bcp14> return that RR in answers to queries. The server <bcp14>MAY</bcp14> delete that RR
+      from its database. The lease durations returned by the server to the Requester are used
+      in determining when the lease on an RR has expired.</t>
+
+      <t>For all RRs other than a KEY RR included in a Lease Update Request, the
+      lease duration is the LEASE value in the Update Lease option. For KEY RRs, if the
+      optional KEY-LEASE value was included, this duration is used rather than the duration
+      specified in the LEASE. If the KEY-LEASE was not specified, the duration specified in the LEASE is
+      used for all RRs in the Lease Update Request.
+      </t>
+    </section>
+
+    <section>
+      <name>Security Considerations</name>
+
+      <t>Section <xref target="RFC2136" section="8" sectionFormat="bare"/> of
+      the DNS Update specification <xref target="RFC2136"/> describes problems that can occur
+      around DNS updates.  Servers implementing this specification should follow these recommendations.</t>
+
+      <t>Several additional issues can arise when relying on the Update Lease option.</t>
+
+       <t>First, a
+      too-long lease duration is not much different from no lease duration: the RRs associated with
+      such a Registration will effectively never be cleaned up. Servers implementing Update Lease
+      should have a default upper bound on the maximum acceptable value both for the LEASE and
+      KEY-LEASE values sent by the requester.
+      Default values for these limits of 24 hours and 7 days, respectively,
+      are <bcp14>RECOMMENDED</bcp14>.
+      Servers <bcp14>MAY</bcp14> provide a way for the operator to change this upper limit.</t>
+
+      <t>The second issue is that a too-short lease can result in increased server load as
+      Requesters rapidly renew such Registrations. A delay in renewing could result in the registered RRs being
+      removed prematurely.  Servers implementing Update Lease <bcp14>MUST</bcp14> have a default minimum lease
+      duration that avoids this issue.  A minimum of 30 seconds for both the LEASE
+      and KEY-LEASE durations is <bcp14>RECOMMENDED</bcp14>.
+      However, in most cases, much longer lease durations (for example, an hour)
+      <bcp14>SHOULD</bcp14> be used.
+      Servers <bcp14>MAY</bcp14> provide a way for the operator to change this lower limit.</t>
+
+      <t>There may be some cost associated with renewing leases. A malicious
+      (or buggy) requester could renew at a high rate in order to overload the
+      server more than it would be overloaded by query traffic. This risk is
+      present for an authoritative server handling normal (no-lease) DNS Updates as well.
+      Servers should follow established
+      industry best practices to guard against flooding attacks,
+      both for malicious flooding of DNS messages over UDP
+      and for similar flooding attacks using TCP
+      <xref target="SYN" format="default"/> <xref target="RFC4953" format="default"/>.</t>
+
+      <t>Some authentication strategy should be used when accepting DNS
+      updates.  Shared secret <xref target="RFC8945"/> or public key signing
+      (e.g., SIG(0) <xref target="RFC2931"/>) should be required. Keys should
+      have limited authority: compromise of a key should not result in
+      compromise of the entire contents of one or more zones managed by the
+      server. Key management strategy is out of scope for this document.
+      Service Registration Protocol <xref target="RFC9665"/>
+      uses DNS Update Leases with "First Come, First Served Naming" rather
+      than an explicit trust establishment process to confer update
+      permission to a set of RRs.</t>
+    </section>
+
+    <section>
+      <name>IANA Considerations</name>
+
+      <t>IANA has updated the "DNS EDNS0 Option Codes (OPT)" registry <xref target="EDNS0Reg"/> as regards value 2 as follows:</t>
+
+      <dl newline="false" spacing="compact">
+        <dt>Value:</dt> <dd>2</dd>
+        <dt>Name:</dt> <dd>Update Lease</dd>
+        <dt>Status:</dt> <dd>Standard</dd>
+        <dt>Reference:</dt> <dd>RFC 9664</dd>
+      </dl>
+
+    </section>
+
+
+  </middle>
+
+  <back>
+
+
+    <references>
+      <name>References</name>
+      <references>
+     <name>Normative References</name>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2136.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6891.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+      </references>
+      <references>
+      <name>Informative References</name>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1536.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2931.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4953.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6763.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8085.xml"/>
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8945.xml"/>
+
+<!-- [I-D.ietf-dnssd-srp] companion document RFC 9665-->
+      <reference anchor="RFC9665" target="https://www.rfc-editor.org/info/rfc9665">
+	<front>
+	  <title>Service Registration Protocol for DNS-Based Service Discovery</title>
+	  <author fullname="Ted Lemon" initials="T." surname="Lemon">
+	    <organization>Apple Inc.</organization>
+	  </author>
+	  <author fullname="Stuart Cheshire" initials="S." surname="Cheshire">
+	    <organization>Apple Inc.</organization>
+	  </author>
+	  <date month="June" year="2025"/>
+	</front>
+	<seriesInfo name="RFC" value="9665"/>
+	<seriesInfo name="DOI" value="10.17487/RFC9665"/>
+      </reference>
+
+      <reference anchor="EDNS0Reg" target="https://www.iana.org/assignments/dns-parameters">
+        <front>
+          <title>DNS EDNS0 Option Codes (OPT)</title>
+          <author>
+	    <organization>IANA</organization>
+          </author>
+        </front>
+      </reference>
+
+        <reference anchor="SYN"
+		   target="https://www.cisco.com/web/about/ac123/ac147/archived_issues/ipj_9-4/ipj_9-4.pdf">
+          <front>
+            <title>Defenses Against TCP SYN Flooding Attacks</title>
+
+            <author initials="W." surname="Eddy" fullname="Wesley Eddy">
+              <organization>Verizon Federal Network Systems</organization>
+              <address>
+                <email>weddy@grc.nasa.gov</email>
+              </address>
+            </author>
+            <date year="2006" month="December"/>
+            <keyword>TCP</keyword>
+          </front>
+	    <refcontent>The Internet Protocol Journal</refcontent>
+	      <refcontent>Cisco Systems</refcontent>
+	        <refcontent>Volume 9</refcontent>
+		  <refcontent>Number 4</refcontent>
+        </reference>
+
+      </references>
+    </references>
+
+    <section numbered="false">
+      <name>Acknowledgments</name>
+      <t>Thanks to <contact fullname="Marc Krochmal"/> and <contact
+      fullname="Kiren Sekar"/> for their work in 2006 on the precursor to this
+      document.  Thanks also to <contact fullname="Roger Pantos"/> and
+      <contact fullname="Chris Sharp"/> for their contributions. Thanks to
+      <contact fullname="Chris Box"/>, <contact fullname="Esko Dijk"/>,
+      <contact fullname="Jonathan Hui"/>, <contact fullname="Peter van
+      Dijk"/>, <contact fullname="Abtin Keshvarzian"/>, <contact
+      fullname="Nathan Dyck"/>, <contact fullname="Steve Hanna"/>, <contact
+      fullname="Gabriel Montenegro"/>, <contact fullname="Kangping Dong"/>,
+      and <contact fullname="Tim Wicinski"/> for their working group reviews
+      of this document.  Thanks to <contact fullname="David Dong"/>, <contact
+      fullname="Olafur Gudmundsson"/>, <contact fullname="Brian Trammel"/>,
+      and <contact fullname="Shivan Sahib"/> for their directorate reviews and
+      IANA reviews.</t>
+    </section>
+
+  </back>
+
+</rfc>

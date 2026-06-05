@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-httpbis-cache-groups-07" number="9875" submissionType="IETF" updates="" obsoletes="" category="std" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="HTTP Cache Groups">HTTP Cache Groups</title>
+    <seriesInfo name="RFC" value="9875"/>
+    <author initials="M." surname="Nottingham" fullname="Mark Nottingham">
+      <organization>Cloudflare</organization>
+      <address>
+        <postal>
+          <postalLine>Melbourne</postalLine>
+          <postalLine>Australia</postalLine>
+        </postal>
+        <email>mnot@mnot.net</email>
+        <uri>https://www.mnot.net/</uri>
+      </address>
+    </author>
+    <date month="October" year="2025"/>
+    <area>WIT</area>
+    <workgroup>httpbis</workgroup>
+    <keyword>HTTP</keyword>
+    <keyword>Caching</keyword>
+    <keyword>Invalidation</keyword>
+    
+    <abstract>
+<t>This specification introduces a means of describing the relationships between stored responses in HTTP caches, grouping them by associating a stored response with one or more strings.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>HTTP caching <xref target="RFC9111"/> operates at the granularity of a single resource; the freshness of one stored response does not affect that of others. This granularity can make caching more efficient -- for example, when a page is composed of many assets that have different requirements for caching.</t>
+      <t>However, there are also cases where the relationship between stored responses could be used to improve cache efficiency.</t>
+      <t>For example, it is often necessary to invalidate a set of related resources. This might be because a state-changing request has side effects on other resources, or it might be purely for administrative convenience (e.g., "invalidate this part of the site"). Grouping responses together provides a dedicated way to express these relationships, instead of relying on things like URL structure.</t>
+
+      <t>In addition to sharing invalidation events, the relationships indicated by grouping can also be used by caches to optimise their operation (e.g., to inform the operation of cache eviction algorithms).</t>
+      <t><xref target="cache-groups"/> introduces a means of describing the relationships between stored responses in HTTP caches, by associating those responses with one or more groups that reflect those relationships. It also describes how caches can use that information to apply invalidation events to members of a group.</t>
+      <t><xref target="cache-group-invalidation"/> introduces one new source of such events: an HTTP response header field that allows a state-changing response to trigger a group invalidation.</t>
+      <t>These mechanisms operate within a single cache, across the stored responses associated with a single origin server (see <xref target="identify"/>). They do not address the issues of synchronising state between multiple caches (e.g., in a hierarchy or mesh), nor do they facilitate association of stored responses from disparate origins.</t>
+      <section anchor="notational-conventions">
+        <name>Notational Conventions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+<t>This specification uses the following terminology from <xref target="RFC9651"/>: List, String, and Parameter.</t>
+      </section>
+    </section>
+    <section anchor="cache-groups">
+      <name>The Cache-Groups Response Header Field</name>
+
+      <t>The Cache-Groups response header field is a List of Strings (Sections <xref target="RFC9651" section="3.1" sectionFormat="bare"/> and <xref target="RFC9651" section="3.3.3" sectionFormat="bare"/> of <xref target="RFC9651"/>). Each member of the List is a value that identifies a group that the response belongs to. These Strings are opaque -- while they might have some meaning to the server that creates them, the cache does not have any insight into their structure or content (beyond uniquely identifying a group).</t>
+      <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 200 OK
+Content-Type: application/javascript
+Cache-Control: max-age=3600
+Cache-Groups: "scripts"
+]]></sourcecode>
+      <t>The ordering of members is not significant. Unrecognised Parameters are to be ignored.</t>
+      <t>Implementations <bcp14>MUST</bcp14> support at least 32 groups in a field value, with up to at least 32 characters in each member. Note that generic limitations on HTTP field lengths may constrain the size of this field value in practice.</t>
+      <section anchor="identify">
+        <name>Identifying Grouped Responses</name>
+        <t>Two responses stored in the same cache are considered to belong to the same group when all of the following conditions are met:</t>
+        <ol spacing="normal" type="1"><li>
+
+            <t>They both contain a Cache-Groups response header field that contains the same String (in any position in the List), when compared character-by-character (case sensitive).</t>
+          </li>
+          <li>
+            <t>They both share the same URI origin (per <xref section="4.3.1" sectionFormat="of" target="RFC9110"/>).</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="cache-behaviour">
+        <name>Cache Behaviour</name>
+        <section anchor="invalidation">
+          <name>Invalidation</name>
+
+          <t>A cache that invalidates a stored response <bcp14>MAY</bcp14> invalidate any stored responses that share groups (per <xref target="identify"/>) with that response. Note that further grouped invalidations are not triggered by a grouped invalidation; i.e., this mechanism does not cascade.</t>
+          <t>Cache extensions can explicitly strengthen the requirement above. For example, a targeted cache control header field <xref target="RFC9213"/> might specify that caches processing it are required to invalidate such responses.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="cache-group-invalidation">
+      <name>The Cache-Group-Invalidation Response Header Field</name>
+      <t>The Cache-Group-Invalidation response header field is a List of Strings (Sections <xref target="RFC9651" section="3.1" sectionFormat="bare"/> and <xref target="RFC9651" section="3.3.3" sectionFormat="bare"/> of <xref target="RFC9651"/>). Each member of the List is a value that identifies a group that the response invalidates, per <xref target="invalidation"/>.</t>
+      <t>For example, following a POST request that has side effects on two cache groups, the corresponding response could indicate that stored responses associated with either or both of those groups should be invalidated with:</t>
+      <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 200 OK
+Content-Type: text/html
+Cache-Group-Invalidation: "eurovision-results", "australia"
+]]></sourcecode>
+
+      <t>The Cache-Group-Invalidation header field <bcp14>MUST</bcp14> be ignored on responses to requests that have a safe method (e.g., GET; see <xref section="9.2.1" sectionFormat="of" target="RFC9110"/>).</t>
+      <t>A cache that receives a Cache-Group-Invalidation header field on a response to an unsafe request <bcp14>MAY</bcp14> invalidate any stored responses that share groups (per <xref target="identify"/>) with any of the listed groups.</t>
+      <t>Cache extensions can explicitly strengthen the requirement above. For example, a targeted cache control header field <xref target="RFC9213"/> might specify that caches processing it are required to respect the Cache-Group-Invalidation signal.</t>
+      <t>The ordering of members is not significant. Unrecognised Parameters are to be ignored.</t>
+      <t>Implementations <bcp14>MUST</bcp14> support at least 32 groups in a field value, with up to at least 32 characters in each member. Note that generic limitations on HTTP field lengths may constrain the size of this field value in practice.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+        <t>IANA has added the following entries to the "Hypertext Transfer Protocol (HTTP) Field Name Registry":</t>
+	<dl spacing="compact" newline="false">
+          <dt>Field Name:</dt><dd>Cache-Groups</dd>
+          <dt>Status:</dt><dd>permanent</dd>
+          <dt>Reference:</dt><dd>RFC 9875</dd>
+	</dl>
+	<dl spacing="compact" newline="false">
+          <dt>Field Name:</dt><dd>Cache-Group-Invalidation</dd>
+          <dt>Status:</dt><dd>permanent</dd>
+          <dt>Reference:</dt><dd>RFC 9875</dd>
+        </dl>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This mechanism allows resources that share an origin to invalidate each other. Because of this,
+origins that represent multiple parties (sometimes referred to as "shared hosting") might allow
+one party to group its resources with those of others or to send signals that have side effects upon them.</t>
+      <t>Shared hosts that wish to mitigate these risks can control access to the header fields defined in this specification.</t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="RFC9110" to="HTTP"/>
+    <displayreference target="RFC9111" to="HTTP-CACHING"/>
+    <displayreference target="RFC9651" to="STRUCTURED-FIELDS"/>
+    <displayreference target="RFC9213" to="TARGETED"/>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9111.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9651.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9213.xml"/>
+      </references>
+    </references>
+
+<section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>Thanks to <contact fullname="Stephen Ludin"/> for his review and suggestions.</t>
+    </section>
+  </back>
+
+</rfc>

@@ -1,0 +1,645 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-ntp-interleaved-modes-08" number="9769" updates="5905" consensus="true" ipr="trust200902" obsoletes="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title>NTP Interleaved Modes</title>
+    <seriesInfo name="RFC" value="9769"/>
+    <author fullname="Miroslav Lichvar" initials="M." surname="Lichvar">
+      <organization>Red Hat</organization>
+      <address>
+        <postal>
+          <street>Purkynova 115</street>
+          <city>Brno</city>
+          <code>612 00</code>
+          <country>Czech Republic</country>
+        </postal>
+        <email>mlichvar@redhat.com</email>
+      </address>
+    </author>
+    <author fullname="Aanchal Malhotra" initials="A." surname="Malhotra">
+      <organization>Boston University</organization>
+      <address>
+        <postal>
+          <street>111 Cummington St</street>
+          <city>Boston</city>
+          <region>MA</region>
+          <code>02215</code>
+          <country>United States of America</country>
+        </postal>
+        <email>aanchal4@bu.edu</email>
+      </address>
+    </author>
+    <date year="2025" month="May"/>
+    <area>INT</area>
+    <workgroup>ntp</workgroup>
+
+    <keyword>NTP</keyword>
+    <keyword>interleaved mode</keyword>
+
+    <abstract>
+      <t>This document specifies interleaved modes for the Network Time
+        Protocol (NTP).  These new modes improve the accuracy of time synchronization by
+        enabling the use of more accurate transmit timestamps that are available
+        only after the transmission of NTP messages. These enhancements are
+        intended to improve timekeeping in environments where high accuracy is
+        critical. This document updates RFC 5905 by defining these new
+        operational modes.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t><xref target="RFC5905" format="default">RFC 5905</xref> describes the operations of
+        NTPv4 in a client/server mode, symmetric mode, and broadcast mode. The transmit
+        and receive timestamps are two of the four timestamps included in every
+        NTPv4 packet used for time synchronization.</t>
+      <t>For a highly accurate and stable synchronization, the transmit and
+        receive timestamps should be captured close to the beginning of the
+        actual transmission and the end of the reception, respectively. An
+        asymmetry in the timestamping causes the offset measured by NTP to have
+        an error.</t>
+      <t>Four options where a timestamp of an NTP packet may be captured with a
+        software NTP implementation running on a general-purpose operating system
+        are as follows:
+</t>
+      <ol spacing="normal" type="1"><li>
+          <t>User space (software)</t>
+        </li>
+        <li>
+          <t>Network device driver or kernel (software)</t>
+        </li>
+        <li>
+          <t>Data link layer (hardware - MAC chip)</t>
+        </li>
+        <li>
+          <t>Physical layer (hardware - PHY chip)</t>
+        </li>
+      </ol>
+      <t>Software timestamps captured in the user space in the NTP
+        implementation itself are the least accurate. They do not account for
+        delays due to
+        system calls used for sending and receiving packets, processing and
+        queuing delays in the system, network device drivers, and hardware.
+        Hardware timestamps captured at the physical layer are the most
+        accurate.</t>
+      <t>A transmit timestamp captured in the driver or hardware is more
+        accurate than the user-space timestamp, but it is available to the NTP
+        implementation only after it sent the packet using a system call. The
+        timestamp cannot be included in the packet itself unless the driver or
+        hardware supports NTP and can modify the packet before or during the
+        actual transmission.</t>
+      <t>The protocol described in <xref target="RFC5905" format="default">RFC 5905</xref> does not specify any mechanism for
+        a server to provide its clients and peers with a more accurate transmit
+        timestamp that is known only after the transmission. A packet that
+        strictly follows <xref target="RFC5905" format="default">RFC 5905</xref>, i.e., that contains a transmit timestamp
+        corresponding to the packet itself, is said to be in the basic mode.</t>
+      <t>Different mechanisms could be used to exchange timestamps known after
+        the transmission. The server could respond to each request with two
+        packets. The second packet would contain the transmit timestamp
+        corresponding to the first packet. However, such a protocol would
+        enable a traffic amplification attack, or it would use packets with an
+        asymmetric length, which would cause an asymmetry in the network delay
+        and an error in the measured offset.</t>
+      <t>This document describes an interleaved client/server mode, interleaved
+        symmetric mode, and interleaved broadcast mode. In these modes, the server
+        sends a packet that contains a transmit timestamp corresponding to the
+        transmission of the previous packet that was sent to the client or
+        peer. This transmit timestamp can be captured in any software or
+        hardware component involved in the transmission of the packet. Both
+        servers and clients/peers are required to keep
+        some state specific to the interleaved mode.</t>
+      <t>An NTPv4 implementation that
+        supports the interleaved client/server and interleaved broadcast modes
+        interoperates with NTPv4 implementations without this capability. A
+        peer using the interleaved symmetric mode does not fully interoperate
+        with a peer that does not support it. The mode needs to be configured
+        specifically for each symmetric association.</t>
+      <t>The interleaved modes do not change the NTP packet header format and
+        do not use new extension fields. The negotiation is implicit. The
+        protocol is extended with new values that can be assigned to the origin
+        and transmit timestamps. Servers and peers check the origin timestamp to
+        detect requests conforming to the
+        interleaved mode. A response can only be valid in one mode. If a client
+        or peer that does not support the interleaved mode received a response
+        conforming to the interleaved mode, it would be rejected as bogus.</t>
+      <t>An explicit negotiation would require a new extension field. <xref target="RFC5905" format="default">RFC 5905</xref>
+        does not specify how servers should handle requests with an unknown
+        extension field. The original use of extension fields was
+        authentication with <xref target="RFC5906" format="default">Autokey</xref>, which cannot
+        be negotiated. Some existing implementations do not respond to requests
+        with unknown extension fields. This behavior would prevent clients from
+        reliably detecting support for the interleaved mode.</t>
+      <t>Requests and responses cannot always be formed in the interleaved mode.
+        It cannot be used exclusively. Servers, clients, and peers that support
+        the interleaved mode need to also support the basic mode.</t>
+      <t>This document assumes familiarity with <xref target="RFC5905" format="default">RFC 5905</xref>.</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+         <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+         "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>",
+         "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+         "<bcp14>SHOULD NOT</bcp14>",
+         "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+         "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+         are to be interpreted as described in BCP&nbsp;14
+         <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only
+         when, they appear in all capitals, as shown here.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default" anchor="client-server-mode">
+      <name>Interleaved Client/Server Mode</name>
+      <t>The interleaved client/server mode is similar to the basic
+        client/server mode. The difference between the two modes is in the values
+        saved to the origin and transmit timestamp fields.</t>
+      <t>The origin timestamp is a cookie that is used to detect that a
+        received packet is a response to the last packet sent in the other
+        direction of the association. It is a copy of one of the timestamps
+        from the packet to which it is responding, or zero if it is not a
+        response. Servers following <xref target="RFC5905" format="default">RFC 5905</xref> ignore the origin timestamp in
+        client requests. A server response that does not have a matching
+        origin timestamp is considered bogus.</t>
+      <t>A client request in the basic mode has an origin timestamp equal to
+        the transmit timestamp from the last valid server response, or the origin timestamp is zero
+        (which indicates the first request of the association). A server
+        response in the basic mode has an origin timestamp equal to the
+        transmit timestamp from the client request. The transmit timestamp in
+        the response corresponds to the transmission of the response in which
+        the timestamp is contained.</t>
+      <t>A client request in the interleaved mode has an origin timestamp equal
+        to the receive timestamp from the last valid server response. A server
+        response in the interleaved mode has an origin timestamp equal to the
+        receive timestamp from the client request. The transmit timestamp in
+        the response corresponds to the transmission of the previous response
+        that had the receive timestamp equal to the origin timestamp from the
+        request.</t>
+      <t>A server that supports the interleaved mode needs to save pairs of
+        local receive and transmit timestamps. The server <bcp14>SHOULD</bcp14> discard old
+        timestamps to limit the amount of memory used for the interleaved mode,
+        e.g., by using a fixed-length queue and dropping old timestamps as new
+        timestamps are saved. The server <bcp14>MAY</bcp14> separate the timestamps by
+        IP addresses, but it <bcp14>SHOULD NOT</bcp14> separate them by port numbers to
+        support clients that change their port between requests, as recommended
+        in <xref target="RFC9109" format="default">RFC 9109</xref>.</t>
+      <t>The server <bcp14>MAY</bcp14> restrict the interleaved mode to specific IP addresses
+        and/or authenticated clients.</t>
+      <t>Both servers and clients that support the interleaved mode <bcp14>MUST NOT</bcp14>
+        send a packet that has a transmit timestamp equal to the receive
+        timestamp in order to reliably detect whether received packets conform
+        to the interleaved mode. One way to ensure this behavior is to increment the
+        transmit timestamp by 1 unit (i.e., about 1/4 of a nanosecond) if the
+        two timestamps are equal, or a new timestamp can be generated.</t>
+      <t>The transmit and receive timestamps in server responses need to be
+        unique to prevent two different clients from sending requests with the
+        same origin timestamp and the server responding in the interleaved mode
+        with an incorrect transmit timestamp. If the timestamps are not
+        guaranteed to be monotonically increasing, the server <bcp14>SHOULD</bcp14> check that
+        the transmit and receive timestamps are not already saved as a receive
+        timestamp of a previous request (from the same IP address if the server
+        separates timestamps by addresses), and generate a new timestamp if
+        necessary, to prevent an incorrect interleaved response later.</t>
+      <t>When the server receives a request from a client, it <bcp14>MUST NOT</bcp14> respond
+        in the interleaved mode unless the following two conditions are
+        met:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>The request does not have a receive timestamp equal to the transmit
+            timestamp.</t>
+        </li>
+        <li>
+          <t>The origin timestamp from the request matches the local receive
+            timestamp of a previous request that the server has saved (for the
+            IP address if it separates timestamps by addresses).</t>
+        </li>
+      </ol>
+      <t>A response in the interleaved mode <bcp14>MUST</bcp14> contain the transmit timestamp
+        of the response that contained the receive timestamp matching the
+        origin timestamp from the request. The server can drop the timestamps
+        after sending the response. The receive timestamp <bcp14>MUST NOT</bcp14> be used
+        again to detect a request conforming to the interleaved mode.</t>
+      <t>If the conditions are not met (i.e., the request is not detected to
+        conform to the interleaved mode), the server <bcp14>MUST NOT</bcp14> respond in the
+        interleaved mode. If it responds, it <bcp14>MUST</bcp14> be in the basic mode. In
+        any case, the server <bcp14>SHOULD</bcp14> save the new receive and transmit
+        timestamps to be able to respond in the interleaved mode to the
+        next request from the client.</t>
+      <t>The first request from a client is always in the basic mode, and so is
+        the server response. It has a zero origin timestamp and zero receive
+        timestamp. Only when the client receives a valid response from the
+        server will it be able to send a request in the interleaved mode.</t>
+      <t>The protocol recovers from packet loss. When a client request or
+        server response is lost, the client will use the same origin timestamp
+        in the next request. The server can respond in the interleaved mode if
+        it still has the timestamps corresponding to the origin timestamp. If
+        the server already responded to the timestamp in the interleaved mode
+        or it had to drop the timestamps for other reasons, it
+        will respond in the basic mode and save new timestamps, which will
+        enable an interleaved response to the subsequent request. The client
+        <bcp14>SHOULD</bcp14> limit the number of requests in the interleaved mode between
+        server responses to prevent the processing of very old timestamps in cases where a
+        large number of consecutive requests are lost.</t>
+      <t>An example of packets in a client/server exchange using the
+        interleaved mode is shown in <xref target="client-server-exchange"/>. The packets in the basic and
+        interleaved modes are indicated with B and I, respectively. The
+        timestamps t1~, t3~, and t11~ point to the same transmissions as t1, t3,
+        and t11, but they may be less accurate. The first exchange is in the
+        basic mode followed by a second exchange in the interleaved mode. For
+        the third exchange, the client request is in the interleaved mode, but
+        the server response is in the basic mode, because the server did not
+        have the pair of timestamps t6 and t7 (e.g., they were dropped to save
+        timestamps for other clients using the interleaved mode).</t>
+      <figure anchor="client-server-exchange">
+        <name>Packet Timestamps in Interleaved Client/Server Mode</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+            t2   t3               t6   t7              t10  t11
+Server -----+----+----------------+----+----------------+----+-----
+           /      \              /      \              /      \
+          /        \            /        \            /        \
+Client --+----------+----------+----------+----------+----------+--
+         t1         t4         t5         t8         t9        t12
+
+Mode     B         B           I         I           I         B
+       +----+    +----+      +----+    +----+      +----+    +----+
+Origin | 0  |    | t1~|      | t2 |    | t4 |      | t6 |    | t5 |
+Rx     | 0  |    | t2 |      | t4 |    | t6 |      | t8 |    |t10 |
+Tx     | t1~|    | t3~|      | t1 |    | t3 |      | t5 |    |t11~|
+       +----+    +----+      +----+    +----+      +----+    +----+
+]]></artwork>
+      </figure>
+
+      <t>When the client receives a response from the server, it performs the
+        tests described in <xref target="RFC5905" format="default">RFC 5905</xref>. Two of the tests are modified for the
+        interleaved mode:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>The check for duplicate packets compares both receive and
+            transmit timestamps in order to not drop a valid response in the
+            interleaved mode if it follows a response in the basic mode and
+            they contain the same transmit timestamp.</t>
+        </li>
+        <li>
+          <t>The check for bogus packets compares the origin timestamp
+            with both transmit and receive timestamps from the request. If the
+            origin timestamp is equal to the transmit timestamp, the response
+            is in the basic mode. If the origin timestamp is equal to the
+            receive timestamp, the response is in the interleaved mode.</t>
+        </li>
+      </ol>
+      <t>The client <bcp14>SHOULD NOT</bcp14> update its NTP state when an invalid response is
+        received, so that the timestamps that will be needed to complete a
+        measurement when the subsequent response in the interleaved mode is
+        received will not be lost.</t>
+      <t>If the packet passed the tests and conforms to the interleaved mode,
+        the client can compute the offset and delay using the formulas from <xref target="RFC5905" format="default">RFC 5905</xref> and one of two different sets of timestamps. The first set is
+        <bcp14>RECOMMENDED</bcp14> for clients that filter measurements based on the delay.
+        The corresponding timestamps from <xref target="client-server-exchange"/> are written in
+        parentheses.</t>
+      <ul spacing="normal">
+        <li>
+          <t>T1 - local transmit timestamp of the previous request (t1)</t>
+        </li>
+        <li>
+          <t>T2 - remote receive timestamp from the previous response (t2)</t>
+        </li>
+        <li>
+          <t>T3 - remote transmit timestamp from the latest response (t3)</t>
+        </li>
+        <li>
+          <t>T4 - local receive timestamp of the previous response (t4)</t>
+        </li>
+      </ul>
+      <t>The second set gives a more accurate measurement of the current
+        offset, but the delay is much more sensitive to a frequency error
+        between the server and client due to a much longer interval between T1
+        and T4.</t>
+      <ul spacing="normal">
+        <li>
+          <t>T1 - local transmit timestamp of the latest request (t5)</t>
+        </li>
+        <li>
+          <t>T2 - remote receive timestamp from the latest response (t6)</t>
+        </li>
+        <li>
+          <t>T3 - remote transmit timestamp from the latest response (t3)</t>
+        </li>
+        <li>
+          <t>T4 - local receive timestamp of the previous response (t4)</t>
+        </li>
+      </ul>
+      <t>Clients <bcp14>MAY</bcp14> filter measurements based on the mode. The maximum number
+        of dropped measurements in the basic mode <bcp14>SHOULD</bcp14> be limited in cases where the
+        server does not support, or is not able to respond in, the interleaved
+        mode. Clients that filter measurements based on the delay will
+        implicitly prefer measurements in the interleaved mode over the basic
+        mode, because they have a shorter delay due to a more accurate transmit
+        timestamp (T3).</t>
+      <t>The server <bcp14>MAY</bcp14> limit the saving of the receive and transmit timestamps to
+        requests that have an origin timestamp specific to the interleaved
+        mode in order to not waste resources on clients using the basic mode.
+        Such an optimization will delay the first interleaved response of the
+        server to a client by one exchange.</t>
+      <t>A check for a non-zero origin timestamp works with NTP clients that
+        always set the timestamp to zero. From the server's point of view, such
+        clients start a new association with each request.</t>
+      <t>To avoid searching the saved receive timestamps for non-zero origin
+        timestamps from requests conforming to the basic mode, the server can
+        encode in low-order bits of the receive and transmit timestamps below the
+        precision of the clock a flag indicating whether the timestamp is a
+        receive timestamp. If the server receives a request with a non-zero
+        origin timestamp that does not indicate that it is a receive timestamp of
+        the server, the request does not conform to the interleaved mode, and
+        it is not necessary to perform the search and/or
+        save the new receive and transmit timestamps.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Interleaved Symmetric Mode</name>
+      <t>The interleaved symmetric mode uses the same principles as the
+        interleaved client/server mode. A packet in the interleaved symmetric
+        mode has a transmit timestamp that corresponds to the transmission of
+        the previous packet sent to the peer and an origin timestamp equal to
+        the receive timestamp from the last packet received from the peer.</t>
+      <t>To enable synchronization in both directions of a symmetric
+        association, both peers need to support the interleaved mode. For this
+        reason, it <bcp14>SHOULD</bcp14> be disabled by default and enabled with an option in
+        the configuration of the active side of the association.</t>
+      <t>In order to prevent a peer from matching transmit timestamps with
+        incorrect packets when its transmissions do not alternate with transmissions of its peer
+        (e.g., they use different polling intervals) and one or more previous packets were
+        lost, the use of the interleaved mode in symmetric associations
+        requires additional restrictions.</t>
+      <t>Peers that have an association need to count valid packets received
+        between their transmissions to determine in which mode a packet should
+        be formed. A valid packet in this context is a packet that passed all
+        NTP tests for duplicate, replayed, bogus, and unauthenticated packets.
+        Other received packets may update the NTP state to allow the
+        (re)initialization of the association, but they do not change the
+        selection of the mode.</t>
+      <t>A Peer A <bcp14>MUST NOT</bcp14> send a Peer B a packet in the interleaved mode unless
+        all of the following conditions are met:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>Peer A has an active association with Peer B that was
+            specified with the option enabling the interleaved mode, OR Peer
+            A received at least one valid packet in the interleaved mode from
+            Peer B.</t>
+        </li>
+        <li>
+          <t>Peer A did not send a packet to Peer B since the time that it received
+            the last valid packet from Peer B.
+</t>
+        </li>
+        <li>
+          <t>The previous packet that Peer A sent to Peer B was the
+            only response to a packet received from Peer B.</t>
+        </li>
+      </ol>
+      <t>The first condition is needed for compatibility with implementations
+        that do not support, or are not configured for, the interleaved mode. The
+        other conditions prevent a missing response from causing a mismatch
+        between the remote transmit timestamp (T2) and local receive timestamp (T3),
+        which would cause a large error in the measured offset and delay.</t>
+      <t>An example of packets exchanged in a symmetric association is shown in
+        <xref target="peer-exchange"/>. The
+        minimum polling interval of Peer A is twice as long as the maximum
+        polling interval of Peer B. The first packet sent by each peer is
+        in the basic mode. The second and third packets sent by Peer A are in
+        the interleaved mode. The second packet sent by Peer B is in the
+        interleaved mode, but subsequent packets sent by Peer B are in
+        the basic mode, because multiple responses are sent for each request.
+</t>
+      <figure anchor="peer-exchange">
+        <name>Packet Timestamps in Interleaved Symmetric Mode</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+            t2 t3       t6          t8 t9      t12         t14 t15
+Peer A -----+--+--------+-----------+--+--------+-----------+--+----
+           /    \      /           /    \      /           /    \
+          /      \    /           /      \    /           /      \
+Peer B --+--------+--+-----------+--------+--+-----------+--------+-
+         t1       t4 t5          t7      t10 t11        t13      t16
+
+Mode     B      B      I         B      I      B         B      I
+       +----+ +----+ +----+    +----+ +----+ +----+    +----+ +----+
+Origin | 0  | | t1~| | t2 |    | t3~| | t4 | | t3 |    | t3 | |t10 |
+Rx     | 0  | | t2 | | t4 |    | t4 | | t8 | |t10 |    |t10 | |t14 |
+Tx     | t1~| | t3~| | t1 |    | t7~| | t3 | |t11~|    |t13~| | t9 |
+       +----+ +----+ +----+    +----+ +----+ +----+    +----+ +----+
+]]></artwork>
+      </figure>
+      <t>If Peer A has no association with Peer B and it responds with
+        symmetric passive packets, it does not need to count the packets in
+        order to meet the restrictions, because each request has at most one
+        response. The processing of the requests can be implemented in the same
+        way as a server handling requests in the interleaved client/server
+        mode.</t>
+      <t>The peers can compute the offset and delay using one of the two sets
+        of timestamps specified in <xref target="client-server-mode"/>. They can switch
+        between the sets to minimize the interval between T1 and T4 in order to
+        reduce the error in the measured delay.
+</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Interleaved Broadcast Mode</name>
+      <t>A packet in the interleaved broadcast mode contains two transmit
+        timestamps. One corresponds to the packet itself and is saved in the
+        transmit timestamp field. The other corresponds to the previous packet
+        and is saved in the origin timestamp field. The packet is compatible
+        with the basic mode, which uses a zero origin timestamp.</t>
+      <t>An example of packets sent in the broadcast mode is shown in
+        <xref target="broadcast-transmissions"/>.
+      </t>
+      <figure anchor="broadcast-transmissions">
+        <name>Packet Timestamps in Interleaved Broadcast Mode</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+               t1           t3           t5           t7
+Server   ------+------------+------------+------------+---------
+                \            \            \            \
+                 \            \            \            \
+Client   ---------+------------+------------+------------+------
+                  t2           t4           t6           t8
+
+Mode            B            I            I            I
+              +----+       +----+       +----+       +----+
+Origin        | 0  |       | t1 |       | t3 |       | t5 |
+Rx            | 0  |       | 0  |       | 0  |       | 0  |
+Tx            | t1~|       | t3~|       | t5~|       | t7~|
+              +----+       +----+       +----+       +----+
+]]></artwork>
+      </figure>
+      <t>A client that does not support the interleaved mode ignores the
+        origin timestamp and processes all packets as if they were in the basic
+        mode.</t>
+      <t>A client that supports the interleaved mode <bcp14>MUST</bcp14> check if the origin
+        timestamp is not zero to detect packets conforming to the interleaved
+        mode.
+        The client <bcp14>SHOULD</bcp14> also compare the origin timestamp with the transmit
+        timestamp from the previous packet to detect lost packets. If the
+        difference is larger than a specified maximum (e.g., 1 second), the
+        packet <bcp14>SHOULD NOT</bcp14> be used for synchronization in the interleaved
+        mode to avoid a large error in the measurement.</t>
+      <t>The client computes the offset using the origin timestamp from
+        the received packet and the local receive timestamp of the previous
+        packet. If the client needs to measure the network delay, it <bcp14>SHOULD</bcp14> use
+        the interleaved client/server mode. If it used the basic client/server mode
+        or symmetric mode, the less accurate measurement of the delay would
+        also impact the accuracy of the offset measured in the interleaved
+        broadcast mode.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Impact of Implementation Errors</name>
+      <t>The interleaved modes make NTP more complex and more sensitive to
+        implementation errors. Some errors that do not cause any problems
+        between implementations supporting only the basic mode can cause
+        an occasional missing or corrupted measurement when one or both sides
+        support the interleaved mode. This section describes the impact of what
+        could possibly be the most likely errors in the most commonly used mode
+        -- client/server.</t>
+      <t>If a client that does not support the interleaved mode sets the origin
+        timestamp to values other than the transmit timestamp from the last
+        valid server response, or zero, the origin timestamp can match a
+        receive timestamp of a previous server response (possibly to a
+        different client) and cause an unexpected interleaved response. The
+        client is expected to drop the response as bogus due to having
+        a wrong origin timestamp. If it did not check for bogus responses,
+        it would get a corrupted measurement, possibly with a large error in the
+        offset and delay. It would also be vulnerable to off-path attacks.</t>
+      <t>The worst-case scenario for this failure would be a client that specifically sets
+        the origin timestamp to the server's receive timestamp, i.e., the client
+        accidentally implemented the interleaved mode, but it does not accept
+        interleaved responses. This client would still be able to synchronize
+        its clock. It would drop interleaved responses as bogus and set the
+        origin timestamp to the receive timestamp from the last valid response
+        in the basic mode. As servers are required to not respond twice to the
+        same origin timestamp in the interleaved mode, at least every other
+        response would be in the basic mode and accepted by the client.</t>
+      <t>A missing or corrupted measurement can also be caused by problems on
+        the server side. A server that does not
+        ensure that the receive and transmit timestamps in its responses are unique
+        in a sufficiently long interval can misinterpret requests formed
+        correctly in the basic mode as interleaved and respond in the
+        interleaved mode. The response would be dropped by the client as
+        bogus.</t>
+      <t>A duplicated server receive timestamp can cause an expected
+        interleaved response to contain a transmit timestamp that does not
+        correspond to the transmission of the previous response from which the
+        client copied the receive timestamp to the origin timestamp in the
+        request, but a different response that contained the same receive
+        timestamp. The response would be accepted by the client with a small
+        error in the transmit timestamp equal to the difference between the
+        transmit timestamps of the two different responses. As the requests
+        corresponding to the two different responses were received at the same time
+        (according to the server's clock), the two transmissions would be
+        expected to be close to each other and the difference between them
+        would be comparable to the error a basic response normally has in its
+        transmit timestamp.</t>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The security considerations for time protocols in general are discussed
+        in <xref target="RFC7384" format="default">RFC 7384</xref>. 
+        Security considerations specific to NTP are discussed in <xref target="RFC5905" format="default">RFC 5905</xref>.</t>
+      <t>Security issues that apply to the basic modes discussed in <xref target="RFC5905" format="default">RFC 5905</xref> also apply to the
+        interleaved modes. These issues are described in <xref target="SECNTP" format="default">"The Security of NTP's Datagram Protocol"</xref>.
+</t>
+      <t>Clients and peers <bcp14>SHOULD NOT</bcp14> leak the receive timestamp in packets
+        sent to other peers or clients (e.g., as a reference timestamp) to
+        prevent off-path attackers from easily getting the origin timestamp
+        needed to make a valid response in the interleaved mode.</t>
+      <t>Clients using the interleaved mode <bcp14>SHOULD</bcp14> randomize all bits of
+        receive and transmit timestamps in their requests (i.e., provide a precision
+        of 2<sup>32</sup> seconds) to make it more difficult for off-path attackers to guess the
+        origin timestamp in the server response.</t>
+      <t>Unlike in the basic client/server mode, clients using the interleaved mode
+        cannot set the origin timestamp in their requests to zero (i.e., reset
+        the NTP association with every request) to make it more difficult to
+        track them as they move between networks.</t>
+      <t>Attackers can force the server to drop its timestamps in order to
+        prevent clients from getting an interleaved response. They can send a
+        large number of requests, send requests with a spoofed source address,
+        or replay an authenticated request if the interleaved mode is enabled
+        only for authenticated clients. Clients <bcp14>MUST NOT</bcp14> rely on servers to
+        be able to respond in the interleaved mode.</t>
+      <t>Protecting symmetric associations in the interleaved mode against
+        replay attacks is even more difficult than in the basic mode.
+        In both modes, the NTP state needs to be protected between the
+        reception of the last non-replayed response and transmission of the
+        next request in order for the request to contain the origin timestamp
+        expected by the peer. The difference is in the timestamps needed to
+        complete a measurement. In the basic mode, only one valid response is
+        needed at a time and it is used as soon as it is received, but the
+        interleaved mode needs two consecutive valid responses. The NTP state
+        needs to be protected at all times, so that the timestamps that
+        are needed to complete the measurement when the second response is
+        received will not be lost.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5905.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5906.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7384.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9109.xml"/>
+        <reference anchor="SECNTP" target="https://eprint.iacr.org/2016/1006">
+          <front>
+            <title>The Security of NTP's Datagram Protocol</title>
+            <author initials="A." surname="Malhotra" fullname="A. Malhotra">
+              <organization/>
+            </author>
+            <author initials="M." surname="Van Gundy" fullname="M. Van Gundy">
+              <organization/>
+            </author>
+            <author initials="M." surname="Varia" fullname="M. Varia">
+              <organization/>
+            </author>
+            <author initials="H." surname="Kennedy" fullname="H. Kennedy">
+              <organization/>
+            </author>
+            <author initials="J." surname="Gardner" fullname="J. Gardner">
+              <organization/>
+            </author>
+            <author initials="S." surname="Goldberg" fullname="S. Goldberg">
+              <organization/>
+            </author>
+            <date year="2016"/>
+          </front>
+	  <refcontent>Cryptology ePrint Archive, Paper 2016/1006</refcontent>
+        </reference>
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The interleaved modes described in this document are based on the
+      implementation written by <contact fullname="David Mills"/> in the <eref
+      target="https://www.ntp.org">NTP project</eref>. The specification of the
+      broadcast mode is based purely on this implementation. The specification
+      of the symmetric mode has some modifications. The client/server mode is
+      specified as a new mode compatible with the symmetric mode. It is a
+      simplified special case of the symmetric mode, analogously to how the
+      basic client/server mode is a special case of the basic symmetric mode.</t>
+      <t>The authors would like to thank <contact fullname="Doug Arnold"/>,
+      <contact fullname="Roman Danyliw"/>, <contact fullname="Reese
+      Enghardt"/>, <contact fullname="Daniel Franke"/>, <contact
+      fullname="Benjamin Kaduk"/>, <contact fullname="Erik Kline"/>, <contact
+      fullname="Catherine Meadows"/>, <contact fullname="Tal Mizrahi"/>,
+      <contact fullname="Steven Sommars"/>, <contact fullname="Harlan
+      Stenn"/>, <contact fullname="Kristof Teichel"/>, and <contact
+      fullname="Gunter Van de Velde"/> for their useful comments and
+      suggestions.</t>
+    </section>
+  </back>
+</rfc>

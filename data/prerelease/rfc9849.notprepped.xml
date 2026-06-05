@@ -1,0 +1,2134 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-esni-25" category="std" consensus="true" submissionType="IETF" number="9849" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+  <link href="https://datatracker.ietf.org/doc/draft-ietf-tls-esni-25" rel="prev"/>
+  <front>
+    <title abbrev="TLS Encrypted Client Hello">TLS Encrypted Client Hello</title>
+    <seriesInfo name="RFC" value="9849"/>
+    <author initials="E." surname="Rescorla" fullname="Eric Rescorla">
+      <organization>Independent</organization>
+      <address>
+        <email>ekr@rtfm.com</email>
+      </address>
+    </author>
+    <author fullname="奥 一穂" asciiFullname="Kazuho Oku">
+      <organization>Fastly</organization>
+      <address>
+        <email>kazuhooku@gmail.com</email>
+      </address>
+    </author>
+    <author initials="N." surname="Sullivan" fullname="Nick Sullivan">
+      <organization>Cryptography Consulting LLC</organization>
+      <address>
+        <email>nicholas.sullivan+ietf@gmail.com</email>
+      </address>
+    </author>
+    <author initials="C. A." surname="Wood" fullname="Christopher A. Wood">
+      <organization>Apple</organization>
+      <address>
+        <email>caw@heapingbits.net</email>
+      </address>
+    </author>
+    <date year="2026" month="March"/>
+    <area>SEC</area>
+    <workgroup>tls</workgroup>
+    <abstract>
+
+<t>This document describes a mechanism in Transport Layer Security (TLS) for
+encrypting a <tt>ClientHello</tt> message under a server public key.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="intro">
+      <name>Introduction</name>
+      <t>Although TLS 1.3 <xref target="RFC8446"/> encrypts most of the handshake, including the
+server certificate, there are several ways in which an on-path attacker can
+learn private information about the connection. The plaintext Server Name
+Indication (SNI) extension in <tt>ClientHello</tt> messages, which leaks the target
+domain for a given connection, is perhaps the most sensitive information
+left unencrypted in TLS 1.3.</t>
+      <t>This document specifies a new TLS extension called Encrypted Client
+Hello (ECH) that allows clients to encrypt their <tt>ClientHello</tt> to the
+TLS server.  This protects the SNI and other potentially sensitive
+fields, such as the Application-Layer Protocol Negotiation (ALPN) list
+<xref target="RFC7301"/>. Co-located servers with consistent externally visible
+TLS configurations and behavior, including supported versions and cipher suites and
+how they respond to incoming client connections, form an anonymity set. (Note
+that implementation-specific choices, such as extension ordering within TLS
+messages or division of data into record-layer boundaries, can result in
+different externally visible behavior, even for servers with consistent TLS
+configurations.) Usage of this mechanism reveals that a client is connecting
+to a particular service provider, but does not reveal which server from the
+anonymity set terminates the connection. Deployment implications of this
+feature are discussed in <xref target="deployment"/>.</t>
+      <t>ECH is not in itself sufficient to protect the identity of the server.
+The target domain may also be visible through other channels, such as
+plaintext client DNS queries or visible server IP addresses. However,
+encrypted DNS mechanisms such as
+DNS over HTTPS <xref target="RFC8484"/>, DNS over TLS/DTLS <xref target="RFC7858"/> <xref target="RFC8094"/>, and
+DNS over QUIC <xref target="RFC9250"/>
+provide mechanisms for clients to conceal
+DNS lookups from network inspection, and many TLS servers host multiple domains
+on the same IP address. Private origins may also be deployed behind a common
+provider, such as a reverse proxy. In such environments, the SNI remains the
+primary explicit signal available to observers to determine the
+server's identity.</t>
+      <t>ECH is supported in TLS 1.3 <xref target="RFC8446"/>, DTLS 1.3 <xref target="RFC9147"/>, and
+newer versions of the TLS and DTLS protocols.</t>
+    </section>
+    <section anchor="conventions-and-definitions">
+      <name>Conventions and Definitions</name>
+      <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+"<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>", "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this
+document are to be interpreted as described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/>
+when, and only when, they appear in all capitals, as shown here. All TLS
+notation comes from <xref section="3" sectionFormat="comma" target="RFC8446"/>.</t>
+    </section>
+    <section anchor="overview">
+      <name>Overview</name>
+      <t>This protocol is designed to operate in one of two topologies illustrated below,
+which we call "Shared Mode" and "Split Mode". These modes are described in the
+following section.</t>
+      <section anchor="topologies">
+        <name>Topologies</name>
+        <figure anchor="shared-mode">
+          <name>Shared Mode Topology</name>
+          <artwork><![CDATA[
+                +---------------------+
+                |                     |
+                |   2001:DB8::1111    |
+                |                     |
+Client <----->  | private.example.org |
+                |                     |
+                | public.example.com  |
+                |                     |
+                +---------------------+
+                        Server
+          (Client-Facing and Backend Combined)
+]]></artwork>
+        </figure>
+        <t>In shared mode, the provider is the origin server for all the domains whose DNS
+records point to it. In this mode, the TLS connection is terminated by the
+provider.</t>
+        <figure anchor="split-mode">
+          <name>Split Mode Topology</name>
+          <artwork><![CDATA[
+           +--------------------+     +---------------------+
+           |                    |     |                     |
+           |   2001:DB8::1111   |     |   2001:DB8::EEEE    |
+Client <----------------------------->|                     |
+           | public.example.com |     | private.example.org |
+           |                    |     |                     |
+           +--------------------+     +---------------------+
+            Client-Facing Server            Backend Server
+]]></artwork>
+        </figure>
+        <t>In split mode, the provider is not the origin server for private domains.
+Rather, the DNS records for private domains point to the provider, and the
+provider's server relays the connection back to the origin server, who
+terminates the TLS connection with the client. Importantly, the service provider
+does not have access to the plaintext of the connection beyond the unencrypted
+portions of the handshake.</t>
+        <t>In the remainder of this document, we will refer to the ECH-service provider as
+the "client-facing server" and to the TLS terminator as the "backend server".
+These are the same entity in shared mode, but in split mode, the client-facing
+and backend servers are physically separated.</t>
+        <t>See <xref target="security-considerations"/> for more discussion about the ECH threat model
+and how it relates to the client, client-facing server, and backend server.</t>
+      </section>
+      <section anchor="encrypted-clienthello-ech">
+        <name>Encrypted ClientHello (ECH)</name>
+        <t>A client-facing server enables ECH by publishing an ECH configuration, which
+is an encryption public key and associated metadata. Domains which wish to
+use ECH must publish this configuration, using the key associated
+with the client-facing server. This document
+defines the ECH configuration's format, but delegates DNS publication details
+to <xref target="RFC9460"/>. See
+<xref target="RFC9848"/> for specifics about how ECH configurations
+are advertised in SVCB and HTTPS records. Other delivery mechanisms are
+also possible. For example, the client may have the ECH configuration
+preconfigured.</t>
+        <t>When a client wants to establish a TLS session with some backend server, it
+constructs a private <tt>ClientHello</tt>, referred to as the <tt>ClientHelloInner</tt>.
+The client then constructs a public <tt>ClientHello</tt>, referred to as the
+<tt>ClientHelloOuter</tt>. The <tt>ClientHelloOuter</tt> contains innocuous values for
+sensitive extensions and an "encrypted_client_hello" extension
+(<xref target="encrypted-client-hello"/>), which carries the encrypted <tt>ClientHelloInner</tt>.
+Finally, the client sends <tt>ClientHelloOuter</tt> to the server.</t>
+        <t>The server takes one of the following actions:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>If it does not support ECH or cannot decrypt the extension, it completes
+the handshake with <tt>ClientHelloOuter</tt>. This is referred to as rejecting ECH.</t>
+          </li>
+          <li>
+            <t>If it successfully decrypts the extension, it forwards the <tt>ClientHelloInner</tt>
+to the backend server, which completes the handshake. This is referred to
+as accepting ECH.</t>
+          </li>
+        </ol>
+        <t>Upon receiving the server's response, the client determines whether or not ECH
+was accepted (<xref target="determining-ech-acceptance"/>) and proceeds with the handshake
+accordingly. When ECH is rejected, the resulting connection is not usable by
+the client for application data. Instead, ECH rejection allows the client to
+retry with up-to-date configuration (<xref target="rejected-ech"/>).</t>
+        <t>The primary goal of ECH is to ensure that connections to servers in the same
+anonymity set are indistinguishable from one another. Moreover, it should
+achieve this goal without affecting any existing security properties of TLS 1.3.
+See <xref target="goals"/> for more details about the ECH security and privacy goals.</t>
+      </section>
+    </section>
+    <section anchor="ech-configuration">
+      <name>Encrypted ClientHello Configuration</name>
+      <t>ECH uses Hybrid Public Key Encryption (HPKE) for public key encryption <xref target="RFC9180"/>.
+The ECH configuration is defined by the following <tt>ECHConfig</tt> structure.</t>
+      <artwork><![CDATA[
+    opaque HpkePublicKey<1..2^16-1>;
+    uint16 HpkeKemId;              // Defined in RFC 9180
+    uint16 HpkeKdfId;              // Defined in RFC 9180
+    uint16 HpkeAeadId;             // Defined in RFC 9180
+    uint16 ECHConfigExtensionType; // Defined in Section 11.3
+
+    struct {
+        HpkeKdfId kdf_id;
+        HpkeAeadId aead_id;
+    } HpkeSymmetricCipherSuite;
+
+    struct {
+        uint8 config_id;
+        HpkeKemId kem_id;
+        HpkePublicKey public_key;
+        HpkeSymmetricCipherSuite cipher_suites<4..2^16-4>;
+    } HpkeKeyConfig;
+
+    struct {
+        ECHConfigExtensionType type;
+        opaque data<0..2^16-1>;
+    } ECHConfigExtension;
+
+    struct {
+        HpkeKeyConfig key_config;
+        uint8 maximum_name_length;
+        opaque public_name<1..255>;
+        ECHConfigExtension extensions<0..2^16-1>;
+    } ECHConfigContents;
+
+    struct {
+        uint16 version;
+        uint16 length;
+        select (ECHConfig.version) {
+          case 0xfe0d: ECHConfigContents contents;
+        }
+    } ECHConfig;
+]]></artwork>
+      <t>The structure contains the following fields:</t>
+      <dl>
+        <dt>version:</dt>
+        <dd>
+          <t>The version of ECH for which this configuration is used. The version
+is the same as the code point for the
+"encrypted_client_hello" extension. Clients <bcp14>MUST</bcp14> ignore any <tt>ECHConfig</tt>
+structure with a version they do not support.</t>
+        </dd>
+        <dt>length:</dt>
+        <dd>
+          <t>The length, in bytes, of the next field. This length field allows
+implementations to skip over the elements in such a list where they cannot
+parse the specific version of <tt>ECHConfig</tt>.</t>
+        </dd>
+        <dt>contents:</dt>
+        <dd>
+          <t>An opaque byte string whose contents depend on the version. For this
+specification, the contents are an <tt>ECHConfigContents</tt> structure.</t>
+        </dd>
+      </dl>
+      <t>The <tt>ECHConfigContents</tt> structure contains the following fields:</t>
+      <dl>
+        <dt>key_config:</dt>
+        <dd>
+          <t>A <tt>HpkeKeyConfig</tt> structure carrying the configuration information
+associated with the HPKE public key (an "ECH key"). Note that this
+structure contains the <tt>config_id</tt> field, which applies to the entire
+<tt>ECHConfigContents</tt>.</t>
+        </dd>
+        <dt><tt>maximum_name_length</tt>:</dt>
+        <dd>
+          <t>The longest name of a backend server, if known. If not known, this value can
+be set to zero. It is used to compute padding (<xref target="padding"/>) and does not
+constrain server name lengths. Names may exceed this length if, e.g.,
+the server uses wildcard names or added new names to the anonymity set.</t>
+        </dd>
+        <dt>public_name:</dt>
+        <dd>
+          <t>The DNS name of the client-facing server, i.e., the entity trusted
+to update the ECH configuration. This is used to correct misconfigured clients,
+as described in <xref target="rejected-ech"/>.</t>
+        </dd>
+        <dt/>
+        <dd>
+          <t>See <xref target="auth-public-name"/> for how the client interprets and validates the
+public_name.</t>
+        </dd>
+        <dt>extensions:</dt>
+        <dd>
+          <t>A list of ECHConfigExtension values that the client must take into
+consideration when generating a <tt>ClientHello</tt> message. Each ECHConfigExtension
+has a 2-octet type and opaque data value, where the data value is encoded
+with a 2-octet integer representing the length of the data, in network byte
+order. ECHConfigExtension values are described below (<xref target="config-extensions"/>).</t>
+        </dd>
+      </dl>
+      <t>The <tt>HpkeKeyConfig</tt> structure contains the following fields:</t>
+      <dl>
+        <dt><tt>config_id</tt>:</dt>
+        <dd>
+          <t>A one-byte identifier for the given HPKE key configuration. This is used by
+clients to indicate the key used for <tt>ClientHello</tt> encryption. <xref target="config-ids"/>
+describes how client-facing servers allocate this value.</t>
+        </dd>
+        <dt>kem_id:</dt>
+        <dd>
+          <t>The HPKE Key Encapsulation Mechanism (KEM) identifier corresponding
+to <tt>public_key</tt>. Clients <bcp14>MUST</bcp14> ignore any <tt>ECHConfig</tt> structure with a
+key using a KEM they do not support.</t>
+        </dd>
+        <dt><tt>public_key</tt>:</dt>
+        <dd>
+          <t>The HPKE public key used by the client to encrypt <tt>ClientHelloInner</tt>.</t>
+        </dd>
+        <dt>cipher_suites:</dt>
+        <dd>
+          <t>The list of HPKE Key Derivation Function (KDF) and Authenticated Encryption with Associated Data (AEAD) identifier pairs clients can use for encrypting
+<tt>ClientHelloInner</tt>. See <xref target="real-ech"/> for how clients choose from this list.</t>
+        </dd>
+      </dl>
+      <t>The client-facing server advertises a sequence of ECH configurations to clients,
+serialized as follows.</t>
+      <artwork><![CDATA[
+    ECHConfig ECHConfigList<4..2^16-1>;
+]]></artwork>
+      <t>The <tt>ECHConfigList</tt> structure contains one or more <tt>ECHConfig</tt> structures in
+decreasing order of preference. This allows a server to support multiple
+versions of ECH and multiple sets of ECH parameters.</t>
+      <section anchor="config-ids">
+        <name>Configuration Identifiers</name>
+        <t>A client-facing server has a set of known <tt>ECHConfig</tt> values with corresponding
+private keys. This set <bcp14>SHOULD</bcp14> contain the currently published values, as well as
+previous values that may still be in use, since clients may cache DNS records
+up to a TTL or longer.</t>
+        <t><xref target="client-facing-server"/> describes a trial decryption process for decrypting the
+<tt>ClientHello</tt>. This can impact performance when the client-facing server maintains
+many known <tt>ECHConfig</tt> values. To avoid this, the client-facing server <bcp14>SHOULD</bcp14>
+allocate distinct <tt>config_id</tt> values for each <tt>ECHConfig</tt> in its known set. The
+<bcp14>RECOMMENDED</bcp14> strategy is via rejection sampling, i.e., to randomly select
+<tt>config_id</tt> repeatedly until it does not match any known <tt>ECHConfig</tt>.</t>
+        <t>It is not necessary for <tt>config_id</tt> values across different client-facing
+servers to be distinct. A backend server may be hosted behind two different
+client-facing servers with colliding <tt>config_id</tt> values without any performance
+impact. Values may also be reused if the previous <tt>ECHConfig</tt> is no longer in the
+known set.</t>
+      </section>
+      <section anchor="config-extensions">
+        <name>Configuration Extensions</name>
+        <t>ECH configuration extensions are used to provide room for additional
+functionality as needed. The format is as defined in
+<xref target="ech-configuration"/> and mirrors <xref section="4.2" sectionFormat="of" target="RFC8446"/>. However,
+ECH configuration extension types are maintained by IANA as described
+in <xref target="config-extensions-iana"/>.  ECH configuration extensions follow
+the same interpretation rules as TLS extensions: extensions <bcp14>MAY</bcp14> appear
+in any order, but there <bcp14>MUST NOT</bcp14> be more than one extension of the
+same type in the extensions block. Unlike TLS extensions, an extension
+can be tagged as mandatory by using an extension type codepoint with
+the high order bit set to 1.</t>
+        <t>Clients <bcp14>MUST</bcp14> parse the extension list and check for unsupported mandatory
+extensions. If an unsupported mandatory extension is present, clients <bcp14>MUST</bcp14>
+ignore the <tt>ECHConfig</tt>.</t>
+        <t>Any future information or hints that influence <tt>ClientHelloOuter</tt> <bcp14>SHOULD</bcp14> be
+specified as <tt>ECHConfig</tt> extensions. This is primarily because the outer
+<tt>ClientHello</tt> exists only in support of ECH. Namely, it is both an envelope for
+the encrypted inner <tt>ClientHello</tt> and an enabler for authenticated key mismatch
+signals (see <xref target="server-behavior"/>). In contrast, the inner <tt>ClientHello</tt> is the
+true <tt>ClientHello</tt> used upon ECH negotiation.</t>
+      </section>
+    </section>
+    <section anchor="encrypted-client-hello">
+      <name>The "encrypted_client_hello" Extension</name>
+      <t>To offer ECH, the client sends an "encrypted_client_hello" extension in the
+<tt>ClientHelloOuter</tt>. When it does, it <bcp14>MUST</bcp14> also send the extension in
+<tt>ClientHelloInner</tt>.</t>
+      <artwork><![CDATA[
+    enum {
+       encrypted_client_hello(0xfe0d), (65535)
+    } ExtensionType;
+]]></artwork>
+      <t>The payload of the extension has the following structure:</t>
+      <artwork><![CDATA[
+    enum { outer(0), inner(1) } ECHClientHelloType;
+
+    struct {
+       ECHClientHelloType type;
+       select (ECHClientHello.type) {
+           case outer:
+               HpkeSymmetricCipherSuite cipher_suite;
+               uint8 config_id;
+               opaque enc<0..2^16-1>;
+               opaque payload<1..2^16-1>;
+           case inner:
+               Empty;
+       };
+    } ECHClientHello;
+]]></artwork>
+      <t>The outer extension uses the <tt>outer</tt> variant and the inner extension uses the
+<tt>inner</tt> variant. The inner extension has an empty payload, which is included
+because TLS servers are not allowed to provide extensions in ServerHello
+which were not included in <tt>ClientHello</tt>. The outer extension has the following
+fields:</t>
+      <dl>
+        <dt><tt>config_id</tt>:</dt>
+        <dd>
+          <t>The <tt>ECHConfigContents.key_config.config_id</tt> for the chosen <tt>ECHConfig</tt>.</t>
+        </dd>
+        <dt><tt>cipher_suite</tt>:</dt>
+        <dd>
+          <t>The cipher suite used to encrypt <tt>ClientHelloInner</tt>. This <bcp14>MUST</bcp14> match a value
+provided in the corresponding <tt>ECHConfigContents.key_config.cipher_suites</tt> list.</t>
+        </dd>
+        <dt>enc:</dt>
+        <dd>
+          <t>The HPKE encapsulated key used by servers to decrypt the corresponding
+<tt>payload</tt> field. This field is empty in a <tt>ClientHelloOuter</tt> sent in response to
+HelloRetryRequest.</t>
+        </dd>
+        <dt>payload:</dt>
+        <dd>
+          <t>The serialized and encrypted <tt>EncodedClientHelloInner</tt> structure, encrypted
+using HPKE as described in <xref target="real-ech"/>.</t>
+        </dd>
+      </dl>
+      <t>When a client offers the <tt>outer</tt> version of an "encrypted_client_hello"
+extension, the server <bcp14>MAY</bcp14> include an "encrypted_client_hello" extension in its
+EncryptedExtensions message, as described in <xref target="client-facing-server"/>, with the
+following payload:</t>
+      <artwork><![CDATA[
+    struct {
+       ECHConfigList retry_configs;
+    } ECHEncryptedExtensions;
+]]></artwork>
+      <t>The response is valid only when the server used the <tt>ClientHelloOuter</tt>. If the
+server sent this extension in response to the <tt>inner</tt> variant, then the client
+<bcp14>MUST</bcp14> abort with an "unsupported_extension" alert.</t>
+      <dl>
+        <dt>retry_configs:</dt>
+        <dd>
+          <t>An <tt>ECHConfigList</tt> structure containing one or more <tt>ECHConfig</tt> structures, in
+decreasing order of preference, to be used by the client as described in
+<xref target="rejected-ech"/>. These are known as the server's "retry configurations".</t>
+        </dd>
+      </dl>
+      <t>Finally, when the client offers the "encrypted_client_hello", if the payload is
+the <tt>inner</tt> variant and the server responds with HelloRetryRequest, it <bcp14>MUST</bcp14>
+include an "encrypted_client_hello" extension with the following payload:</t>
+      <artwork><![CDATA[
+    struct {
+       opaque confirmation[8];
+    } ECHHelloRetryRequest;
+]]></artwork>
+      <t>The value of ECHHelloRetryRequest.confirmation is set to
+<tt>hrr_accept_confirmation</tt> as described in <xref target="backend-server-hrr"/>.</t>
+      <t>This document also defines the "ech_required" alert, which the client <bcp14>MUST</bcp14> send
+when it offered an "encrypted_client_hello" extension that was not accepted by
+the server. (See <xref target="alerts"/>.)</t>
+      <section anchor="encoding-inner">
+        <name>Encoding the ClientHelloInner</name>
+        <t>Before encrypting, the client pads and optionally compresses <tt>ClientHelloInner</tt>
+into an <tt>EncodedClientHelloInner</tt> structure, defined below:</t>
+        <artwork><![CDATA[
+    struct {
+        ClientHello client_hello;
+        uint8 zeros[length_of_padding];
+    } EncodedClientHelloInner;
+]]></artwork>
+        <t>The <tt>client_hello</tt> field is computed by first making a copy of <tt>ClientHelloInner</tt>
+and setting the <tt>legacy_session_id</tt> field to the empty string. In TLS, this
+field uses the <tt>ClientHello</tt> structure defined in <xref section="4.1.2" sectionFormat="of" target="RFC8446"/>.
+In DTLS, it uses the <tt>ClientHello</tt> structure defined in
+<xref section="5.3" sectionFormat="of" target="RFC9147"/>. This does not include the Handshake structure's
+four-byte header in TLS, nor the twelve-byte header in DTLS. The <tt>zeros</tt> field <bcp14>MUST</bcp14>
+be all zeros of length <tt>length_of_padding</tt> (see <xref target="padding"/>).</t>
+        <t>Repeating large extensions, such as "key_share" with post-quantum algorithms,
+between <tt>ClientHelloInner</tt> and <tt>ClientHelloOuter</tt> can lead to excessive size. To
+reduce the size impact, the client <bcp14>MAY</bcp14> substitute extensions which it knows
+will be duplicated in <tt>ClientHelloOuter</tt>. It does so by removing and replacing
+extensions from <tt>EncodedClientHelloInner</tt> with a single "ech_outer_extensions"
+extension, defined as follows:</t>
+        <artwork><![CDATA[
+    enum {
+       ech_outer_extensions(0xfd00), (65535)
+    } ExtensionType;
+
+    ExtensionType OuterExtensions<2..254>;
+]]></artwork>
+        <t>OuterExtensions contains a list of the removed ExtensionType values. Each value references
+the matching extension in <tt>ClientHelloOuter</tt>. The values <bcp14>MUST</bcp14> be ordered
+contiguously in <tt>ClientHelloInner</tt>, and the "ech_outer_extensions" extension <bcp14>MUST</bcp14>
+be inserted in the corresponding position in <tt>EncodedClientHelloInner</tt>.
+Additionally, the extensions <bcp14>MUST</bcp14> appear in <tt>ClientHelloOuter</tt> in the same
+relative order. However, there is no requirement that they be contiguous. For
+example, OuterExtensions may contain extensions A, B, and C, while <tt>ClientHelloOuter</tt>
+contains extensions A, D, B, C, E, and F.</t>
+        <t>The "ech_outer_extensions" extension can only be included in
+<tt>EncodedClientHelloInner</tt> and <bcp14>MUST NOT</bcp14> appear in either <tt>ClientHelloOuter</tt> or
+<tt>ClientHelloInner</tt>.</t>
+        <t>Finally, the client pads the message by setting the <tt>zeros</tt> field to a byte
+string whose contents are all zeros and whose length is the amount of padding
+to add. <xref target="padding"/> describes a recommended padding scheme.</t>
+        <t>The client-facing server computes <tt>ClientHelloInner</tt> by reversing this process.
+First, it parses <tt>EncodedClientHelloInner</tt>, interpreting all bytes after
+<tt>client_hello</tt> as padding. If any padding byte is non-zero, the server <bcp14>MUST</bcp14>
+abort the connection with an "illegal_parameter" alert.</t>
+        <t>Next, it makes a copy of the <tt>client_hello</tt> field and copies the
+<tt>legacy_session_id</tt> field from <tt>ClientHelloOuter</tt>. It then looks for an
+"ech_outer_extensions" extension. If found, it replaces the extension with the
+corresponding sequence of extensions in the <tt>ClientHelloOuter</tt>. The server <bcp14>MUST</bcp14>
+abort the connection with an "illegal_parameter" alert if any of the following
+are true:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Any referenced extension is missing in <tt>ClientHelloOuter</tt>.</t>
+          </li>
+          <li>
+            <t>Any extension is referenced in OuterExtensions more than once.</t>
+          </li>
+          <li>
+            <t>"encrypted_client_hello" is referenced in OuterExtensions.</t>
+          </li>
+          <li>
+            <t>The extensions in <tt>ClientHelloOuter</tt> corresponding to those in OuterExtensions
+do not occur in the same order.</t>
+          </li>
+        </ul>
+        <t>These requirements prevent an attacker from performing a packet amplification
+attack by crafting a <tt>ClientHelloOuter</tt> which decompresses to a much larger
+<tt>ClientHelloInner</tt>. This is discussed further in <xref target="decompression-amp"/>.</t>
+        <t>Receiving implementations <bcp14>SHOULD</bcp14> construct the <tt>ClientHelloInner</tt> in linear
+time. Quadratic time implementations (such as may happen via naive
+copying) create a denial-of-service risk.
+<xref target="linear-outer-extensions"/> describes a linear-time procedure that may be used
+for this purpose.</t>
+      </section>
+      <section anchor="authenticating-outer">
+        <name>Authenticating the ClientHelloOuter</name>
+        <t>To prevent a network attacker from modifying the <tt>ClientHelloOuter</tt>
+while keeping the same encrypted <tt>ClientHelloInner</tt>
+(see <xref target="flow-clienthello-malleability"/>), ECH authenticates <tt>ClientHelloOuter</tt>
+by passing <tt>ClientHelloOuterAAD</tt> as the associated data for HPKE sealing
+and opening operations. The <tt>ClientHelloOuterAAD</tt> is a serialized
+<tt>ClientHello</tt> structure, defined in <xref section="4.1.2" sectionFormat="of" target="RFC8446"/> for TLS and
+<xref section="5.3" sectionFormat="of" target="RFC9147"/> for DTLS, which matches the <tt>ClientHelloOuter</tt> except
+that the <tt>payload</tt> field of the "encrypted_client_hello" is replaced with a byte
+string of the same length but whose contents are zeros. This value does not
+include the Handshake structure's four-byte header in TLS nor the twelve-byte header in
+DTLS.</t>
+      </section>
+    </section>
+    <section anchor="client-behavior">
+      <name>Client Behavior</name>
+      <t>Clients that implement the ECH extension behave in one of two ways: either they
+offer a real ECH extension, as described in <xref target="real-ech"/>, or they send a
+Generate Random Extensions And Sustain Extensibility (GREASE) <xref target="RFC8701"/>
+ECH extension, as described in <xref target="grease-ech"/>. 
+The client offers ECH if it is in possession of a compatible ECH configuration and sends GREASE ECH
+(see <xref target="grease-ech"/>) otherwise.
+Clients of the latter type do not
+negotiate ECH; instead, they generate a dummy ECH extension that is ignored by
+the server. (See <xref target="dont-stick-out"/> for an explanation.)  It is also possible for clients to always
+send GREASE ECH without implementing the remainder of this specification.</t>
+      <section anchor="real-ech">
+        <name>Offering ECH</name>
+        <t>To offer ECH, the client first chooses a suitable <tt>ECHConfig</tt> from the server's
+<tt>ECHConfigList</tt>. To determine if a given <tt>ECHConfig</tt> is suitable, it checks that
+it supports the KEM algorithm identified by
+<tt>ECHConfig.contents.key_config.kem_id</tt>, at least one KDF/AEAD algorithm
+identified by <tt>ECHConfig.contents.key_config.cipher_suites</tt>, and the version of
+ECH indicated by <tt>ECHConfig.version</tt>. Once a suitable configuration is found,
+the client selects the cipher suite it will use for encryption. It <bcp14>MUST NOT</bcp14>
+choose a cipher suite or version not advertised by the configuration. If no
+compatible configuration is found, then the client <bcp14>SHOULD</bcp14> proceed as described
+in <xref target="grease-ech"/>.</t>
+        <t>Next, the client constructs the <tt>ClientHelloInner</tt> message just as it does a
+standard <tt>ClientHello</tt>, with the exception of the following rules:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>It <bcp14>MUST NOT</bcp14> offer to negotiate TLS 1.2 or below. This is necessary to ensure
+the backend server does not negotiate a TLS version that is incompatible with
+ECH.</t>
+          </li>
+          <li>
+            <t>It <bcp14>MUST NOT</bcp14> offer to resume any session for TLS 1.2 and below.</t>
+          </li>
+          <li>
+            <t>If it intends to compress any extensions (see <xref target="encoding-inner"/>), it <bcp14>MUST</bcp14>
+order those extensions consecutively.</t>
+          </li>
+          <li>
+            <t>It <bcp14>MUST</bcp14> include the "encrypted_client_hello" extension of type <tt>inner</tt> as
+described in <xref target="encrypted-client-hello"/>. (This requirement is not applicable
+when the "encrypted_client_hello" extension is generated as described in
+<xref target="grease-ech"/>.)</t>
+          </li>
+        </ol>
+        <t>The client then constructs <tt>EncodedClientHelloInner</tt> as described in
+<xref target="encoding-inner"/>. It also computes an HPKE encryption context and <tt>enc</tt> value
+as:</t>
+        <artwork><![CDATA[
+    pkR = DeserializePublicKey(ECHConfig.contents.key_config.public_key)
+    enc, context = SetupBaseS(pkR,
+                              "tls ech" || 0x00 || ECHConfig)
+]]></artwork>
+        <t>Next, it constructs a partial <tt>ClientHelloOuterAAD</tt> as it does a standard
+<tt>ClientHello</tt>, with the exception of the following rules:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>It <bcp14>MUST</bcp14> offer to negotiate TLS 1.3 or above.</t>
+          </li>
+          <li>
+            <t>If it compressed any extensions in <tt>EncodedClientHelloInner</tt>, it <bcp14>MUST</bcp14> copy the
+corresponding extensions from <tt>ClientHelloInner</tt>. The copied extensions
+additionally <bcp14>MUST</bcp14> be in the same relative order as in <tt>ClientHelloInner</tt>.</t>
+          </li>
+          <li>
+            <t>It <bcp14>MUST</bcp14> copy the legacy_session_id field from <tt>ClientHelloInner</tt>. This
+allows the server to echo the correct session ID for TLS 1.3's compatibility
+mode (see <xref section="D.4" sectionFormat="of" target="RFC8446"/>) when ECH is negotiated. Note that
+compatibility mode is not used in DTLS 1.3, but following this rule will
+produce the correct results for both TLS 1.3 and DTLS 1.3.</t>
+          </li>
+          <li>
+            <t>It <bcp14>MAY</bcp14> copy any other field from the <tt>ClientHelloInner</tt> except
+<tt>ClientHelloInner.random</tt>. Instead, it <bcp14>MUST</bcp14> generate a fresh
+<tt>ClientHelloOuter.random</tt> using a secure random number generator. (See
+<xref target="flow-client-reaction"/>.)</t>
+          </li>
+          <li>
+            <t>It <bcp14>SHOULD</bcp14> place the value of <tt>ECHConfig.contents.public_name</tt> in the
+"server_name" extension. Clients that do not follow this step, or place a
+different value in the "server_name" extension, risk breaking the retry
+mechanism described in <xref target="rejected-ech"/> or failing to interoperate with
+servers that require this step to be done; see <xref target="client-facing-server"/>.</t>
+          </li>
+          <li>
+            <t>When the client offers the "pre_shared_key" extension in <tt>ClientHelloInner</tt>, it
+<bcp14>SHOULD</bcp14> also include a GREASE "pre_shared_key" extension in <tt>ClientHelloOuter</tt>,
+generated in the manner described in <xref target="grease-psk"/>. The client <bcp14>MUST NOT</bcp14> use
+this extension to advertise a PSK to the client-facing server. (See
+<xref target="flow-clienthello-malleability"/>.) When the client includes a GREASE
+"pre_shared_key" extension, it <bcp14>MUST</bcp14> also copy the "psk_key_exchange_modes"
+from the <tt>ClientHelloInner</tt> into the <tt>ClientHelloOuter</tt>.</t>
+          </li>
+          <li>
+            <t>When the client offers the "early_data" extension in <tt>ClientHelloInner</tt>, it
+<bcp14>MUST</bcp14> also include the "early_data" extension in <tt>ClientHelloOuter</tt>. This
+allows servers that reject ECH and use <tt>ClientHelloOuter</tt> to safely ignore any
+early data sent by the client per <xref section="4.2.10" sectionFormat="comma" target="RFC8446"/>.</t>
+          </li>
+        </ol>
+        <t>The client might duplicate non-sensitive extensions in both messages. However,
+implementations need to take care to ensure that sensitive extensions are not
+offered in the <tt>ClientHelloOuter</tt>. See <xref target="outer-clienthello"/> for additional
+guidance.</t>
+        <t>Finally, the client encrypts the <tt>EncodedClientHelloInner</tt> with the above values,
+as described in <xref target="encrypting-clienthello"/>, to construct a <tt>ClientHelloOuter</tt>. It
+sends this to the server and processes the response as described in
+<xref target="determining-ech-acceptance"/>.</t>
+        <section anchor="encrypting-clienthello">
+          <name>Encrypting the ClientHello</name>
+          <t>Given an <tt>EncodedClientHelloInner</tt>, an HPKE encryption context and <tt>enc</tt> value,
+and a partial <tt>ClientHelloOuterAAD</tt>, the client constructs a <tt>ClientHelloOuter</tt> as
+follows.</t>
+          <t>First, the client determines the length L of encrypting <tt>EncodedClientHelloInner</tt>
+with the selected HPKE AEAD. This is typically the sum of the plaintext length
+and the AEAD tag length. The client then completes the <tt>ClientHelloOuterAAD</tt> with
+an "encrypted_client_hello" extension. This extension value contains the outer
+variant of <tt>ECHClientHello</tt> with the following fields:</t>
+          <ul spacing="normal">
+            <li>
+              <t><tt>config_id</tt>, the identifier corresponding to the chosen <tt>ECHConfig</tt> structure;</t>
+            </li>
+            <li>
+              <t><tt>cipher_suite</tt>, the client's chosen cipher suite;</t>
+            </li>
+            <li>
+              <t><tt>enc</tt>, as given above; and</t>
+            </li>
+            <li>
+              <t><tt>payload</tt>, a placeholder byte string containing L zeros.</t>
+            </li>
+          </ul>
+          <t>If configuration identifiers (see <xref target="ignored-configs"/>) are to be
+ignored, <tt>config_id</tt> <bcp14>SHOULD</bcp14> be set to a randomly generated byte in the
+first <tt>ClientHelloOuter</tt> and, in the event of a HelloRetryRequest (HRR),
+<bcp14>MUST</bcp14> be left unchanged for the second <tt>ClientHelloOuter</tt>.</t>
+          <t>The client serializes this structure to construct the <tt>ClientHelloOuterAAD</tt>.
+It then computes the final payload as:</t>
+          <artwork><![CDATA[
+    final_payload = context.Seal(ClientHelloOuterAAD,
+                                 EncodedClientHelloInner)
+]]></artwork>
+          <t>Including <tt>ClientHelloOuterAAD</tt> as the HPKE AAD binds the <tt>ClientHelloOuter</tt>
+to the <tt>ClientHelloInner</tt>, thus preventing attackers from modifying
+<tt>ClientHelloOuter</tt> while keeping the same <tt>ClientHelloInner</tt>, as described in
+<xref target="flow-clienthello-malleability"/>.</t>
+          <t>Finally, the client replaces <tt>payload</tt> with <tt>final_payload</tt> to obtain
+<tt>ClientHelloOuter</tt>. The two values have the same length, so it is not necessary
+to recompute length prefixes in the serialized structure.</t>
+          <t>Note this construction requires the "encrypted_client_hello" be computed after
+all other extensions. This is possible because the <tt>ClientHelloOuter</tt>'s
+"pre_shared_key" extension is either omitted or uses a random binder
+(<xref target="grease-psk"/>).</t>
+        </section>
+        <section anchor="grease-psk">
+          <name>GREASE PSK</name>
+          <t>When offering ECH, the client is not permitted to advertise PSK identities in
+the <tt>ClientHelloOuter</tt>. However, the client can send a "pre_shared_key" extension
+in the <tt>ClientHelloInner</tt>. In this case, when resuming a session with the client,
+the backend server sends a "pre_shared_key" extension in its ServerHello. This
+would appear to a network observer as if the server were sending this
+extension without solicitation, which would violate the extension rules
+described in <xref target="RFC8446"/>. When offering a PSK in <tt>ClientHelloInner</tt>,
+clients <bcp14>SHOULD</bcp14> send a GREASE "pre_shared_key" extension in the
+<tt>ClientHelloOuter</tt> to make it appear to the network as if the extension were
+negotiated properly.</t>
+          <t>The client generates the extension payload by constructing an <tt>OfferedPsks</tt>
+structure (see <xref section="4.2.11" sectionFormat="comma" target="RFC8446"/>) as follows. For each PSK identity
+advertised in the <tt>ClientHelloInner</tt>, the client generates a random PSK identity
+with the same length. It also generates a random, 32-bit, unsigned integer to
+use as the <tt>obfuscated_ticket_age</tt>. Likewise, for each inner PSK binder, the
+client generates a random string of the same length.</t>
+          <t>Per the rules of <xref target="real-ech"/>, the server is not permitted to resume a
+connection in the outer handshake. If ECH is rejected and the client-facing
+server replies with a "pre_shared_key" extension in its ServerHello, then the
+client <bcp14>MUST</bcp14> abort the handshake with an "illegal_parameter" alert.</t>
+        </section>
+        <section anchor="padding">
+          <name>Recommended Padding Scheme</name>
+          <t>If the <tt>ClientHelloInner</tt> is encrypted without padding, then the length of
+the <tt>ClientHelloOuter.payload</tt> can leak information about <tt>ClientHelloInner</tt>.
+In order to prevent this, the <tt>EncodedClientHelloInner</tt> structure
+has a padding field. This section describes a deterministic mechanism for
+computing the required amount of padding based on the following
+observation: individual extensions can reveal sensitive information through
+their length. Thus, each extension in the inner <tt>ClientHello</tt> may require
+different amounts of padding. This padding may be fully determined by the
+client's configuration or may require server input.</t>
+          <t>By way of example, clients typically support a small number of application
+profiles. For instance, a browser might support HTTP with ALPN values
+["http/1.1", "h2"] and WebRTC media with ALPNs ["webrtc", "c-webrtc"]. Clients
+<bcp14>SHOULD</bcp14> pad this extension by rounding up to the total size of the longest ALPN
+extension across all application profiles. The target padding length of most
+<tt>ClientHello</tt> extensions can be computed in this way.</t>
+          <t>In contrast, clients do not know the longest SNI value in the client-facing
+server's anonymity set without server input. Clients <bcp14>SHOULD</bcp14> use the <tt>ECHConfig</tt>'s
+<tt>maximum_name_length</tt> field as follows, where M is the <tt>maximum_name_length</tt>
+value.</t>
+          <ol spacing="normal" type="1"><li>
+              <t>If the <tt>ClientHelloInner</tt> contained a "server_name" extension with a name of
+length D, add max(0, M - D) bytes of padding.</t>
+            </li>
+            <li>
+              <t>If the <tt>ClientHelloInner</tt> did not contain a "server_name" extension (e.g., if
+the client is connecting to an IP address), add M + 9 bytes of padding. This
+is the length of a "server_name" extension with an M-byte name.</t>
+            </li>
+          </ol>
+          <t>Finally, the client <bcp14>SHOULD</bcp14> pad the entire message as follows:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>Let L be the length of the <tt>EncodedClientHelloInner</tt> with all the padding
+computed so far.</t>
+            </li>
+            <li>
+              <t>Let N = 31 - ((L - 1) % 32) and add N bytes of padding.</t>
+            </li>
+          </ol>
+          <t>This rounds the length of <tt>EncodedClientHelloInner</tt> up to a multiple of 32 bytes,
+reducing the set of possible lengths across all clients.</t>
+          <t>In addition to padding <tt>ClientHelloInner</tt>, clients and servers will also need to
+pad all other handshake messages that have sensitive-length fields. For example,
+if a client proposes ALPN values in <tt>ClientHelloInner</tt>, the server-selected value
+will be returned in an EncryptedExtension, so that handshake message also needs
+to be padded using TLS record layer padding.</t>
+        </section>
+        <section anchor="determining-ech-acceptance">
+          <name>Determining ECH Acceptance</name>
+          <t>As described in <xref target="server-behavior"/>, the server may either accept ECH and use
+<tt>ClientHelloInner</tt> or reject it and use <tt>ClientHelloOuter</tt>. This is determined by
+the server's initial message.</t>
+          <t>If the message does not negotiate TLS 1.3 or higher, the server has rejected
+ECH. Otherwise, the message will be either a ServerHello or a HelloRetryRequest.</t>
+          <t>If the message is a ServerHello, the client computes <tt>accept_confirmation</tt> as
+described in <xref target="backend-server"/>. If this value matches the last 8 bytes of
+<tt>ServerHello.random</tt>, the server has accepted ECH. Otherwise, it has rejected
+ECH.</t>
+          <t>If the message is a HelloRetryRequest, the client checks for the
+"encrypted_client_hello" extension. If none is found, the server has rejected
+ECH. Otherwise, if the extension
+has a length other than 8, the client <bcp14>MUST</bcp14> abort the handshake
+with a "decode_error" alert. Otherwise, the client computes
+<tt>hrr_accept_confirmation</tt> as described in <xref target="backend-server-hrr"/>. If this value
+matches the extension payload, the server has accepted ECH. Otherwise, it has
+rejected ECH.</t>
+          <t>If the server accepts ECH, the client handshakes with <tt>ClientHelloInner</tt> as
+described in <xref target="accepted-ech"/>. Otherwise, the client handshakes with
+<tt>ClientHelloOuter</tt> as described in <xref target="rejected-ech"/>.</t>
+        </section>
+        <section anchor="accepted-ech">
+          <name>Handshaking with ClientHelloInner</name>
+          <t>If the server accepts ECH, the client proceeds with the connection as in
+<xref target="RFC8446"/>, with the following modifications:</t>
+          <t>The client behaves as if it had sent <tt>ClientHelloInner</tt> as the <tt>ClientHello</tt>. That
+is, it evaluates the handshake using the <tt>ClientHelloInner</tt>'s preferences, and,
+when computing the transcript hash (<xref section="4.4.1" sectionFormat="of" target="RFC8446"/>), it uses
+<tt>ClientHelloInner</tt> as the first <tt>ClientHello</tt>.</t>
+          <t>If the server responds with a HelloRetryRequest, the client computes the updated
+<tt>ClientHello</tt> message as follows:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>It computes a second <tt>ClientHelloInner</tt> based on the first <tt>ClientHelloInner</tt>, as
+in <xref section="4.1.4" sectionFormat="of" target="RFC8446"/>. The <tt>ClientHelloInner</tt>'s
+"encrypted_client_hello" extension is left unmodified.</t>
+            </li>
+            <li>
+              <t>It constructs <tt>EncodedClientHelloInner</tt> as described in <xref target="encoding-inner"/>.</t>
+            </li>
+            <li>
+              <t>It constructs a second partial <tt>ClientHelloOuterAAD</tt> message. This message <bcp14>MUST</bcp14>
+be syntactically valid. The extensions <bcp14>MAY</bcp14> be copied from the original
+<tt>ClientHelloOuter</tt> unmodified or omitted. If not sensitive, the client <bcp14>MAY</bcp14>
+copy updated extensions from the second <tt>ClientHelloInner</tt> for compression.</t>
+            </li>
+            <li>
+              <t>It encrypts <tt>EncodedClientHelloInner</tt> as described in
+<xref target="encrypting-clienthello"/>, using the second partial <tt>ClientHelloOuterAAD</tt>, to
+obtain a second <tt>ClientHelloOuter</tt>. It reuses the original HPKE encryption
+context computed in <xref target="real-ech"/> and uses the empty string for <tt>enc</tt>.  </t>
+              <t>
+The HPKE context maintains a sequence number, so this operation internally
+uses a fresh nonce for each AEAD operation. Reusing the HPKE context avoids
+an attack described in <xref target="flow-hrr-hijack"/>.</t>
+            </li>
+          </ol>
+          <t>The client then sends the second <tt>ClientHelloOuter</tt> to the server. However, as
+above, it uses the second <tt>ClientHelloInner</tt> for preferences, and both the
+<tt>ClientHelloInner</tt> messages for the transcript hash. Additionally, it checks the
+resulting ServerHello for ECH acceptance as in <xref target="determining-ech-acceptance"/>.
+If the ServerHello does not also indicate ECH acceptance, the client <bcp14>MUST</bcp14>
+terminate the connection with an "illegal_parameter" alert.</t>
+        </section>
+        <section anchor="rejected-ech">
+          <name>Handshaking with ClientHelloOuter</name>
+          <t>If the server rejects ECH, the client proceeds with the handshake,
+authenticating for <tt>ECHConfig.contents.public_name</tt> as described in
+<xref target="auth-public-name"/>. If authentication or the handshake fails, the client <bcp14>MUST</bcp14>
+return a failure to the calling application. It <bcp14>MUST NOT</bcp14> use the retry
+configurations. It <bcp14>MUST NOT</bcp14> treat this as a secure signal to
+disable ECH.</t>
+          <t>If the server supplied an "encrypted_client_hello" extension in its
+EncryptedExtensions message, the client <bcp14>MUST</bcp14> check that it is syntactically
+valid and the client <bcp14>MUST</bcp14> abort the connection with a "decode_error" alert
+otherwise. If an earlier TLS version was negotiated, the client <bcp14>MUST NOT</bcp14> enable
+the False Start optimization <xref target="RFC7918"/> for this handshake. If both
+authentication and the handshake complete successfully, the client <bcp14>MUST</bcp14> perform
+the processing described below and then abort the connection with an "ech_required"
+alert before sending any application data to the server.</t>
+          <t>If the server provided "retry_configs" and if at least one of the
+values contains a version supported by the client, the client can
+regard the ECH configuration as securely replaced by the server. It
+<bcp14>SHOULD</bcp14> retry the handshake with a new transport connection using the
+retry configurations supplied by the server.</t>
+          <t>Because the new ECH configuration replaces the old ECH configuration,
+clients can implement a new transport connection in any way that is
+consistent with the previous ECH configuration. For example, clients
+can reuse the same server IP address when establishing the new
+transport connection or they can choose to use a different IP address
+if DNS provided other IP addresses for the previous configuration.
+However, it is not safe to use IP addresses discovered with a new
+DNS query, as those may correspond to a different ECH server
+configuration, for instance associated with a different ECH server
+with a different <tt>public_name</tt>.</t>
+          <t>The retry configurations are meant to be used for retried connections. Further
+use of retry configurations could yield a tracking vector. In settings where
+the client will otherwise already let the server track the client, e.g.,
+because the client will send cookies to the server in parallel connections,
+using the retry configurations for these parallel connections does not
+introduce a new tracking vector.</t>
+          <t>If none of the values provided in "retry_configs" contains a supported
+version, the server did not supply an "encrypted_client_hello"
+extension in its EncryptedExtensions message, or an earlier TLS
+version was negotiated, the client can regard ECH as securely disabled
+by the server, and it <bcp14>SHOULD</bcp14> retry the handshake with a new transport
+connection and ECH disabled.</t>
+          <t>Clients <bcp14>SHOULD NOT</bcp14> accept "retry_config" in response to a connection
+initiated in response to a "retry_config".  Sending a "retry_config"
+in this situation is a signal that the server is misconfigured, e.g.,
+the server might have multiple inconsistent configurations so that the
+client reached a node with configuration A in the first connection and
+a node with configuration B in the second. Note that this guidance
+does not apply to the cases in the previous paragraph where the server
+has securely disabled ECH.</t>
+          <t>If a client does not retry, it <bcp14>MUST</bcp14> report an error to the calling
+application.</t>
+        </section>
+        <section anchor="auth-public-name">
+          <name>Authenticating for the Public Name</name>
+          <t>When the server rejects ECH, it continues with the handshake using the plaintext
+"server_name" extension instead (see <xref target="server-behavior"/>). Clients that offer
+ECH then authenticate the connection with the public name as follows:</t>
+          <ul spacing="normal">
+            <li>
+              <t>The client <bcp14>MUST</bcp14> verify that the certificate is valid for
+<tt>ECHConfig.contents.public_name</tt>. If invalid, it <bcp14>MUST</bcp14> abort the connection with
+the appropriate alert.</t>
+            </li>
+            <li>
+              <t>If the server requests a client certificate, the client <bcp14>MUST</bcp14> respond with an
+empty Certificate message, denoting no client certificate.</t>
+            </li>
+          </ul>
+          <t>In verifying the client-facing server certificate, the client <bcp14>MUST</bcp14>
+interpret the public name as a DNS-based reference identity
+<xref target="RFC9525"/>. Clients that incorporate DNS names and IP addresses into
+the same syntax (e.g. <xref section="7.4" sectionFormat="of" target="RFC3986"/> and <xref target="WHATWG-IPV4"/>)
+<bcp14>MUST</bcp14> reject names that would be interpreted as IPv4 addresses.
+Clients that enforce this by checking <tt>ECHConfig.contents.public_name</tt>
+do not need to repeat the check when processing ECH rejection.</t>
+          <t>Note that authenticating a connection for the public name does not authenticate
+it for the origin. The TLS implementation <bcp14>MUST NOT</bcp14> report such connections as
+successful to the application. It additionally <bcp14>MUST</bcp14> ignore all session tickets
+and session IDs presented by the server. These connections are only used to
+trigger retries, as described in <xref target="rejected-ech"/>. This may be implemented, for
+instance, by reporting a failed connection with a dedicated error code.</t>
+          <t>Prior to attempting a connection, a client <bcp14>SHOULD</bcp14> validate the
+<tt>ECHConfig.contents.public_name</tt>. Clients <bcp14>SHOULD</bcp14> ignore any
+<tt>ECHConfig</tt> structure with a public_name that is not a valid host name in
+preferred name syntax (see <xref section="2" sectionFormat="of" target="RFC9499"/>).  That is, to be
+valid, the public_name needs to be a dot-separated sequence of LDH labels, as
+defined in <xref section="2.3.1" sectionFormat="of" target="RFC5890"/>, where:</t>
+          <ul spacing="normal">
+            <li>
+              <t>the sequence does not begin or end with an ASCII dot, and</t>
+            </li>
+            <li>
+              <t>all labels are at most 63 octets.</t>
+            </li>
+          </ul>
+          <t>Clients additionally <bcp14>SHOULD</bcp14> ignore the structure if the final LDH
+label either consists of all ASCII digits (i.e., '0' through '9') or is
+"0x" or "0X" followed by some, possibly empty, sequence of ASCII
+hexadecimal digits (i.e., '0' through '9', 'a' through 'f', and 'A'
+through 'F'). This avoids public_name values that may be interpreted
+as IPv4 literals.</t>
+        </section>
+        <section anchor="impact-of-retry-on-future-connections">
+          <name>Impact of Retry on Future Connections</name>
+          <t>Clients <bcp14>MAY</bcp14> use information learned from a rejected ECH for future
+connections to avoid repeatedly connecting to the same server and
+being forced to retry. However, they <bcp14>MUST</bcp14> handle ECH rejection for
+those connections as if it were a fresh connection, rather than
+enforcing the single retry limit from <xref target="rejected-ech"/>. The reason
+for this requirement is that if the server sends a "retry_config"
+and then immediately rejects the resulting connection, it is
+most likely misconfigured. However, if the server sends a "retry_config"
+and then the client tries to use that to connect some time
+later, it is possible that the server has changed
+its configuration again and is now trying to recover.</t>
+          <t>Any persisted information <bcp14>MUST</bcp14> be associated with the <tt>ECHConfig</tt> source
+used to bootstrap the connection, such as a DNS SVCB ServiceMode record
+<xref target="RFC9848"/>. Clients <bcp14>MUST</bcp14> limit any sharing of persisted ECH-related
+state to connections that use the same <tt>ECHConfig</tt> source. Otherwise, it
+might become possible for the client to have the wrong public name for
+the server, making recovery impossible.</t>
+          <t>ECHConfigs learned from ECH rejection can be used as a tracking
+vector. Clients <bcp14>SHOULD</bcp14> impose the same lifetime and scope restrictions
+that they apply to other server-based
+tracking vectors such as PSKs.</t>
+          <t>In general, the safest way for clients to minimize ECH retries is to
+comply with any freshness rules (e.g., DNS TTLs) imposed by the ECH
+configuration.</t>
+        </section>
+      </section>
+      <section anchor="grease-ech">
+        <name>GREASE ECH</name>
+        <t>The GREASE ECH mechanism allows a connection between an ECH-capable client
+and a non-ECH server to appear to use ECH, thus reducing the extent to
+which ECH connections stick out (see <xref target="dont-stick-out"/>).</t>
+        <section anchor="client-greasing">
+          <name>Client Greasing</name>
+          <t>If the client attempts to connect to a server and does not have an <tt>ECHConfig</tt>
+structure available for the server, it <bcp14>SHOULD</bcp14> send a GREASE <xref target="RFC8701"/>
+"encrypted_client_hello" extension in the first <tt>ClientHello</tt> as follows:</t>
+          <ul spacing="normal">
+            <li>
+              <t>Set the <tt>config_id</tt> field to a random byte.</t>
+            </li>
+            <li>
+              <t>Set the <tt>cipher_suite</tt> field to a supported HpkeSymmetricCipherSuite. The
+selection <bcp14>SHOULD</bcp14> vary, so that all plausible configurations are exercised,
+but <bcp14>MAY</bcp14> be held constant for successive connections to the same server in the same
+session.
+Note: A "plausible" configuration is one that an observer might
+expect to see.  A client that fully supports ECH will have a set of
+supported HPKE cipher suites to select from.  A client that only
+supports GREASE ECH has no such list, so it should select from a set
+of values that are in common usage.</t>
+            </li>
+            <li>
+              <t>Set the <tt>enc</tt> field to a randomly generated valid encapsulated public key
+output by the HPKE KEM.</t>
+            </li>
+            <li>
+              <t>Set the <tt>payload</tt> field to a randomly generated string of L+C bytes, where C
+is the ciphertext expansion of the selected AEAD scheme and L is the size of
+the <tt>EncodedClientHelloInner</tt> the client would compute when offering ECH, padded
+according to <xref target="padding"/>.</t>
+            </li>
+          </ul>
+          <t>If sending a second <tt>ClientHello</tt> in response to a HelloRetryRequest, the
+client copies the entire "encrypted_client_hello" extension from the first
+<tt>ClientHello</tt>. The identical value will reveal to an observer that the value of
+"encrypted_client_hello" was fake, but this only occurs if there is a
+HelloRetryRequest.</t>
+          <t>If the server sends an "encrypted_client_hello" extension in either
+HelloRetryRequest or EncryptedExtensions, the client <bcp14>MUST</bcp14> check the extension
+syntactically and abort the connection with a "decode_error" alert if it is
+invalid. It otherwise ignores the extension. It <bcp14>MUST NOT</bcp14> save the
+"retry_configs" value in EncryptedExtensions.</t>
+          <t>Offering a GREASE extension is not considered offering an encrypted <tt>ClientHello</tt>
+for purposes of requirements in <xref target="real-ech"/>. In particular, the client
+<bcp14>MAY</bcp14> offer to resume sessions established without ECH.</t>
+        </section>
+        <section anchor="server-greasing">
+          <name>Server Greasing</name>
+          <t><xref target="config-extensions-iana"/> describes a set of Reserved extensions
+which will never be registered. These can be used by servers to
+"grease" the contents of the ECH configuration, as inspired by
+<xref target="RFC8701"/>. This helps ensure clients process ECH extensions
+correctly. When constructing ECH configurations, servers <bcp14>SHOULD</bcp14>
+randomly select from reserved values with the high-order bit
+clear. Correctly implemented clients will ignore those extensions.</t>
+          <t>The reserved values with the high-order bit set are mandatory, as
+defined in <xref target="config-extensions"/>. Servers <bcp14>SHOULD</bcp14> randomly select from
+these values and include them in extraneous ECH configurations.
+Correctly implemented clients will ignore these configurations because
+they do not recognize the mandatory extension.  Servers <bcp14>SHOULD</bcp14> ensure
+that any client using these configurations encounters a warning or error
+message.  This can be accomplished in several ways, including:</t>
+          <ul spacing="normal">
+            <li>
+              <t>By giving the extraneous configurations distinctive config IDs or
+public names, and rejecting the TLS connection or inserting an
+application-level warning message when these are observed.</t>
+            </li>
+            <li>
+              <t>By giving the extraneous configurations an invalid public
+key and a public name not associated with the server so that
+the initial <tt>ClientHelloOuter</tt> will not be decryptable and
+the server cannot perform the recovery flow described
+in <xref target="rejected-ech"/>.</t>
+            </li>
+          </ul>
+        </section>
+      </section>
+    </section>
+    <section anchor="server-behavior">
+      <name>Server Behavior</name>
+      <t>As described in <xref target="topologies"/>, servers can play two roles, either as
+the client-facing server or as the backend server.
+Depending on the server role, the <tt>ECHClientHello</tt> will be different:</t>
+      <ul spacing="normal">
+        <li>
+          <t>A client-facing server expects an <tt>ECHClientHello.type</tt> of <tt>outer</tt>, and
+proceeds as described in <xref target="client-facing-server"/> to extract a
+<tt>ClientHelloInner</tt>, if available.</t>
+        </li>
+        <li>
+          <t>A backend server expects an <tt>ECHClientHello.type</tt> of <tt>inner</tt>, and
+proceeds as described in <xref target="backend-server"/>.</t>
+        </li>
+      </ul>
+      <t>If <tt>ECHClientHello.type</tt> is not a valid <tt>ECHClientHelloType</tt>, then
+the server <bcp14>MUST</bcp14> abort with an "illegal_parameter" alert.</t>
+      <t>In split mode, a client-facing server which receives a <tt>ClientHello</tt>
+with <tt>ECHClientHello.type</tt> of <tt>inner</tt> <bcp14>MUST</bcp14> abort with an
+"illegal_parameter" alert. Similarly, in split mode, a backend server
+which receives a <tt>ClientHello</tt> with <tt>ECHClientHello.type</tt> of <tt>outer</tt>
+<bcp14>MUST</bcp14> abort with an "illegal_parameter" alert.</t>
+      <t>In shared mode, a server plays both roles, first decrypting the
+<tt>ClientHelloOuter</tt> and then using the contents of the
+<tt>ClientHelloInner</tt>.  A shared mode server which receives a
+<tt>ClientHello</tt> with <tt>ECHClientHello.type</tt> of <tt>inner</tt> <bcp14>MUST</bcp14> abort with an
+"illegal_parameter" alert, because such a <tt>ClientHello</tt> should never
+be received directly from the network.</t>
+      <t>If the "encrypted_client_hello" is not present, then the server completes the
+handshake normally, as described in <xref target="RFC8446"/>.</t>
+      <section anchor="client-facing-server">
+        <name>Client-Facing Server</name>
+        <t>Upon receiving an "encrypted_client_hello" extension in an initial
+<tt>ClientHello</tt>, the client-facing server determines if it will accept ECH prior
+to negotiating any other TLS parameters. Note that successfully decrypting the
+extension will result in a new <tt>ClientHello</tt> to process, so even the client's TLS
+version preferences may have changed.</t>
+        <t>First, the server collects a set of candidate <tt>ECHConfig</tt> values. This list is
+determined by one of the two following methods:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>Compare <tt>ECHClientHello.config_id</tt> against identifiers of each known <tt>ECHConfig</tt>
+and select the ones that match, if any, as candidates.</t>
+          </li>
+          <li>
+            <t>Collect all known <tt>ECHConfig</tt> values as candidates, with trial decryption
+below determining the final selection.</t>
+          </li>
+        </ol>
+        <t>Some uses of ECH, such as local discovery mode, may randomize the
+<tt>ECHClientHello.config_id</tt> since it can be used as a tracking vector. In such
+cases, the second method <bcp14>SHOULD</bcp14> be used for matching the <tt>ECHClientHello</tt> to a
+known <tt>ECHConfig</tt>. See <xref target="ignored-configs"/>. Unless specified by the application
+profile or otherwise externally configured, implementations <bcp14>MUST</bcp14> use the first
+method.</t>
+        <t>The server then iterates over the candidate <tt>ECHConfig</tt> values, attempting to
+decrypt the "encrypted_client_hello" extension as follows.</t>
+        <t>The server verifies that the <tt>ECHConfig</tt> supports the cipher suite indicated by
+the <tt>ECHClientHello.cipher_suite</tt> and that the version of ECH indicated by the
+client matches the <tt>ECHConfig.version</tt>. If not, the server continues to the next
+candidate <tt>ECHConfig</tt>.</t>
+        <t>Next, the server decrypts <tt>ECHClientHello.payload</tt>, using the private key skR
+corresponding to <tt>ECHConfig</tt>, as follows:</t>
+        <artwork><![CDATA[
+    context = SetupBaseR(ECHClientHello.enc, skR,
+                         "tls ech" || 0x00 || ECHConfig)
+    EncodedClientHelloInner = context.Open(ClientHelloOuterAAD,
+                                           ECHClientHello.payload)
+]]></artwork>
+        <t><tt>ClientHelloOuterAAD</tt> is computed from <tt>ClientHelloOuter</tt> as described in
+<xref target="authenticating-outer"/>. The <tt>info</tt> parameter to SetupBaseR is the
+concatenation "tls ech", a zero byte, and the serialized <tt>ECHConfig</tt>. If
+decryption fails, the server continues to the next candidate <tt>ECHConfig</tt>.
+Otherwise, the server reconstructs <tt>ClientHelloInner</tt> from
+<tt>EncodedClientHelloInner</tt>, as described in <xref target="encoding-inner"/>. It then stops
+iterating over the candidate <tt>ECHConfig</tt> values.</t>
+        <t>Once the server has chosen the correct <tt>ECHConfig</tt>, it <bcp14>MAY</bcp14> verify that the value
+in the <tt>ClientHelloOuter</tt> "server_name" extension matches the value of
+<tt>ECHConfig.contents.public_name</tt> and abort with an "illegal_parameter" alert if
+these do not match. This optional check allows the server to limit ECH
+connections to only use the public SNI values advertised in its ECHConfigs.
+The server <bcp14>MUST</bcp14> be careful not to unnecessarily reject connections if the same
+<tt>ECHConfig</tt> id or keypair is used in multiple ECHConfigs with distinct public
+names.</t>
+        <t>Upon determining the <tt>ClientHelloInner</tt>, the client-facing server checks that the
+message includes a well-formed "encrypted_client_hello" extension of type
+<tt>inner</tt> and that it does not offer TLS 1.2 or below. If either of these checks
+fails, the client-facing server <bcp14>MUST</bcp14> abort with an "illegal_parameter" alert.</t>
+        <t>If these checks succeed, the client-facing server then forwards the
+<tt>ClientHelloInner</tt> to the appropriate backend server, which proceeds as in
+<xref target="backend-server"/>. If the backend server responds with a HelloRetryRequest, the
+client-facing server forwards it, decrypts the client's second <tt>ClientHelloOuter</tt>
+using the procedure in <xref target="client-facing-server-hrr"/>, and forwards the resulting
+second <tt>ClientHelloInner</tt>. The client-facing server forwards all other TLS
+messages between the client and backend server unmodified.</t>
+        <t>Otherwise, if all candidate <tt>ECHConfig</tt> values fail to decrypt the extension, the
+client-facing server <bcp14>MUST</bcp14> ignore the extension and proceed with the connection
+using <tt>ClientHelloOuter</tt> with the following modifications:</t>
+        <ul spacing="normal">
+          <li>
+            <t>If sending a HelloRetryRequest, the server <bcp14>MAY</bcp14> include an
+"encrypted_client_hello" extension with a payload of 8 random bytes; see
+<xref target="dont-stick-out"/> for details.</t>
+          </li>
+          <li>
+            <t>If the server is configured with any ECHConfigs, it <bcp14>MUST</bcp14> include the
+"encrypted_client_hello" extension in its EncryptedExtensions with the
+"retry_configs" field set to one or more <tt>ECHConfig</tt> structures with up-to-date
+keys. Servers <bcp14>MAY</bcp14> supply multiple <tt>ECHConfig</tt> values of different versions.
+This allows a server to support multiple versions at once.</t>
+          </li>
+        </ul>
+        <t>Note that decryption failure could indicate a GREASE ECH extension (see
+<xref target="grease-ech"/>), so it is necessary for servers to proceed with the connection
+and rely on the client to abort if ECH was required. In particular, the
+unrecognized value alone does not indicate a misconfigured ECH advertisement
+(<xref target="misconfiguration"/>). Instead, servers can measure occurrences of the
+"ech_required" alert to detect this case.</t>
+        <section anchor="client-facing-server-hrr">
+          <name>Processing ClientHello after HelloRetryRequest</name>
+          <t>After sending or forwarding a HelloRetryRequest, the client-facing server does
+not repeat the steps in <xref target="client-facing-server"/> with the second
+<tt>ClientHelloOuter</tt>. Instead, it continues with the <tt>ECHConfig</tt> selection from the
+first <tt>ClientHelloOuter</tt> as follows:</t>
+          <t>If the client-facing server accepted ECH, it checks that the second <tt>ClientHelloOuter</tt>
+also contains the "encrypted_client_hello" extension. If not, it <bcp14>MUST</bcp14> abort the
+handshake with a "missing_extension" alert. Otherwise, it checks that
+<tt>ECHClientHello.cipher_suite</tt> and <tt>ECHClientHello.config_id</tt> are unchanged, and that
+<tt>ECHClientHello.enc</tt> is empty. If not, it <bcp14>MUST</bcp14> abort the handshake with an
+"illegal_parameter" alert.</t>
+          <t>Finally, it decrypts the new <tt>ECHClientHello.payload</tt> as a second message with the
+previous HPKE context:</t>
+          <artwork><![CDATA[
+    EncodedClientHelloInner = context.Open(ClientHelloOuterAAD,
+                                           ECHClientHello.payload)
+]]></artwork>
+          <t><tt>ClientHelloOuterAAD</tt> is computed as described in <xref target="authenticating-outer"/>, but
+using the second <tt>ClientHelloOuter</tt>. If decryption fails, the client-facing
+server <bcp14>MUST</bcp14> abort the handshake with a "decrypt_error" alert. Otherwise, it
+reconstructs the second <tt>ClientHelloInner</tt> from the new <tt>EncodedClientHelloInner</tt>
+as described in <xref target="encoding-inner"/>, using the second <tt>ClientHelloOuter</tt> for
+any referenced extensions.</t>
+          <t>The client-facing server then forwards the resulting <tt>ClientHelloInner</tt> to the
+backend server. It forwards all subsequent TLS messages between the client and
+backend server unmodified.</t>
+          <t>If the client-facing server rejected ECH, or if the first <tt>ClientHello</tt> did not
+include an "encrypted_client_hello" extension, the client-facing server
+proceeds with the connection as usual. The server does not decrypt the
+second <tt>ClientHello</tt>'s <tt>ECHClientHello.payload</tt> value, if there is one.
+Moreover, if the server is configured with any ECHConfigs, it <bcp14>MUST</bcp14> include the
+"encrypted_client_hello" extension in its EncryptedExtensions with the
+"retry_configs" field set to one or more <tt>ECHConfig</tt> structures with up-to-date
+keys, as described in <xref target="client-facing-server"/>.</t>
+          <t>Note that a client-facing server that forwards the first <tt>ClientHello</tt> cannot
+include its own "cookie" extension if the backend server sends a
+HelloRetryRequest.  This means that the client-facing server either needs to
+maintain state for such a connection or it needs to coordinate with the backend
+server to include any information it requires to process the second <tt>ClientHello</tt>.</t>
+        </section>
+      </section>
+      <section anchor="backend-server">
+        <name>Backend Server</name>
+        <t>Upon receipt of an "encrypted_client_hello" extension of type <tt>inner</tt> in a
+<tt>ClientHello</tt>, if the backend server negotiates TLS 1.3 or higher, then it <bcp14>MUST</bcp14>
+confirm ECH acceptance to the client by computing its ServerHello as described
+here.</t>
+        <t>The backend server embeds in <tt>ServerHello.random</tt> a string derived from the inner
+handshake. It begins by computing its ServerHello as usual, except the last 8
+bytes of <tt>ServerHello.random</tt> are set to zero. It then computes the transcript
+hash for <tt>ClientHelloInner</tt> up to and including the modified ServerHello, as
+described in <xref section="4.4.1" sectionFormat="comma" target="RFC8446"/>. Let transcript_ech_conf denote the
+output. Finally, the backend server overwrites the last 8 bytes of the
+<tt>ServerHello.random</tt> with the following string:</t>
+        <artwork><![CDATA[
+   accept_confirmation = HKDF-Expand-Label(
+      HKDF-Extract(0, ClientHelloInner.random),
+      "ech accept confirmation",
+      transcript_ech_conf,
+      8)
+]]></artwork>
+        <t>where HKDF-Expand-Label is defined in <xref section="7.1" sectionFormat="comma" target="RFC8446"/>, "0" indicates a
+string of Hash.length bytes set to zero, and Hash is the hash function used to
+compute the transcript hash. In DTLS, the modified version of HKDF-Expand-Label
+defined in <xref section="5.9" sectionFormat="comma" target="RFC9147"/> is used instead.</t>
+        <t>The backend server <bcp14>MUST NOT</bcp14> perform this operation if it negotiated TLS 1.2 or
+below. Note that doing so would overwrite the downgrade signal for TLS 1.3 (see
+<xref section="4.1.3" sectionFormat="comma" target="RFC8446"/>).</t>
+        <section anchor="backend-server-hrr">
+          <name>Sending HelloRetryRequest</name>
+          <t>When the backend server sends HelloRetryRequest in response to the <tt>ClientHello</tt>,
+it similarly confirms ECH acceptance by adding a confirmation signal to its
+HelloRetryRequest. But instead of embedding the signal in the
+HelloRetryRequest.random (the value of which is specified by <xref target="RFC8446"/>), it
+sends the signal in an extension.</t>
+          <t>The backend server begins by computing HelloRetryRequest as usual, except that
+it also contains an "encrypted_client_hello" extension with a payload of 8 zero
+bytes. It then computes the transcript hash for the first <tt>ClientHelloInner</tt>,
+denoted ClientHelloInner1, up to and including the modified HelloRetryRequest.
+Let transcript_hrr_ech_conf denote the output. Finally, the backend server
+overwrites the payload of the "encrypted_client_hello" extension with the
+following string:</t>
+          <artwork><![CDATA[
+   hrr_accept_confirmation = HKDF-Expand-Label(
+      HKDF-Extract(0, ClientHelloInner1.random),
+      "hrr ech accept confirmation",
+      transcript_hrr_ech_conf,
+      8)
+]]></artwork>
+          <t>In the subsequent ServerHello message, the backend server sends the
+<tt>accept_confirmation</tt> value as described in <xref target="backend-server"/>.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="deployment">
+      <name>Deployment Considerations</name>
+      <t>The design of ECH as specified in this document necessarily requires changes
+to client, client-facing server, and backend server. Coordination between
+client-facing and backend server requires care, as deployment mistakes
+can lead to compatibility issues. These are discussed in <xref target="compat-issues"/>.</t>
+      <t>Beyond coordination difficulties, ECH deployments may also create challenges
+for uses of information that ECH protects. In particular,
+use cases which depend on this unencrypted information may no longer work
+as desired. This is elaborated upon in <xref target="no-sni"/>.</t>
+      <section anchor="compat-issues">
+        <name>Compatibility Issues</name>
+        <t>Unlike most TLS extensions, placing the SNI value in an ECH extension is not
+interoperable with existing servers, which expect the value in the existing
+plaintext extension. Thus, server operators <bcp14>SHOULD</bcp14> ensure servers understand a
+given set of ECH keys before advertising them. Additionally, servers <bcp14>SHOULD</bcp14>
+retain support for any previously advertised keys for the duration of their
+validity.</t>
+        <t>However, in more complex deployment scenarios, this may be difficult to fully
+guarantee. Thus, this protocol was designed to be robust in case of
+inconsistencies between systems that advertise ECH keys and servers, at the cost
+of extra round-trips due to a retry. Two specific scenarios are detailed below.</t>
+        <section anchor="misconfiguration">
+          <name>Misconfiguration and Deployment Concerns</name>
+          <t>It is possible for ECH advertisements and servers to become inconsistent. This
+may occur, for instance, from DNS misconfiguration, caching issues, or an
+incomplete rollout in a multi-server deployment. This may also occur if a server
+loses its ECH keys, or if a deployment of ECH must be rolled back on the server.</t>
+          <t>The retry mechanism repairs inconsistencies, provided the TLS server
+has a certificate for the public name. If server and advertised keys
+mismatch, the server will reject ECH and respond with
+"retry_configs". If the server does
+not understand the "encrypted_client_hello" extension at all, it will ignore it
+as required by <xref section="4.1.2" sectionFormat="of" target="RFC8446"/>. Provided the server can present a certificate
+valid for the public name, the client can safely retry with updated settings,
+as described in <xref target="rejected-ech"/>.</t>
+          <t>Unless ECH is disabled as a result of successfully establishing a connection to
+the public name, the client <bcp14>MUST NOT</bcp14> fall back to using unencrypted
+ClientHellos, as this allows a network attacker to disclose the contents of this
+<tt>ClientHello</tt>, including the SNI. It <bcp14>MAY</bcp14> attempt to use another server from the
+DNS results, if one is provided.</t>
+          <t>In order to ensure that the retry mechanism works successfully, servers
+<bcp14>SHOULD</bcp14> ensure that every endpoint which might receive a TLS connection
+is provisioned with an appropriate certificate for the public name.
+This is especially important during periods of server reconfiguration
+when different endpoints might have different configurations.</t>
+        </section>
+        <section anchor="middleboxes">
+          <name>Middleboxes</name>
+          <t>The requirements in <xref section="9.3" sectionFormat="comma" target="RFC8446"/> which require proxies to
+act as conforming TLS client and server provide interoperability
+with TLS-terminating proxies even in cases where the server supports
+ECH but the proxy does not, as detailed below.</t>
+          <t>The proxy must ignore unknown parameters and
+generate its own <tt>ClientHello</tt> containing only parameters it understands. Thus,
+when presenting a certificate to the client or sending a <tt>ClientHello</tt> to the
+server, the proxy will act as if connecting to the <tt>ClientHelloOuter</tt>
+server_name, which <bcp14>SHOULD</bcp14> match the public name (see <xref target="real-ech"/>) without
+echoing the "encrypted_client_hello" extension.</t>
+          <t>Depending on whether the client is configured to accept the proxy's certificate
+as authoritative for the public name, this may trigger the retry logic described
+in <xref target="rejected-ech"/> or result in a connection failure. A proxy which is not
+authoritative for the public name cannot forge a signal to disable ECH.</t>
+        </section>
+      </section>
+      <section anchor="no-sni">
+        <name>Deployment Impact</name>
+        <t>Some use cases which depend on information ECH encrypts may break with the
+deployment of ECH. The extent of breakage depends on a number of external
+factors, including, for example, whether ECH can be disabled, whether or not
+the party disabling ECH is trusted to do so, and whether or not client
+implementations will fall back to TLS without ECH in the event of disablement.</t>
+        <t>Depending on implementation details and deployment settings, use cases
+which depend on plaintext TLS information may require fundamentally different
+approaches to continue working. For example, in managed enterprise settings,
+one approach may be to disable ECH entirely via group policy and for
+client implementations to honor this action. Server deployments which
+depend on SNI -- e.g., for load balancing -- may no longer function properly
+without updates; the nature of those updates is out of scope of this
+specification.</t>
+        <t>In the context of <xref target="rejected-ech"/>, another approach may be to
+intercept and decrypt client TLS connections. The feasibility of alternative
+solutions is specific to individual deployments.</t>
+      </section>
+    </section>
+    <section anchor="compliance">
+      <name>Compliance Requirements</name>
+      <t>In the absence of an application profile standard specifying otherwise,
+a compliant ECH application <bcp14>MUST</bcp14> implement the following HPKE cipher suite:</t>
+      <ul spacing="normal">
+        <li>
+          <t>KEM: DHKEM(X25519, HKDF-SHA256) (see <xref section="7.1" sectionFormat="of" target="RFC9180"/>)</t>
+        </li>
+        <li>
+          <t>KDF: HKDF-SHA256 (see <xref section="7.2" sectionFormat="of" target="RFC9180"/>)</t>
+        </li>
+        <li>
+          <t>AEAD: AES-128-GCM (see <xref section="7.3" sectionFormat="of" target="RFC9180"/>)</t>
+        </li>
+      </ul>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This section contains security considerations for ECH.</t>
+      <section anchor="goals">
+        <name>Security and Privacy Goals</name>
+        <t>ECH considers two types of attackers: passive and active. Passive attackers can
+read packets from the network, but they cannot perform any sort of active
+behavior such as probing servers or querying DNS. A middlebox that filters based
+on plaintext packet contents is one example of a passive attacker. In contrast,
+active attackers can also write packets into the network for malicious purposes,
+such as interfering with existing connections, probing servers, and querying
+DNS. In short, an active attacker corresponds to the conventional threat model
+<xref target="RFC3552"/> for TLS 1.3 <xref target="RFC8446"/>.</t>
+        <t>Passive and active attackers can exist anywhere in the network, including
+between the client and client-facing server, as well as between the
+client-facing and backend servers when running ECH in split mode. However,
+for split mode in particular, ECH makes two additional assumptions:</t>
+        <ol spacing="normal" type="1"><li>
+            <t>The channel between each client-facing and each backend server is
+authenticated such that the backend server only accepts messages from trusted
+client-facing servers. The exact mechanism for establishing this authenticated
+channel is out of scope for this document.</t>
+          </li>
+          <li>
+            <t>The attacker cannot correlate messages between a client and client-facing
+server with messages between client-facing and backend server. Such correlation
+could allow an attacker to link information unique to a backend server, such as
+their server name or IP address, with a client's encrypted <tt>ClientHelloInner</tt>.
+Correlation could occur through timing analysis of messages across the
+client-facing server, or via examining the contents of messages sent between
+client-facing and backend servers. The exact mechanism for preventing this sort
+of correlation is out of scope for this document.</t>
+          </li>
+        </ol>
+        <t>Given this threat model, the primary goals of ECH are as follows.</t>
+        <ol spacing="normal" type="1"><li>
+            <t>Security preservation. Use of ECH does not weaken the security properties of
+TLS without ECH.</t>
+          </li>
+          <li>
+            <t>Handshake privacy. TLS connection establishment to a server name
+within an anonymity set is indistinguishable from a connection to
+any other server name within the anonymity set. (The anonymity set
+is defined in <xref target="intro"/>.)</t>
+          </li>
+          <li>
+            <t>Downgrade resistance. An attacker cannot downgrade a connection that
+attempts to use ECH to one that does not use ECH.</t>
+          </li>
+        </ol>
+        <t>These properties were formally proven in <xref target="ECH-Analysis"/>.</t>
+        <t>With regards to handshake privacy, client-facing server configuration
+determines the size of the anonymity set. For example, if a
+client-facing server uses distinct <tt>ECHConfig</tt> values for each server
+name, then each anonymity set has size k = 1. Client-facing servers
+<bcp14>SHOULD</bcp14> deploy ECH in such a way so as to maximize the size of the
+anonymity set where possible. This means client-facing servers should
+use the same <tt>ECHConfig</tt> for as many server names as possible. An
+attacker can distinguish two server names that have different
+<tt>ECHConfig</tt> values based on the <tt>ECHClientHello</tt>.<tt>config_id</tt> value.</t>
+        <t>This also means public information in a TLS handshake should be
+consistent across server names. For example, if a client-facing server
+services many backend origin server names, only one of which supports some
+cipher suite, it may be possible to identify that server name based on the
+contents of the unencrypted handshake message. Similarly, if a backend
+origin reuses KeyShare values, then that provides a unique identifier
+for that server.</t>
+        <t>Beyond these primary security and privacy goals, ECH also aims to hide, to some
+extent, the fact that it is being used at all. Specifically, the GREASE ECH
+extension described in <xref target="grease-ech"/> does not change the security properties of
+the TLS handshake at all. Its goal is to provide "cover" for the real ECH
+protocol (<xref target="real-ech"/>), as a means of addressing the "do not stick out"
+requirements of <xref target="RFC8744"/>. See <xref target="dont-stick-out"/> for details.</t>
+      </section>
+      <section anchor="plaintext-dns">
+        <name>Unauthenticated and Plaintext DNS</name>
+        <t>ECH supports delivery of configurations through the DNS using SVCB or HTTPS
+records without requiring any verifiable authenticity or provenance
+information <xref target="RFC9848"/>. This means that any attacker which can inject
+DNS responses or poison DNS caches, which is a common scenario in
+client access networks, can supply clients with fake ECH configurations (so
+that the client encrypts data to them) or strip the ECH configurations from
+the response. However, in the face of an attacker that controls DNS,
+no encryption scheme can work because the attacker can replace the IP
+address, thus blocking client connections, or substitute a unique IP
+address for each DNS name that was looked up.  Thus, using DNS records
+without additional authentication does not make the situation significantly
+worse.</t>
+        <t>Clearly, DNSSEC (if the client validates and hard fails) is a defense
+against this form of attack, but encrypted DNS transport is also a
+defense against DNS attacks by attackers on the local network, which
+is a common case where <tt>ClientHello</tt> and SNI encryption are
+desired. Moreover, as noted in the introduction, SNI encryption is
+less useful without encryption of DNS queries in transit.</t>
+      </section>
+      <section anchor="client-tracking">
+        <name>Client Tracking</name>
+        <t>A malicious client-facing server could distribute unique, per-client <tt>ECHConfig</tt>
+structures as a way of tracking clients across subsequent connections. On-path
+adversaries which know about these unique keys could also track clients in this
+way by observing TLS connection attempts.</t>
+        <t>The cost of this type of attack scales linearly with the desired number of
+target clients. Moreover, DNS caching behavior makes targeting individual users
+for extended periods of time, e.g., using per-client <tt>ECHConfig</tt> structures
+delivered via HTTPS RRs with high TTLs, challenging. Clients can help mitigate
+this problem by flushing any DNS or <tt>ECHConfig</tt> state upon changing networks
+(this may not be possible if clients use the operating system resolver
+rather than doing their own resolution).</t>
+        <t><tt>ECHConfig</tt> rotation rate is also an issue for non-malicious servers,
+which may want to rotate keys frequently to limit exposure if the key
+is compromised. Rotating too frequently limits the client anonymity
+set. In practice, servers which service many server names and thus
+have high loads are the best candidates to be client-facing servers
+and so anonymity sets will typically involve many connections even
+with fairly fast rotation intervals.</t>
+      </section>
+      <section anchor="ignored-configs">
+        <name>Ignored Configuration Identifiers and Trial Decryption</name>
+        <t>Ignoring configuration identifiers may be useful in scenarios where clients and
+client-facing servers do not want to reveal information about the client-facing
+server in the "encrypted_client_hello" extension. In such settings, clients send
+a randomly generated <tt>config_id</tt> in the <tt>ECHClientHello</tt>. Servers in these settings
+must perform trial decryption since they cannot identify the client's chosen ECH
+key using the <tt>config_id</tt> value. As a result, ignoring configuration
+identifiers may exacerbate DoS attacks. Specifically, an adversary may send
+malicious <tt>ClientHello</tt> messages, i.e., those which will not decrypt with any
+known ECH key, in order to force wasteful decryption. Servers that support this
+feature should, for example, implement some form of rate limiting mechanism to
+limit the potential damage caused by such attacks.</t>
+        <t>Unless specified by the application using (D)TLS or externally configured,
+client implementations <bcp14>MUST NOT</bcp14> use this mode.</t>
+      </section>
+      <section anchor="outer-clienthello">
+        <name>Outer ClientHello</name>
+        <t>Any information that the client includes in the <tt>ClientHelloOuter</tt> is visible to
+passive observers. The client <bcp14>SHOULD NOT</bcp14> send values in the <tt>ClientHelloOuter</tt>
+which would reveal a sensitive <tt>ClientHelloInner</tt> property, such as the true
+server name. It <bcp14>MAY</bcp14> send values associated with the public name in the
+<tt>ClientHelloOuter</tt>.</t>
+        <t>In particular, some extensions require the client send a server-name-specific
+value in the <tt>ClientHello</tt>. These values may reveal information about the
+true server name. For example, the "cached_info" <tt>ClientHello</tt> extension
+<xref target="RFC7924"/> can contain the hash of a previously observed server certificate.
+The client <bcp14>SHOULD NOT</bcp14> send values associated with the true server name in the
+<tt>ClientHelloOuter</tt>. It <bcp14>MAY</bcp14> send such values in the <tt>ClientHelloInner</tt>.</t>
+        <t>A client may also use different preferences in different contexts. For example,
+it may send different ALPN lists to different servers or in different
+application contexts. A client that treats this context as sensitive <bcp14>SHOULD NOT</bcp14>
+send context-specific values in <tt>ClientHelloOuter</tt>.</t>
+        <t>Values which are independent of the true server name, or other information the
+client wishes to protect, <bcp14>MAY</bcp14> be included in <tt>ClientHelloOuter</tt>. If they match
+the corresponding <tt>ClientHelloInner</tt>, they <bcp14>MAY</bcp14> be compressed as described in
+<xref target="encoding-inner"/>. However, note that the payload length reveals information
+about which extensions are compressed, so inner extensions which only sometimes
+match the corresponding outer extension <bcp14>SHOULD NOT</bcp14> be compressed.</t>
+        <t>Clients <bcp14>MAY</bcp14> include additional extensions in <tt>ClientHelloOuter</tt> to avoid
+signaling unusual behavior to passive observers, provided the choice of value
+and value itself are not sensitive. See <xref target="dont-stick-out"/>.</t>
+      </section>
+      <section anchor="inner-clienthello">
+        <name>Inner ClientHello</name>
+        <t>Values which depend on the contents of <tt>ClientHelloInner</tt>, such as the
+true server name, can influence how client-facing servers process this message.
+In particular, timing side channels can reveal information about the contents
+of <tt>ClientHelloInner</tt>. Implementations should take such side channels into
+consideration when reasoning about the privacy properties that ECH provides.</t>
+      </section>
+      <section anchor="related-privacy-leaks">
+        <name>Related Privacy Leaks</name>
+        <t>ECH requires encrypted DNS to be an effective privacy protection mechanism.
+However, verifying the server's identity from the Certificate message,
+particularly when using the X509 CertificateType, may result in additional
+network traffic that may reveal the server identity. Examples of this traffic
+may include requests for revocation information, such as Online Certificate Status Protocol (OCSP) or Certificate Revocation List (CRL) traffic, or requests for repository information, such as authorityInformationAccess. It may also include implementation-specific traffic for additional information sources as part of verification.</t>
+        <t>Implementations <bcp14>SHOULD</bcp14> avoid leaking information that may identify the server.
+Even when sent over an encrypted transport, such requests may result in indirect
+exposure of the server's identity, such as indicating a specific CA or service
+being used. To mitigate this risk, servers <bcp14>SHOULD</bcp14> deliver such information
+in-band when possible, such as through the use of OCSP stapling, and clients
+<bcp14>SHOULD</bcp14> take steps to minimize or protect such requests during certificate
+validation.</t>
+        <t>Attacks that rely on non-ECH traffic to infer server identity in an ECH
+connection are out of scope for this document. For example, a client that
+connects to a particular host prior to ECH deployment may later resume a
+connection to that same host after ECH deployment. An adversary that observes
+this can deduce that the ECH-enabled connection was made to a host that the
+client previously connected to and which is within the same anonymity set.</t>
+      </section>
+      <section anchor="cookies">
+        <name>Cookies</name>
+        <t><xref section="4.2.2" sectionFormat="of" target="RFC8446"/> defines a cookie value that servers may send in
+HelloRetryRequest for clients to echo in the second <tt>ClientHello</tt>. While ECH
+encrypts the cookie in the second <tt>ClientHelloInner</tt>, the backend server's
+HelloRetryRequest is unencrypted. This means differences in cookies between
+backend servers, such as lengths or cleartext components, may leak information
+about the server identity.</t>
+        <t>Backend servers in an anonymity set <bcp14>SHOULD NOT</bcp14> reveal information in the cookie
+which identifies the server. This may be done by handling HelloRetryRequest
+statefully, thus not sending cookies, or by using the same cookie construction
+for all backend servers.</t>
+        <t>Note that, if the cookie includes a key name, analogous to <xref section="4" sectionFormat="of" target="RFC5077"/>, this may leak information if different backend servers issue
+cookies with different key names at the time of the connection. In particular,
+if the deployment operates in split mode, the backend servers may not share
+cookie encryption keys. Backend servers may mitigate this either by handling
+key rotation with trial decryption or by coordinating to match key names.</t>
+      </section>
+      <section anchor="attacks-exploiting-acceptance-confirmation">
+        <name>Attacks Exploiting Acceptance Confirmation</name>
+        <t>To signal acceptance, the backend server overwrites 8 bytes of its
+<tt>ServerHello.random</tt> with a value derived from the <tt>ClientHelloInner.random</tt>. (See
+<xref target="backend-server"/> for details.) This behavior increases the likelihood of the
+<tt>ServerHello.random</tt> colliding with the <tt>ServerHello.random</tt> of a previous session,
+potentially reducing the overall security of the protocol. However, the
+remaining 24 bytes provide enough entropy to ensure this is not a practical
+avenue of attack.</t>
+        <t>On the other hand, the probability that two 8-byte strings are the same is
+non-negligible. This poses a modest operational risk. Suppose the client-facing
+server terminates the connection (i.e., ECH is rejected or bypassed): if the
+last 8 bytes of its <tt>ServerHello.random</tt> coincide with the confirmation signal,
+then the client will incorrectly presume acceptance and proceed as if the
+backend server terminated the connection. However, the probability of a false
+positive occurring for a given connection is only 1 in 2^64. This value is
+smaller than the probability of network connection failures in practice.</t>
+        <t>Note that the same bytes of the <tt>ServerHello.random</tt> are used to implement
+downgrade protection for TLS 1.3 (see <xref section="4.1.3" sectionFormat="comma" target="RFC8446"/>). These
+mechanisms do not interfere because the backend server only signals ECH
+acceptance in TLS 1.3 or higher.</t>
+      </section>
+      <section anchor="comparison-against-criteria">
+        <name>Comparison Against Criteria</name>
+        <t><xref target="RFC8744"/> lists several requirements for SNI encryption.
+In this section, we reiterate these requirements and assess the ECH design
+against them.</t>
+        <section anchor="mitigate-cut-and-paste-attacks">
+          <name>Mitigate Cut-and-Paste Attacks</name>
+          <t>Since servers process either <tt>ClientHelloInner</tt> or <tt>ClientHelloOuter</tt>, and because
+<tt>ClientHelloInner</tt>.random is encrypted, it is not possible for an attacker to "cut
+and paste" the ECH value in a different Client Hello and learn information from
+<tt>ClientHelloInner</tt>.</t>
+        </section>
+        <section anchor="avoid-widely-shared-secrets">
+          <name>Avoid Widely Shared Secrets</name>
+          <t>This design depends upon DNS as a vehicle for semi-static public key
+distribution. Server operators may partition their private keys
+however they see fit provided each server behind an IP address has the
+corresponding private key to decrypt a key. Thus, when one ECH key is
+provided, sharing is optimally bound by the number of hosts that share
+an IP address. Server operators may further limit sharing of private
+keys by publishing different DNS records containing <tt>ECHConfig</tt> values
+with different public keys using a short TTL.</t>
+        </section>
+        <section anchor="sni-based-denial-of-service-attacks">
+          <name>SNI-Based Denial-of-Service Attacks</name>
+          <t>This design requires servers to decrypt <tt>ClientHello</tt> messages with <tt>ECHClientHello</tt>
+extensions carrying valid digests. Thus, it is possible for an attacker to force
+decryption operations on the server. This attack is bound by the number of valid
+transport connections an attacker can open.</t>
+        </section>
+        <section anchor="dont-stick-out">
+          <name>Do Not Stick Out</name>
+          <t>As a means of reducing the impact of network ossification, <xref target="RFC8744"/>
+recommends SNI-protection mechanisms be designed in such a way that network
+operators do not differentiate connections using the mechanism from connections
+not using the mechanism. To that end, ECH is designed to resemble a standard
+TLS handshake as much as possible. The most obvious difference is the extension
+itself: as long as middleboxes ignore it, as required by <xref target="RFC8446"/>, the rest
+of the handshake is designed to look very much as usual.</t>
+          <t>The GREASE ECH protocol described in <xref target="grease-ech"/> provides a low-risk way to
+evaluate the deployability of ECH. It is designed to mimic the real ECH protocol
+(<xref target="real-ech"/>) without changing the security properties of the handshake. The
+underlying theory is that if GREASE ECH is deployable without triggering
+middlebox misbehavior, and real ECH looks enough like GREASE ECH, then ECH
+should be deployable as well. Thus, the strategy for mitigating network
+ossification is to deploy GREASE ECH widely enough to disincentivize
+differential treatment of the real ECH protocol by the network.</t>
+          <t>Ensuring that networks do not differentiate between real ECH and GREASE ECH may
+not be feasible for all implementations. While most middleboxes will not treat
+them differently, some operators may wish to block real ECH usage but allow
+GREASE ECH. This specification aims to provide a baseline security level that
+most deployments can achieve easily while providing implementations enough
+flexibility to achieve stronger security where possible. Minimally, real ECH is
+designed to be indifferentiable from GREASE ECH for passive adversaries with
+following capabilities:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>The attacker does not know the <tt>ECHConfigList</tt> used by the server.</t>
+            </li>
+            <li>
+              <t>The attacker keeps per-connection state only. In particular, it does not
+track endpoints across connections.</t>
+            </li>
+          </ol>
+          <t>Moreover, real ECH and GREASE ECH are designed so that the following features
+do not noticeably vary to the attacker, i.e., they are not distinguishers:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>the code points of extensions negotiated in the clear, and their order;</t>
+            </li>
+            <li>
+              <t>the length of messages; and</t>
+            </li>
+            <li>
+              <t>the values of plaintext alert messages.</t>
+            </li>
+          </ol>
+          <t>This leaves a variety of practical differentiators out-of-scope. including,
+though not limited to, the following:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>the value of the configuration identifier;</t>
+            </li>
+            <li>
+              <t>the value of the outer SNI;</t>
+            </li>
+            <li>
+              <t>the TLS version negotiated, which may depend on ECH acceptance;</t>
+            </li>
+            <li>
+              <t>client authentication, which may depend on ECH acceptance; and</t>
+            </li>
+            <li>
+              <t>HRR issuance, which may depend on ECH acceptance.</t>
+            </li>
+          </ol>
+          <t>These can be addressed with more sophisticated implementations, but some
+mitigations require coordination between the client and server, and even
+across different client and server implementations. These mitigations are
+out-of-scope for this specification.</t>
+        </section>
+        <section anchor="maintain-forward-secrecy">
+          <name>Maintain Forward Secrecy</name>
+          <t>This design does not provide forward secrecy for the inner <tt>ClientHello</tt>
+because the server's ECH key is static.  However, the window of
+exposure is bound by the key lifetime. It is <bcp14>RECOMMENDED</bcp14> that servers
+rotate keys regularly.</t>
+        </section>
+        <section anchor="enable-multi-party-security-contexts">
+          <name>Enable Multi-party Security Contexts</name>
+          <t>This design permits servers operating in split mode to forward connections
+directly to backend origin servers. The client authenticates the identity of
+the backend origin server, thereby allowing the backend origin server
+to hide behind the client-facing server without the client-facing
+server decrypting and reencrypting the connection.</t>
+          <t>Conversely, if the DNS records used for configuration are
+authenticated, e.g., via DNSSEC,
+spoofing a client-facing server operating in split mode is not
+possible. See <xref target="plaintext-dns"/> for more details regarding plaintext
+DNS.</t>
+          <t>Authenticating the <tt>ECHConfig</tt> structure naturally authenticates the included
+public name. This also authenticates any retry signals from the client-facing
+server because the client validates the server certificate against the public
+name before retrying.</t>
+        </section>
+        <section anchor="support-multiple-protocols">
+          <name>Support Multiple Protocols</name>
+          <t>This design has no impact on application layer protocol negotiation. It may
+affect connection routing, server certificate selection, and client certificate
+verification. Thus, it is compatible with multiple application and transport
+protocols. By encrypting the entire <tt>ClientHello</tt>, this design additionally
+supports encrypting the ALPN extension.</t>
+        </section>
+      </section>
+      <section anchor="padding-policy">
+        <name>Padding Policy</name>
+        <t>Variations in the length of the <tt>ClientHelloInner</tt> ciphertext could leak
+information about the corresponding plaintext. <xref target="padding"/> describes a
+<bcp14>RECOMMENDED</bcp14> padding mechanism for clients aimed at reducing potential
+information leakage.</t>
+      </section>
+      <section anchor="active-attack-mitigations">
+        <name>Active Attack Mitigations</name>
+        <t>This section describes the rationale for ECH properties and mechanics as
+defenses against active attacks. In all the attacks below, the attacker is
+on-path between the target client and server. The goal of the attacker is to
+learn private information about the inner <tt>ClientHello</tt>, such as the true SNI
+value.</t>
+        <section anchor="flow-client-reaction">
+          <name>Client Reaction Attack Mitigation</name>
+          <t>This attack uses the client's reaction to an incorrect certificate as an oracle.
+The attacker intercepts a legitimate <tt>ClientHello</tt> and replies with a ServerHello,
+Certificate, CertificateVerify, and Finished messages, wherein the Certificate
+message contains a "test" certificate for the domain name it wishes to query. If
+the client decrypted the Certificate and failed verification (or leaked
+information about its verification process by a timing side channel), the
+attacker learns that its test certificate name was incorrect. As an example,
+suppose the client's SNI value in its inner <tt>ClientHello</tt> is "example.com," and
+the attacker replied with a Certificate for "test.com". If the client produces a
+verification failure alert because of the mismatch faster than it would due to
+the Certificate signature validation, information about the name leaks. Note
+that the attacker can also withhold the CertificateVerify message. In that
+scenario, a client which first verifies the Certificate would then respond
+similarly and leak the same information.</t>
+          <figure anchor="flow-diagram-client-reaction">
+            <name>Client Reaction Attack</name>
+            <artwork><![CDATA[
+ Client                         Attacker               Server
+   ClientHello
+   + key_share
+   + ech         ------>      (intercept)     -----> X (drop)
+
+                             ServerHello
+                             + key_share
+                   {EncryptedExtensions}
+                   {CertificateRequest*}
+                          {Certificate*}
+                    {CertificateVerify*}
+                 <------
+   Alert
+                 ------>
+]]></artwork>
+          </figure>
+          <t><tt>ClientHelloInner.random</tt> prevents this attack: because the attacker
+does not have access to this value, it cannot produce the right transcript and
+handshake keys needed for encrypting the Certificate message. Thus, the client
+will fail to decrypt the Certificate and abort the connection.</t>
+        </section>
+        <section anchor="flow-hrr-hijack">
+          <name>HelloRetryRequest Hijack Mitigation</name>
+          <t>This attack aims to exploit server HRR state management to recover information
+about a legitimate <tt>ClientHello</tt> using its own attacker-controlled <tt>ClientHello</tt>.
+To begin, the attacker intercepts and forwards a legitimate <tt>ClientHello</tt> with an
+"encrypted_client_hello" (ech) extension to the server, which triggers a
+legitimate HelloRetryRequest in return. Rather than forward the retry to the
+client, the attacker attempts to generate its own <tt>ClientHello</tt> in response based
+on the contents of the first <tt>ClientHello</tt> and HelloRetryRequest exchange with the
+result that the server encrypts the Certificate to the attacker. If the server
+used the SNI from the first <tt>ClientHello</tt> and the key share from the second
+(attacker-controlled) <tt>ClientHello</tt>, the Certificate produced would leak the
+client's chosen SNI to the attacker.</t>
+          <figure anchor="flow-diagram-hrr-hijack">
+            <name>HelloRetryRequest Hijack Attack</name>
+            <artwork><![CDATA[
+ Client                         Attacker                   Server
+   ClientHello
+   + key_share
+   + ech         ------>       (forward)        ------->
+                                              HelloRetryRequest
+                                                    + key_share
+                              (intercept)       <-------
+
+                              ClientHello
+                              + key_share'
+                              + ech'           ------->
+                                                    ServerHello
+                                                    + key_share
+                                          {EncryptedExtensions}
+                                          {CertificateRequest*}
+                                                 {Certificate*}
+                                           {CertificateVerify*}
+                                                     {Finished}
+                                                <-------
+                         (process server flight)
+]]></artwork>
+          </figure>
+          <t>This attack is mitigated by using the same HPKE context for both <tt>ClientHello</tt>
+messages. The attacker does not possess the context's keys, so it cannot
+generate a valid encryption of the second inner <tt>ClientHello</tt>.</t>
+          <t>If the attacker could manipulate the second <tt>ClientHello</tt>, it might be possible
+for the server to act as an oracle if it required parameters from the first
+<tt>ClientHello</tt> to match that of the second <tt>ClientHello</tt>. For example, imagine the
+client's original SNI value in the inner <tt>ClientHello</tt> is "example.com", and the
+attacker's hijacked SNI value in its inner <tt>ClientHello</tt> is "test.com". A server
+which checks these for equality and changes behavior based on the result can be
+used as an oracle to learn the client's SNI.</t>
+        </section>
+        <section anchor="flow-clienthello-malleability">
+          <name>ClientHello Malleability Mitigation</name>
+          <t>This attack aims to leak information about secret parts of the encrypted
+<tt>ClientHello</tt> by adding attacker-controlled parameters and observing the server's
+response. In particular, the compression mechanism described in
+<xref target="encoding-inner"/> references parts of a potentially attacker-controlled
+<tt>ClientHelloOuter</tt> to construct <tt>ClientHelloInner</tt>, or a buggy server may
+incorrectly apply parameters from <tt>ClientHelloOuter</tt> to the handshake.</t>
+          <t>To begin, the attacker first interacts with a server to obtain a resumption
+ticket for a given test domain, such as "example.com". Later, upon receipt of a
+<tt>ClientHelloOuter</tt>, it modifies it such that the server will process the
+resumption ticket with <tt>ClientHelloInner</tt>. If the server only accepts resumption
+PSKs that match the server name, it will fail the PSK binder check with an
+alert when <tt>ClientHelloInner</tt> is for "example.com" but silently ignore the PSK
+and continue when <tt>ClientHelloInner</tt> is for any other name. This introduces an
+oracle for testing encrypted SNI values.</t>
+          <figure anchor="tls-clienthello-malleability">
+            <name>Message Flow for Malleable ClientHello</name>
+            <artwork><![CDATA[
+      Client              Attacker                       Server
+
+                                    handshake and ticket
+                                       for "example.com"
+                                       <-------->
+
+      ClientHello
+      + key_share
+      + ech
+         + ech_outer_extensions(pre_shared_key)
+      + pre_shared_key
+                  -------->
+                        (intercept)
+                        ClientHello
+                        + key_share
+                        + ech
+                           + ech_outer_extensions(pre_shared_key)
+                        + pre_shared_key'
+                                          -------->
+                                                         Alert
+                                                         -or-
+                                                   ServerHello
+                                                            ...
+                                                      Finished
+                                          <--------
+]]></artwork>
+          </figure>
+          <t>This attack may be generalized to any parameter which the server varies by
+server name, such as ALPN preferences.</t>
+          <t>ECH mitigates this attack by only negotiating TLS parameters from
+<tt>ClientHelloInner</tt> and authenticating all inputs to the <tt>ClientHelloInner</tt>
+(<tt>EncodedClientHelloInner</tt> and <tt>ClientHelloOuter</tt>) with the HPKE AEAD. See
+<xref target="authenticating-outer"/>. The decompression process in <xref target="encoding-inner"/>
+forbids "encrypted_client_hello" in OuterExtensions. This ensures the
+unauthenticated portion of <tt>ClientHelloOuter</tt> is not incorporated into
+<tt>ClientHelloInner</tt>. An earlier iteration of this specification only
+encrypted and authenticated the "server_name" extension, which left the overall
+<tt>ClientHello</tt> vulnerable to an analogue of this attack.</t>
+        </section>
+        <section anchor="decompression-amp">
+          <name>ClientHelloInner Packet Amplification Mitigation</name>
+          <t>Client-facing servers must decompress EncodedClientHelloInners. A malicious
+attacker may craft a packet which takes excessive resources to decompress
+or may be much larger than the incoming packet:</t>
+          <ul spacing="normal">
+            <li>
+              <t>If looking up a <tt>ClientHelloOuter</tt> extension takes time linear in the number of
+extensions, the overall decoding process would take O(M*N) time, where
+M is the number of extensions in <tt>ClientHelloOuter</tt> and N is the
+size of OuterExtensions.</t>
+            </li>
+            <li>
+              <t>If the same <tt>ClientHelloOuter</tt> extension can be copied multiple times,
+an attacker could cause the client-facing server to construct a large
+<tt>ClientHelloInner</tt> by including a large extension in <tt>ClientHelloOuter</tt>
+of length L and an OuterExtensions list referencing N copies of that
+extension. The client-facing server would then use O(N*L) memory in
+response to O(N+L) bandwidth from the client. In split mode, an
+O(N*L)-sized packet would then be transmitted to the
+backend server.</t>
+            </li>
+          </ul>
+          <t>ECH mitigates this attack by requiring that OuterExtensions be referenced in
+order, that duplicate references be rejected, and by recommending that
+client-facing servers use a linear scan to perform decompression. These
+requirements are detailed in <xref target="encoding-inner"/>.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="update-of-the-tls-extensiontype-registry">
+        <name>Update of the TLS ExtensionType Registry</name>
+        <t>IANA has created the following entries in the existing
+"TLS ExtensionType Values" registry (defined in <xref target="RFC8446"/>):</t>
+        <ol spacing="normal" type="1"><li>
+            <t>encrypted_client_hello (0xfe0d), with "TLS 1.3" column values set to
+"CH, HRR, EE", "DTLS-Only" column set to "N", and "Recommended" column set
+to "Y".</t>
+          </li>
+          <li>
+            <t>ech_outer_extensions (0xfd00), with the "TLS 1.3" column values set to "CH",
+"DTLS-Only" column set to "N", "Recommended" column set to "Y", and the
+"Comment" column set to "Only appears in inner CH."</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="alerts">
+        <name>Update of the TLS Alert Registry</name>
+        <t>IANA has created an entry, ech_required (121) in the existing "TLS
+Alerts" registry (defined in <xref target="RFC8446"/>), with the "DTLS-OK" column
+set to "Y".</t>
+      </section>
+      <section anchor="config-extensions-iana">
+        <name>ECH Configuration Extension Registry</name>
+        <t>IANA has created a new "TLS ECHConfig Extension" registry in a new
+"TLS Encrypted Client Hello (ECH) Configuration Extensions" registry group. New
+registrations will list the following attributes:</t>
+        <dl spacing="compact">
+          <dt>Value:</dt>
+          <dd>
+            <t>The two-byte identifier for the ECHConfigExtension, i.e., the
+ECHConfigExtensionType</t>
+          </dd>
+          <dt>Extension Name:</dt>
+          <dd>
+            <t>Name of the ECHConfigExtension</t>
+          </dd>
+          <dt>Recommended:</dt>
+          <dd>
+            <t>A "Y" or "N" value indicating if the TLS Working Group recommends that the
+extension be supported. This column is assigned a value of "N" unless
+explicitly requested. Adding a value of "Y" requires Standards
+Action <xref target="RFC8126"/>.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>The specification where the ECHConfigExtension is defined</t>
+          </dd>
+          <dt>Notes:</dt>
+          <dd>
+            <t>Any notes associated with the entry</t>
+          </dd>
+        </dl>
+        <t>New entries in the "TLS ECHConfig Extension" registry are subject to the
+Specification Required registration policy (<xref section="4.6" sectionFormat="comma" target="RFC8126"/>), with the policies described in <xref section="16" sectionFormat="comma" target="RFC9847"/>. IANA
+has added the following note to the "TLS ECHConfig Extension"
+registry:</t>
+        <t>Note:  The role of the designated expert is described in RFC 9847.
+      The designated expert <xref target="RFC8126"/> ensures that the specification is
+      publicly available.  It is sufficient to have an Internet-Draft
+      (that is posted and never published as an RFC) or a document from
+      another standards body, industry consortium, university site, etc.
+      The expert may provide more in-depth reviews, but their approval
+      should not be taken as an endorsement of the extension.</t>
+        <t>This document defines several Reserved values for ECH configuration extensions
+to be used for "greasing" as described in <xref target="server-greasing"/>.</t>
+        <t>The initial contents for this registry consists of multiple reserved values
+with the following attributes, which are repeated for each registration:</t>
+        <dl spacing="compact">
+          <dt>Value:</dt>
+          <dd>
+            <t>0x0000, 0x1A1A, 0x2A2A, 0x3A3A, 0x4A4A, 0x5A5A, 0x6A6A, 0x7A7A, 0x8A8A,
+0x9A9A, 0xAAAA, 0xBABA, 0xCACA, 0xDADA, 0xEAEA, 0xFAFA</t>
+          </dd>
+          <dt>Extension Name:</dt>
+          <dd>
+            <t>RESERVED</t>
+          </dd>
+          <dt>Recommended:</dt>
+          <dd>
+            <t>Y</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9849</t>
+          </dd>
+          <dt>Notes:</dt>
+          <dd>
+            <t>GREASE entries</t>
+          </dd>
+        </dl>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="RFC9180" to="HPKE"/>
+    <displayreference target="RFC9499" to="DNS-TERMS"/>
+    <displayreference target="I-D.kazuho-protected-sni" to="PROTECTED-SNI"/>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7918.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9180.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9147.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9460.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9525.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5890.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9847.xml"/>
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+
+        <reference anchor="RFC9848" target="https://www.rfc-editor.org/info/rfc9848">
+          <front>
+            <title>Bootstrapping TLS Encrypted ClientHello with DNS Service Bindings</title>
+            <author initials="B." surname="Schwartz" fullname="Benjamin M. Schwartz">
+              <organization/>
+            </author>
+            <author initials="M." surname="Bishop" fullname="Mike Bishop">
+              <organization/>
+            </author>
+            <author initials="E." surname="Nygren" fullname="Erik Nygren">
+              <organization/>
+            </author>
+            <date year="2026" month="March"/>
+          </front>
+          <seriesInfo name="RFC" value="9848"/>
+          <seriesInfo name="DOI" value="10.17487/RFC9848"/>
+        </reference>
+
+
+        <reference anchor="WHATWG-IPV4" target="https://url.spec.whatwg.org/">
+          <front>
+            <title>URL - IPv4 Parser</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+            <date year="2021" month="May"/>
+          </front>
+          <refcontent>WHATWG Living Standard</refcontent>
+          <annotation>Commit snapshot: <eref target="https://url.spec.whatwg.org/commit-snapshots/1b8b8c55eb4bed9f139c9a439fb1c1bf5566b619/#concept-ipv4-parser" brackets="angle"/>.</annotation>
+</reference>
+
+        <reference anchor="ECH-Analysis" target="https://www.cs.ox.ac.uk/people/vincent.cheval/publis/BCW-ccs22.pdf">
+          <front>
+            <title>A Symbolic Analysis of Privacy for TLS 1.3 with Encrypted Client Hello</title>
+            <author initials="K." surname="Bhargavan">
+              <organization>Inria</organization>
+            </author>
+            <author initials="V." surname="Cheval">
+              <organization>Inria</organization>
+            </author>
+            <author initials="C." surname="Wood">
+              <organization>Cloudflare</organization>
+            </author>
+            <date year="2022" month="November"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/3548606.3559360"/>
+          <refcontent>CCS '22: Proceedings of the 2022 ACM SIGSAC Conference on Computer and Communications Security, pp. 365-379</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9499.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.kazuho-protected-sni.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7301.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8484.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7858.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8094.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9250.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8701.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3552.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8744.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7924.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5077.xml"/>
+      </references>
+    </references>
+    <?line 2092?>
+
+<section anchor="linear-outer-extensions">
+      <name>Linear-Time Outer Extension Processing</name>
+      <t>The following procedure processes the "ech_outer_extensions" extension (see
+<xref target="encoding-inner"/>) in linear time, ensuring that each referenced extension
+in the <tt>ClientHelloOuter</tt> is included at most once:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>Let I be initialized to zero and N be set to the number of extensions
+in <tt>ClientHelloOuter</tt>.</t>
+        </li>
+        <li>
+          <t>For each extension type, E, in OuterExtensions:  </t>
+          <ul spacing="normal">
+            <li>
+              <t>If E is "encrypted_client_hello", abort the connection with an
+"illegal_parameter" alert and terminate this procedure.</t>
+            </li>
+            <li>
+              <t>While I is less than N and the I-th extension of
+<tt>ClientHelloOuter</tt> does not have type E, increment I.</t>
+            </li>
+            <li>
+              <t>If I is equal to N, abort the connection with an "illegal_parameter"
+alert and terminate this procedure.</t>
+            </li>
+            <li>
+              <t>Otherwise, the I-th extension of <tt>ClientHelloOuter</tt> has type E. Copy
+it to the <tt>EncodedClientHelloInner</tt> and increment I.</t>
+            </li>
+          </ul>
+        </li>
+      </ol>
+    </section>
+    <section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t>This document draws extensively from ideas in <xref target="I-D.kazuho-protected-sni"/>, but
+is a much more limited mechanism because it depends on the DNS for the
+protection of the ECH key. <contact fullname="Richard Barnes"/>, <contact fullname="Christian Huitema"/>, <contact fullname="Patrick McManus"/>,
+<contact fullname="Matthew Prince"/>, <contact fullname="Nick Sullivan"/>, <contact fullname="Martin Thomson"/>, and <contact fullname="David Benjamin"/> also provided
+important ideas and contributions.</t>
+    </section>
+  </back>
+</rfc>

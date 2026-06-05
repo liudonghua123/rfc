@@ -1,0 +1,577 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" consensus="true" ipr="trust200902" docName="draft-ietf-extra-processimip-09" number="9671" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="Sieve Extension for Processing Calendar Attachments">Sieve Email Filtering: Extension for Processing Calendar Attachments</title>
+
+    <seriesInfo name="RFC" value="9671"/>
+    <author initials="K." surname="Murchison" fullname="Kenneth Murchison">
+      <organization abbrev="Fastmail">Fastmail US LLC</organization>
+      <address>
+        <postal>
+          <street>1429 Walnut Street, Suite 1201</street>
+          <city>Philadelphia</city>
+          <region>PA</region>
+          <code>19102</code>
+          <country>United States of America</country>
+        </postal>
+        <email>murch@fastmailteam.com</email>
+      </address>
+    </author>
+
+    <author initials="R." surname="Signes" fullname="Ricardo Signes">
+      <organization abbrev="Fastmail">Fastmail US LLC</organization>
+      <address>
+        <postal>
+          <street>1429 Walnut Street, Suite 1201</street>
+          <city>Philadelphia</city>
+          <region>PA</region>
+          <code>19102</code>
+          <country>United States of America</country>
+        </postal>
+        <email>rjbs@fastmailteam.com</email>
+      </address>
+    </author>
+
+    <author initials="M." surname="Horsfall" fullname="Matthew Horsfall">
+      <organization abbrev="Fastmail">Fastmail US LLC</organization>
+      <address>
+        <postal>
+          <street>1429 Walnut Street, Suite 1201</street>
+          <city>Philadelphia</city>
+          <region>PA</region>
+          <code>19102</code>
+          <country>United States of America</country>
+        </postal>
+        <email>alh@fastmailteam.com</email>
+      </address>
+    </author>
+    <date month="October" year="2024"/>
+    <area>ART</area>
+    <workgroup>extra</workgroup>
+
+    <keyword>Sieve</keyword>
+
+    <abstract>
+      <t>This document describes the "processcalendar" extension to the
+      Sieve email filtering language.
+      The "processcalendar" extension gives Sieve the ability to process
+      machine-readable calendar data that is encapsulated in an
+      email message using Multipurpose Internet Mail Extensions (MIME).</t>
+    </abstract>
+
+  </front>
+
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Users frequently receive invites, replies, and cancellations
+      for events, tasks, etc. via Internet mail messages.
+      It is sometimes desirable to have such messages automatically
+      parsed and the enclosed calendar data
+      added to, updated on, or deleted from the user's calendars.</t>
+
+      <t>Typically, such messages are based on the
+      iCalendar Message-Based
+      Interoperability Protocol (iMIP) <xref target="RFC6047" format="default"></xref>.
+      However, sometimes the enclosed
+      iCalendar <xref target="RFC5545"></xref> data does not include an
+      iCalendar Transport-Independent Interoperability Protocol (iTIP) method property
+      (see <xref target="RFC5546" section="1.4" sectionFormat="comma"/>),
+      or the enclosed data may be in some other machine-readable format
+      (e.g.,
+      JSCalendar <xref target="RFC8984"></xref>).
+      </t>
+
+      <t>This document defines an extension to the
+      Sieve language <xref target="RFC5228" format="default"></xref>
+      that enables scripts to process machine-readable calendar data
+      that is encapsulated in an email message using
+      MIME <xref target="RFC2045"></xref>.
+      Specifically, this extension provides the ability to alter
+      items on a user's calendars that are referenced in the encapsulated
+      calendar data.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>Conventions Used in This Document</name>
+      <t>Conventions for notations are as in
+      <xref target="RFC5228" section="1.1" format="default"/>,
+      including use of the "Usage:" label for the definition of action
+      and tagged arguments syntax.</t>
+
+      <t>This document uses terminology and concepts from
+      iCalendar <xref target="RFC5545"></xref> and 
+      iTIP <xref target="RFC5546"></xref> to describe the processing of
+      calendar data, but this extension can be used with any
+      machine-readable calendar data format that can express similar
+      concepts.</t>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+	    </section>
+
+    <section anchor="capability" numbered="true" toc="default">
+      <name>Capability Identifier</name>
+      <t>Sieve interpreters that implement this extension <bcp14>MUST</bcp14> have an
+      identifier of "processcalendar" for use with the capability
+      mechanism.</t>
+
+    </section>
+
+    <section anchor="processcalendar" numbered="true" toc="default">
+      <name>Process Calendar Action</name>
+      <sourcecode name="" type="sieve"><![CDATA[
+Usage: processcalendar [ :allowpublic ]
+                       [ :addresses <string-list> ]
+                       [ :updatesonly / :calendarid <string> ]
+                       [ :deletecancelled ]
+                       [ :organizers <ext-list-name: string> ]
+                       [ :outcome <variablename: string> ]
+                       [ :reason <variablename: string> ]
+]]></sourcecode>
+
+      <t>The "processcalendar" action is used to parse encapsulated calendar
+      data and perform the appropriate action based on the content.  If the
+      calendar data is malformed in any way, it <bcp14>MUST</bcp14> be ignored
+      and no action is taken.  Otherwise, calendar objects may be created,
+      updated, or deleted from a given calendar.
+      </t>
+
+
+      <t>This action can be used with or without the
+      "extlists" extension <xref target="RFC6134"></xref>.
+      When the "extlists" extension is enabled in a script using
+      &lt;require "extlists"&gt;, the script can use the
+      :organizers argument (<xref target="organizers"></xref>) in the
+      "processcalendar" action as described below.
+      When the "extlists" extension is not enabled, the :organizers
+      argument <bcp14>MUST NOT</bcp14> be used and <bcp14>MUST</bcp14> cause an error
+      according to <xref target="RFC5228" />.</t>
+
+      <t>This action can be used with or without the
+      "variables" extension <xref target="RFC5229"></xref>.
+      When the "variables" extension is enabled in a script using
+      &lt;require "variables"&gt;, the script can use the
+      :outcome (<xref target="outcome"></xref>) and 
+      :reason (<xref target="reason"></xref>) arguments in the
+      "processcalendar" action as described below.
+      When the "variables" extension is not enabled, the :outcome
+      and :reason arguments <bcp14>MUST NOT</bcp14> be used and <bcp14>MUST</bcp14> cause an error
+      according to <xref target="RFC5228" />.</t>
+
+      
+      <t>If a mail message contains calendar data in multiple
+      MIME <xref target="RFC2045"></xref> parts, this action <bcp14>MUST</bcp14>
+      verify that the calendar data in each part are semantically
+      equivalent to one another.  If the data is found to be
+      semantically different, the action <bcp14>MUST NOT</bcp14> process the message.
+      Otherwise, the action <bcp14>MUST</bcp14> only process one representation of
+      the data.</t>
+
+      <t>This action <bcp14>MUST NOT</bcp14> make any changes to the participant
+      status of the recipient when processing the calendar data.
+      The mechanism for a recipient to change their participant status
+      to an event is out of scope for this document.</t>
+
+      <t>This action <bcp14>SHOULD</bcp14> remove alarms from calendar data
+      before applying it to a calendar.
+      Failure to do so could result in unwelcome notifications being
+      triggered for the recipient.</t>
+
+      <section anchor="allowpublic" numbered="true" toc="default">
+        <name>Allow Public Argument</name>
+
+        <t>The optional :allowpublic argument is used to tell the
+        implementation that it can process calendar data that
+        does not contain any ATTENDEE properties, such as
+        iTIP messages where the METHOD is PUBLISH or non-iTIP
+        messages where the calendar data does not contain METHOD and/or
+        ORGANIZER properties.</t>
+
+        <t>If used in conjunction with the 
+        :organizers argument (<xref target="organizers"></xref>), the implementation <bcp14>MUST NOT</bcp14>
+        process non-iTIP messages.</t>
+
+        <t>If :allowpublic is omitted, the implementation <bcp14>MUST NOT</bcp14>
+        process calendar data unless is it is a well-formed iTIP
+        message and one of the recipient user's email addresses
+        matches the Calendar User Address
+        (see <xref target="RFC5545" section="3.3.3" format="default" />)
+        of the intended target of the message, as determined by the
+        iTIP method (see <xref target="RFC5546" section="1.4" />)
+        of the message:</t>
+
+
+<ul>
+          <li>"REPLY": Value of the ORGANIZER property
+          (see <xref target="RFC5545" section="3.8.4.3"/>)</li>
+          <li>"REQUEST", "CANCEL", "ADD":
+          Value of one of the ATTENDEE properties
+          (see <xref target="RFC5545" section="3.8.4.1"/>)</li>  
+        </ul>
+
+        <t>The recipient user's email address matches the Calendar User
+        Address of the target if the Calendar User Address is in the
+        form of a mailto URI and the email address matches the
+        "addr-spec" of the URI.</t>
+
+        <t>An email address is considered to belong to the recipient if
+        it is one of the following:</t>
+
+        <ul>
+          <li>an email address known by the implementation to be
+          associated with the recipient,</li>
+
+          <li>the final envelope recipient address if it's available to
+          the implementation, or</li>
+
+          <li>an address specified by the script writer via the
+          :addresses argument (<xref target="addresses"></xref>).</li>
+        </ul>
+      </section>
+
+      <section anchor="addresses" numbered="true" toc="default">
+        <name>Addresses Argument</name>
+        <t>The optional :addresses argument is used to specify
+        email addresses that belong to the recipient in addition to
+        the addresses known to the implementation.</t>
+      </section>
+
+      <section anchor="updatesonly" numbered="true" toc="default">
+        <name>Updates Only Argument</name>
+        <t>The optional :updatesonly argument is used to limit the
+        messages processed to those targeting existing calendar
+        objects only.
+        If the message contains a new calendar object (its
+        unique identifier does
+        not exist on any of the user's calendars), the implementation
+        <bcp14>MUST NOT</bcp14> add the object to a calendar.</t>
+
+        <t>If :updatesonly is omitted, new calendar objects may be
+        added to one of the user's calendars.</t>
+
+        <t>The :updatesonly and :calendarid (<xref target="calendarid"></xref>)
+        arguments are incompatible with each other.  It is an error if
+        both arguments are used in the same "processcalendar" action.</t>
+      </section>
+
+      <section anchor="calendarid" numbered="true" toc="default">
+        <name>Calendar ID Argument</name>
+        <t>The optional :calendarid argument specifies the identifier
+        of the calendar onto which new calendar objects should be placed.</t>
+
+        <t>If :calendarid is omitted, new calendar objects will be
+        placed on the user's "default" calendar as determined by the
+        implementation.</t>
+
+        <t>The :updatesonly (<xref target="updatesonly"></xref>) and :calendarid
+        arguments are incompatible with each other.  It is an error if
+        both arguments are used in the same "processcalendar" action.</t>
+      </section>
+
+      <section anchor="deletecancelled" numbered="true" toc="default">
+        <name>Delete Cancelled Argument</name>
+        <t>The optional :deletecancelled argument is used to tell the
+        implementation that if it receives a cancellation message,
+        it <bcp14>SHOULD</bcp14> remove the associated calendar object from the
+        calendar.</t>
+
+        <t>If :deletecancelled is omitted, the status of the
+        associated calendar object will be set to cancelled and will
+        remain on the calendar.</t>
+      </section>
+
+      <section anchor="organizers" numbered="true" toc="default">
+        <name>Organizers Argument</name>
+        <t>The optional :organizers argument is used to specify
+        an external list of email addresses from which the
+        recipient is willing to accept public events, invites,
+        updates, and cancellations.
+        Implementations <bcp14>MUST NOT</bcp14> process calendar data unless is it is
+        a well-formed iTIP message and one of the addresses in the
+        external list matches the Calendar User Address of the
+        ORGANIZER property.
+        An email address in the external list matches the Calendar User
+        Address of the ORGANIZER property if it is in the form of a
+        mailto URI and the email address matches the "addr-spec" of
+        the URI.</t>
+
+        <t>If :organizers is omitted, no validation of the ORGANIZER
+        property is performed.</t>
+      </section>
+
+      <section anchor="outcome" numbered="true" toc="default">
+        <name>Outcome Argument</name>
+        <t>The optional :outcome argument specifies the name of a
+        variable into which one of the following strings specifying
+        the outcome of the action will be stored:</t>
+
+<dl newline="false" spacing="normal">
+          <dt>"no_action":</dt><dd>No action was performed
+          (e.g., the message didn't contain calendar data, or
+          the set of provided options prevented the message from being
+          processed).</dd>
+          <dt>"added":</dt><dd>A new calendar object was added to a calendar.</dd>
+          <dt>"updated":</dt><dd>A calendar object was updated, cancelled, or
+          removed from the calendar.</dd>
+          <dt>"error":</dt><dd>The message would have been processed but
+          encountered an error in doing so.</dd>
+        </dl>
+      </section>
+
+      <section anchor="reason" numbered="true" toc="default">
+        <name>Reason Argument</name>
+        <t>The optional :reason argument specifies the name of a
+        variable into which a string describing the reason for the
+        outcome will be stored.
+        If no reason for the outcome is available, implementations
+        <bcp14>MUST</bcp14> set the variable to the empty string.</t>
+        <t>For example, an outcome of "no_action" may have a reason of
+        "only processing updates", or an outcome of "error" may have a
+        reason of "missing unique identifier".</t>
+      </section>
+
+      <section anchor="interaction" numbered="true" toc="default">
+        <name>Interaction with Other Sieve Actions</name>
+
+        <t>The "processcalendar" action does not cancel Sieve's
+        implicit keep action.</t>
+
+        <t>The "processcalendar" action can only be executed once per
+        script.
+        A script <bcp14>MUST</bcp14> fail with an appropriate error if it attempts to
+        execute two or more "processcalendar" actions.</t>
+
+        <t>The "processcalendar" action is incompatible with the Sieve "reject" and "ereject" actions <xref
+        target="RFC5429" format="default"></xref>.
+        </t>
+      </section>
+
+      <section anchor="examples" numbered="true" toc="default">
+        <name>Examples</name>
+        <t>The following example specifies email addresses belonging
+        to the user and  the identifier of the calendar onto
+        which to place new calendar objects:</t>
+        <sourcecode name="" type="sieve"><![CDATA[
+require [ "processcalendar" ];
+
+processcalendar :addresses [ "me@example.com", "alsome@example.com" ]
+                :calendarid "1ea6d86b-6c7f-48a2-bed3-2a4c40ec281a";
+]]></sourcecode>
+
+        <t>The following example tells the interpreter to process
+        flight itineraries from a particular airline:</t>
+        <sourcecode name="" type="sieve"><![CDATA[
+require [ "processcalendar" ];
+
+if allof (address ["from", "sender"] "airline@example.com",
+          header :contains "subject" "itinerary") {
+   processcalendar :allowpublic;
+}
+]]></sourcecode>
+
+        <t>The following example adds headers to the message if
+        calendar data isn't processed :</t>
+        <sourcecode name="" type="sieve"><![CDATA[
+require [ "processcalendar", "variables", "editheader" ];
+
+set "processcal_outcome" "no_action";
+set "processcal_reason" "";
+
+processcalendar :outcome "processcal_outcome"
+                :reason "processcal_reason";
+
+if not string :is "${processcal_outcome}" ["added", "updated"] {
+   addheader "X-ProcessCal-Outcome" "${processcal_outcome}";
+   addheader "X-ProcessCal-Reason" "${processcal_reason}";
+}
+]]></sourcecode>
+      </section>
+
+    </section> 
+
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document describes a method for altering an electronic
+      calendar without user interaction.  As such, unless proper
+      precautions are undertaken, it can be used as a vector for
+      calendar abuse.</t>
+
+      <t>It is critical that implementations correctly implement the
+      behavior and restrictions described throughout this document.
+      Security issues associated with processing unsolicited
+      calendar data and methods for mitigating them are discussed in
+      <xref target="CALSPAM" format="default"/>.  Specifically:</t>
+
+      <ul>
+        <li>The "processcalendar" extension <bcp14>MUST NOT</bcp14> process any calendar data
+        enclosed in a message flagged as spam and/or malicious.
+        The "spamtest" and "virustest" extensions <xref target="RFC5235"></xref>
+        (or the header test <xref target="RFC5228"></xref> 
+        if messages are scanned outside of the Sieve
+        interpreter) can be used to make "processcalendar" conditional
+        on "safe" content.</li>
+
+        <li>The "processcalendar" extension <bcp14>SHOULD NOT</bcp14> process calendar data
+        received from a potentially malicious sender.
+        The address and envelope tests <xref target="RFC5228"></xref> 
+        (optionally along with the "extlists" extension <xref target="RFC6134"></xref>) can be used to create a "deny list" and make
+        "processcalendar" conditional on the sender not being a member
+        of that list.</li>
+
+        <li>Similarly, the "processcalendar" extension <bcp14>SHOULD</bcp14> only process calendar
+        data received from a known sender.
+        The address and envelope tests <xref target="RFC5228"></xref> 
+        (optionally along with the "extlists" extension <xref target="RFC6134"></xref>) can be used to create an "allow list" and make
+        "processcalendar" conditional on the sender being a member of
+        that list.</li>
+
+        <li>The "processcalendar" extension <bcp14>SHOULD NOT</bcp14> process calendar data received
+        from an untrustworthy sender.  Trustworthiness may depend on
+        whether the message has a valid signature (see
+        <xref target="RFC8551"/>) and/or on whether one or more of the following passes or fails on the message:
+        Sender Policy Framework (SPF) <xref target="RFC7208"></xref>,
+        DomainKeys Identified Mail (DKIM)
+        Signatures <xref target="RFC6376"></xref>, and
+        Domain-based Message Authentication,
+        Reporting, and Conformance (DMARC) <xref target="RFC7489"></xref>.
+
+        The mechanism by which a Sieve interpreter accesses the results of
+        such checks is outside the scope of this document, but if the
+        results are available in the message's header fields,
+        the header test <xref target="RFC5228"></xref> can be used to make
+        "processcalendar" conditional on the sender being trustworthy.</li>
+      </ul>
+
+      <t>Additionally, if the calendar data has embedded (a.k.a. inline)
+      attachments, implementations <bcp14>SHOULD</bcp14>:</t>
+
+      <ul>
+        <li>Decode the embedded attachment, if necessary.</li>
+
+        <li>Scan the (decoded) attachment for malicious content.</li>
+      </ul>
+
+      <t>If an attachment is found to be malicious, "processcalendar"
+      <bcp14>MUST NOT</bcp14> process the calendar data.</t>
+          
+    </section>
+
+    <section anchor="privacy" numbered="true" toc="default">
+      <name>Privacy Considerations</name>
+      <t>It is believed that this extension doesn't introduce any
+      privacy considerations beyond those in
+      <xref target="RFC5228" format="default"/>.</t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>IANA Considerations</name>
+
+      <section numbered="true" toc="default">
+        <name>Registration of Sieve Extension</name>
+        <t>This document defines the following new Sieve extension, which IANA has added to the <eref target="https://www.iana.org/assignments/sieve-extensions">"Sieve
+        Extensions" registry</eref>. The registry is defined in <xref target="RFC5228" format="default" sectionFormat="of" section="6.2"/>.
+        </t>
+
+<dl newline="false" spacing="normal">
+          <dt>Capability name:</dt><dd>processcalendar</dd>
+          <dt>Description:</dt><dd>Adds the "processcalendar" action command to
+            add and update items on a user's calendars.</dd>
+          <dt>RFC number:</dt><dd>RFC 9671</dd>
+          <dt>Contact address:</dt><dd>Sieve discussion list
+            &lt;sieve@ietf.org&gt;</dd>
+</dl>
+      </section>
+
+      <section numbered="true" toc="default">
+        <name>Registration of Sieve Action</name>
+	
+        <t>This document defines the following new Sieve action, which IANA has added to the <eref
+        target="https://www.iana.org/assignments/sieve-extensions">"Sieve Actions" registry
+        </eref>. The
+        registry is defined in <xref target="RFC9122" format="default"
+        sectionFormat="of" section="2.1"/>.
+        </t>
+
+<dl newline="false" spacing="normal">
+          <dt>Name:</dt><dd>processcalendar</dd>
+          <dt>Description:</dt><dd>Add and update items on a user's calendars</dd>
+          <dt>References:</dt><dd>RFC 9671 <xref target="RFC5229"/>
+                          <xref target="RFC6134"/></dd>
+          <dt>Capabilities:</dt><dd>"processcalendar", "variables", "extlists"</dd>
+          <dt>Action Interactions:</dt><dd>This action is incompatible with the
+          "reject" and "ereject" actions.</dd>
+          <dt>Cancels Implicit Keep?</dt><dd>No</dd>
+          <dt>Can Use with IMAP Events?</dt><dd>No</dd>
+        </dl>
+      </section>
+    </section> 
+
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5228.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5229.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6047.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6134.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9122.xml"/>
+
+        <reference anchor="CALSPAM" target="https://standards.calconnect.org/csd/cc-18003.html">
+          <front>
+            <title>Calendar operator practices - Guidelines to protect against
+            calendar abuse</title>
+            <author>
+              <organization>The Calendaring and Scheduling Consortium</organization>
+            </author>
+            <date year="2019"/>
+          </front>
+          <seriesInfo name="CC/R" value="18003:2019"/>
+        </reference>
+      </references>
+
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2045.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5545.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5235.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5546.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5429.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8984.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8551.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6376.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7489.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7208.xml"/>
+
+      </references>
+    </references>
+
+    <section numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>The authors would like to thank the following individuals for
+      contributing their ideas and support for writing this
+      specification: <contact fullname="Ned Freed"/> and <contact fullname="Alexey Melnikov"/>.</t>
+    </section>
+    
+  </back>
+</rfc>

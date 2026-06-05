@@ -1,0 +1,476 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-jmap-smime-12" number="9219" obsoletes="" updates="" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="true" version="3">
+  
+  <!-- xml2rfc v2v3 conversion 3.12.0 -->
+  <front>
+  <title abbrev="JMAP Extension for S/MIME">
+    S/MIME Signature Verification Extension to the JSON Meta Application Protocol
+    (JMAP) 
+    </title>
+    <seriesInfo name="RFC" value="9219"/>
+    <author initials="A." surname="Melnikov" fullname="Alexey Melnikov">
+      <organization>Isode Ltd</organization>
+      <address>
+        <postal>
+          <street>14 Castle Mews</street>
+          <city>Hampton, Middlesex</city>
+          <code>TW12 2NP</code>
+          <country>United Kingdom</country>
+        </postal>
+        <email>Alexey.Melnikov@isode.com</email>
+      </address>
+    </author>
+    <date year="2022" month="April" />
+    <keyword>JMAP</keyword>
+    <keyword>S/MIME</keyword>
+    <abstract>
+      <t>
+	This document specifies an extension to "The JSON Meta Application Protocol
+	(JMAP) for Mail" (RFC 8621) for returning the S/MIME signature verification status.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+        <xref target="RFC8621" format="default">JMAP for Mail</xref> is a JSON-based application protocol for synchronizing email data
+        between a client and a server.
+      </t>
+      <t>
+        This document describes an extension to JMAP for returning the S/MIME
+        signature verification status <xref target="RFC8551"
+        format="default"/>, without requiring a JMAP client to download the
+        signature body part and all signed body parts (when the
+        multipart/signed media type <xref target="RFC1847" format="default"/>
+        is used) or to download and decode the Cryptographic Message Syntax (CMS)
+        (when the application/pkcs7-mime media type (<xref target="RFC8551"
+        section="3.2" sectionFormat="of" format="default"/>) is used).  The
+        use of the extension implies the client trusts the JMAP server's
+        S/MIME signature verification code and configuration.  This extension
+        is suitable for cases where reduction in network bandwidth and
+        client-side code complexity outweigh security concerns about trusting
+        the JMAP server to perform S/MIME signature verifications. One
+        possible use case is when the same organization controls both the JMAP
+        server and the JMAP client.
+      </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Conventions Used in This Document</name>
+      <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+         "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>", "<bcp14>MAY</bcp14>",
+         and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as described in
+         BCP 14 <xref target="RFC2119" format="default"/> <xref target="RFC8174" format="default"/> when, and only when, they
+         appear in all capitals, as shown here.
+      </t>
+      <t>
+      Type signatures, examples, and property descriptions in this document
+      follow the conventions established in <xref target="RFC8620" section="1.1" sectionFormat="of" format="default"/>.
+      Data types defined in the core specification are also used in this document.
+      </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Addition to the Capabilities Object</name>
+      <t>
+        The <strong>capabilities</strong> object is returned as part of the standard JMAP
+        Session object; see <xref target="RFC8620" section="2" sectionFormat="of" format="default"/>.
+        Servers supporting this
+        specification <bcp14>MUST</bcp14> add a property called
+        "urn:ietf:params:jmap:smimeverify" to the capabilities object.
+      </t>
+      <t>
+        The value of this property is an empty object in both the JMAP
+        Session <em>capabilities</em> property and an account's
+        <em>accountCapabilities</em> property.
+      </t>
+    </section>
+    <section anchor="smime" numbered="true" toc="default">
+      <name>Extension for S/MIME Signature Verification</name>
+      <section anchor="email-get-ext" numbered="true" toc="default">
+        <name>Extension to Email/get</name>
+        <t>
+      
+        <xref target="RFC8621" format="default"/> defines the Email/get method for retrieving message-specific information.
+        This document defines the following pseudo values in the <em>properties</em> argument:</t>
+        <dl newline="true" spacing="normal">
+          <dt><strong>smimeStatus</strong>:</dt>
+	  <dd>If "smimeStatus" is included in the list of requested
+          properties, it <bcp14>MUST</bcp14> be interpreted by the server as a request to
+          return the "smimeStatus" response property.</dd>
+          <dt><strong>smimeStatusAtDelivery</strong>:</dt>
+	  <dd>If "smimeStatusAtDelivery" is included in the list of requested
+        properties, it <bcp14>MUST</bcp14> be interpreted by the server as a request to
+        return the "smimeStatusAtDelivery" response property. (It is effectively the same as
+	the "smimeStatus"
+        value calculated at the date/time of delivery, as specified by "receivedAt".)</dd>
+        <dt><strong>smimeErrors</strong>:</dt>
+	<dd>If "smimeErrors" is included in the list of requested
+        properties, it <bcp14>MUST</bcp14> be interpreted by the server as a request to
+        return the "smimeErrors" response property.</dd>
+          <dt><strong>smimeVerifiedAt</strong>:</dt>
+	  <dd>If "smimeVerifiedAt" is included in the list of requested
+        properties, it <bcp14>MUST</bcp14> be interpreted by the server as a request to
+        return the "smimeVerifiedAt" response property.</dd>
+        </dl>
+        <t>The "smimeStatus" response property is defined as follows:</t>
+        <dl newline="true" spacing="normal">
+          <dt><strong>smimeStatus</strong>:</dt>
+	  <dd><t>"String|null" (server-set). null signifies that the message doesn't
+        contain any signature. Otherwise, this property contains the S/MIME signature
+        and certificate verification status calculated according to
+        <xref target="RFC8551" format="default"/>, <xref target="RFC8550" format="default"/>, and <xref target="RFC5280" format="default"/>.
+        Possible string values of the property are
+        listed below.  Servers <bcp14>MAY</bcp14> return other values not defined below,
+        as defined in extensions to this document.
+        Clients <bcp14>MUST</bcp14> treat unrecognized values as "unknown" or "signed/failed".
+        Note that the value of this property might change over time.</t>
+	<dl newline="true" spacing="normal">
+          <dt>unknown:</dt>
+          <dd>
+            An S/MIME message, but it was neither signed nor encrypted.
+            This can also be returned for a multipart/signed message that
+            contains an unrecognized signing protocol (for example, OpenPGP).
+          </dd>
+          <dt>signed:</dt>
+          <dd>
+            An S/MIME signed message, but the signature was not yet
+            verified.  Some servers might not attempt to verify a signature
+            until a particular message is requested by the client.
+            (This is a useful optimization for a JMAP server to avoid doing work until exact
+	    information is needed.
+            A JMAP client that only needs to display an icon that signifies presence of an
+	    S/MIME signature can still use this value.)
+            JMAP servers compliant with this document <bcp14>SHOULD</bcp14> attempt signature
+	    verification
+            and return "signed/verified" or "signed/failed" instead of this signature
+            status.
+          </dd>
+          <dt>signed/verified:</dt>
+          <dd>
+            An S/MIME signed message, and the sender's signature
+            was successfully verified according to
+            <xref target="RFC8551" format="default"/> and <xref target="RFC8550"
+	    format="default"/>. 
+            Additionally, the signer email address extracted from the S/MIME
+            certificate matches the From header field value, and
+            the signer certificate <bcp14>SHOULD</bcp14> be checked for revocation.
+          </dd>
+          <dt>signed/failed:</dt>
+          <dd>
+            S/MIME signed message, but the signature failed to
+            verify according to <xref target="RFC8551" format="default"/> and <xref
+	    target="RFC8550" format="default"/>.
+            This might be because of a policy-related decision (e.g., the message signer
+	    email address
+            doesn't match the From header field value), the message was modified,
+            the signer's certificate has expired or was revoked, etc.
+          </dd>
+          <dt>encrypted+signed/verified:</dt>
+          <dd>
+            This value is reserved for future use. It is typically handled in the same way as "signed/verified".
+          </dd>
+          <dt>encrypted+signed/failed:</dt>
+          <dd>
+            This value is reserved for future use. It is typically handled in the same way as "signed/failed".
+          </dd>
+	</dl>
+	  </dd>
+        </dl>
+        <t>The "smimeStatusAtDelivery" response property
+      has the same syntax as "smimeStatus" but is calculated in relationship to the "receivedAt"
+      date/time.
+      Unlike "smimeStatus", the "smimeStatusAtDelivery" response property
+      value doesn't change unless trust anchors are added. (For example, addition of a trust anchor
+      can change the value of a message "smimeStatusAtDelivery" property from "signed/failed"
+      to "signed/verified". Note that trust anchor removal doesn't affect this response property.)
+      The "smimeStatusAtDelivery" response property value allows clients to compare the S/MIME
+      signature verification status at delivery with the current status as returned
+      by "smimeStatus", for example, to help to answer questions like
+      "was the signature valid at the time of delivery?".
+        </t>
+        <t>Note that the "smimeStatusAtDelivery" response property
+      value doesn't have to be calculated at delivery time. A JMAP server
+      can defer its calculation until it is explicitly requested;
+      however, once it is calculated, its value is remembered for later use.
+        </t>
+        <t>The "smimeErrors" response property is defined as follows:</t>
+        <dl newline="true" spacing="normal">
+          <dt><strong>smimeErrors</strong>:</dt>
+	  <dd>"String[]|null" (server-set). null signifies that the message doesn't
+        contain any signature or that there were no errors when verifying
+        the S/MIME signature. (That is, this property is non-null only
+        when the corresponding "smimeStatus" response property value
+        is "signed/failed" or "encrypted+signed/failed".
+	Note that future extensions to this document
+        can specify other "smimeStatus" values that can be used with "smimeErrors".)
+        Each string in the array is a human-readable description
+        (in the language specified in the Content-Language header field, if any)
+        of a problem with the signature, the signing certificate, or the signing certificate
+	chain.
+        (See <xref target="RFC8620" section="3.8" sectionFormat="of" format="default"/> in regards to how this
+	is affected
+        by the language selection.)
+        In one example, the signing certificate might be expired
+        and the message From email address might not correspond to any of the email
+        addresses in the signing certificate.
+        In another example, the certificate might be expired and the JMAP server might
+	be unable
+        to retrieve a Certificate Revocation List (CRL) for the certificate.
+        In both of these cases, there would be 2 elements in the array.
+          </dd>
+	</dl>
+        <t>The "smimeVerifiedAt" response property is defined as follows:</t>
+        <dl newline="true" spacing="normal">
+          <dt><strong>smimeVerifiedAt</strong>:</dt>
+	  <dd>"UTCDate|null" (server-set). null signifies that the message doesn't
+        contain any S/MIME signature or that there is a signature, but there was no attempt
+        to verify it.
+        (Retrieval of the "smimeStatus" value can be used to distinguish these 2 cases).
+        In all other cases, it is set to the date and time of when the S/MIME signature
+        was most recently verified.
+        Note that a request to fetch "smimeStatus", "smimeStatusAtDelivery", and/or "smimeErrors" would force this response
+        property to be set to a non-null value if an S/MIME signature exists.
+          </dd>
+	</dl>
+        <t>The "smimeStatus" and "smimeErrors" values are calculated at the time the
+	corresponding JMAP	
+      request is processed (but see below about the effect of result caching),
+      not at the time when the message is generated (according to its
+      Date header field value). In all cases, "smimeVerifiedAt" is set to the time when
+      "smimeStatus" and "smimeErrors" were last updated.
+      As recalculating these values is expensive for the server,
+      they <bcp14>MAY</bcp14> be cached for up to 24 hours from the moment when they were calculated.
+        </t>
+<t keepWithNext="true">
+        Example 1: Retrieval of minimal information about a message, including its From, Subject, and Date header fields,
+        as well as the S/MIME signature verification status at delivery and date/time when the message was received.
+</t>
+
+        <sourcecode name="" type=""><![CDATA[
+["Email/get", {
+"ids": [ "fe123u457" ],
+"properties": [ "mailboxIds", "from", "subject", "date",
+ "smimeStatusAtDelivery", "receivedAt" ]
+}, "#1"]
+]]></sourcecode>
+
+<t>This might result in the following response:</t>
+<sourcecode name="" type=""><![CDATA[
+[["Email/get", {
+   "accountId": "abc",
+   "state": "51234123231",
+   "list": [
+     {
+       "id": "fe123u457",
+       "mailboxIds": { "f123": true },
+       "from": [{"name": "Joe Bloggs",
+               "email": "joe@bloggs.example.net"}],
+       "subject": "Dinner tonight?",
+       "date": "2020-07-07T14:12:00Z",
+       "smimeStatusAtDelivery": "signed/verified",
+       "receivedAt": "2020-07-07T14:15:18Z"
+     }
+   ]
+}, "#1"]]
+]]></sourcecode>
+        <t keepWithNext="true">
+        Example 2: Retrieval of minimal information about a message, including its From, Subject, and Date header fields,
+        as well as the latest S/MIME signature verification status, S/MIME verification errors (if any), and
+        when the S/MIME signature status was last verified.
+        The response contains 2 S/MIME errors related to S/MIME signature verification.
+        </t>
+        <sourcecode name="" type=""><![CDATA[
+["Email/get", {
+"ids": [ "ag123u123" ],
+"properties": [ "mailboxIds", "from", "subject", "date",
+ "smimeStatus", "smimeErrors", "smimeVerifiedAt" ]
+}, "#1"]
+]]></sourcecode>
+<t>This might result in the following response:</t>
+<sourcecode name="" type=""><![CDATA[
+[["Email/get", {
+   "accountId": "abc",
+   "state": "47234123231",
+   "list": [
+     {
+       "id": "ag123u123",
+       "mailboxIds": { "f123": true },
+       "from": [{"name": "Jane Doe",
+               "email": "jdoe@example.com"}],
+       "subject": "Company takeover",
+       "date": "2020-01-31T23:00:00Z",
+       "smimeStatus": "signed/failed",
+       "smimeErrors": [
+         "From email address doesn't match the certificate",
+         "Can't retrieve CRL from the CRL URL"],
+       "smimeVerifiedAt": "2020-03-01T12:11:19Z"
+     }
+   ]
+}, "#1"]]
+]]></sourcecode>
+        <section numbered="true" toc="default">
+          <name>"smimeStatus" Response Property Extensibility</name>
+          <t>
+          Future extensions to this document can specify extra allowed values for the "smimeStatus" response property.
+          All values (defined in this document or in extensions to this document) <bcp14>MUST</bcp14> be in ASCII.
+          (Note that this response property contains tokens; thus, it is not subject to
+          internationalization or localization).          
+          </t>
+          <t>
+          New "smimeStatus" response property values defined in extensions may affect the behavior of
+          properties, such as the "smimeErrors" response property of Email/get (see <xref target="email-get-ext" format="default"/>) or the
+          "hasVerifiedSmime" property of Email/query (see <xref target="email-query-ext" format="default"/>). In particular,
+          the new values can be treated similarly to values defined in this document.
+          </t>
+          <t>
+          For example, a putative JMAP extension for automatically decrypting S/MIME messages can specify
+          two additional values, one specifying that a message is both encrypted and signed with a valid S/MIME signature
+          (e.g. "encrypted+signed/verified")
+          and another one specifying that a message is both encrypted and signed with an invalid S/MIME signature
+          (e.g. "encrypted+signed/failed").
+          The former value can be treated as "signed/verified" (and would thus affect "hasVerifiedSmime")
+          and the latter can be treated as "signed/failed" (and thus can be used with "smimeErrors").
+          </t>
+        </section>
+      </section>
+      <section anchor="email-query-ext" numbered="true" toc="default">
+        <name>Extension to Email/query</name>
+        <t>
+        <xref target="RFC8621" format="default"/> defines the Email/query method for searching for messages with specific properties.
+        This document defines the following properties of the <strong>FilterCondition</strong> object:
+
+        </t>
+        <dl newline="true" spacing="normal">
+          <dt><strong>hasSmime</strong>:</dt>
+	  <dd>"Boolean". If "hasSmime" has the value true, only messages with "smimeStatus"
+	  other than null match the condition.
+          If "hasSmime" has the value false, only messages with "smimeStatus" equal to null
+	  match the condition.</dd>
+          <dt><strong>hasVerifiedSmime</strong>:</dt>
+	  <dd><t>"Boolean". If "hasVerifiedSmime" has the value true, only messages with
+	  "smimeStatus" equal
+          to "signed/verified" or "encrypted+signed/verified" (*) match the condition.
+          If "hasVerifiedSmime" has the value false, only messages with "smimeStatus" not
+	  equal
+          to "signed/verified" and not equal to "encrypted+signed/verified" (*) (including
+	  the value null) match the condition.
+          Note that use of this attribute is potentially expensive for a JMAP server, as it
+	  forces
+          calculation of the "smimeStatus" property value for each message. However, caching of the 
+	  "smimeStatus"
+          values should ameliorate this cost somewhat.</t>
+            <t>
+          (*) as well as the "smimeStatus" values added by future extensions to this document
+          that are explicitly specified as having similar effect to "signed/verified" as far
+	  as
+          "hasVerifiedSmime" calculation is concerned.</t></dd>
+          <dt><strong>hasVerifiedSmimeAtDelivery</strong>:</dt>
+	  <dd>"Boolean". The "hasVerifiedSmimeAtDelivery" property is handled similarly to
+	  the "hasVerifiedSmime" property,
+          but the value of "smimeStatusAtDelivery" is used instead of "smimeStatus" to assess
+          whether a particular message matches the condition.
+          </dd>
+        </dl>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Interaction with Email/changes</name>
+        <t>Changes to the "smimeVerifiedAt" response property value <bcp14>MUST NOT</bcp14>
+        cause the message to be included in the "updated" argument of the Email/changes response.
+        However, changes to the "smimeStatus", "smimeStatusAtDelivery", and/or "smimeErrors"
+        response properties <bcp14>MUST</bcp14> result in message inclusion in the "updated" argument of the
+	Email/changes response.
+        </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section numbered="true" toc="default">
+        <name>JMAP Capability Registration for "smimeverify"</name>
+        <t>
+          IANA has registered the "smimeverify" JMAP capability as follows:
+        </t>
+	<dl newline="false" spacing="compact">
+          <dt>Capability Name:</dt>
+	  <dd>urn:ietf:params:jmap:smimeverify</dd>
+          <dt>Specification document:</dt>
+	  <dd>RFC 9219</dd>
+          <dt>Intended use:</dt>
+	  <dd>common</dd>
+          <dt>Change Controller:</dt>
+	  <dd>IETF</dd>
+          <dt>Security and privacy considerations:</dt>
+	  <dd>RFC 9219, <xref target="seccons" format="default"/></dd>
+	</dl>
+      </section>
+    </section>
+    <section anchor="seccons" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+      Use of the server-side S/MIME signature verification JMAP extension requires
+      the client to trust the server signature verification code, the server configuration, and
+      the server's operational practices
+      to perform S/MIME signature verification, as well as to trust that the channel between
+      the client and the server is integrity protected.
+      (For example, if the server is not configured
+      with some trust anchors, some messages will have the "signed/failed" status
+      instead of "signed/verified".)
+      A malicious or compromised server could
+      return a false verification status to a client.  A successful verification could
+      be conveyed to a client for a forged or altered message.  A properly signed
+      message could be signaled as having a failed signature verification or no
+      signature at all.  In the case of the latter attack, no new attack surface is
+      presented with this extension above what a malicious or compromised server could
+      already do by stripping or tampering with the S/MIME information in the
+      message.  In the case of the former attack, client software capable of
+      performing S/MIME signature verification could detect this attack.  Local
+      configuration of the client should determine if this client-side verification
+      should occur.  For clients without local verification capabilities, such an
+      attack would be difficult to detect.
+      </t>
+      <t>
+      Integrity protection of the channel between the client and the server is provided by use of TLS,
+      as required by the JMAP specification (see <xref target="RFC8620" section="8.1" sectionFormat="of" format="default"/>).
+      </t>
+      <t>Constant recalculation of the S/MIME signature status can result in a denial-of-service condition.
+      For that reason, it is <bcp14>RECOMMENDED</bcp14> that servers cache results of signature verification for up to 24 hours.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8550.xml"/>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8551.xml"/>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8620.xml"/>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8621.xml"/>
+    </references>
+      <references>
+        <name>Informative References</name>
+    <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.1847.xml"/>
+
+    </references>
+    </references>
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>This document is a product of the JMAP Working Group.
+      Special thank you to <contact fullname="Bron Gondwana"/>, <contact fullname="Neil
+      Jenkins"/>, <contact fullname="Murray Kucherawy"/>, <contact fullname="Kirsty Paine"/>,
+      <contact fullname="Benjamin Kaduk"/>, <contact fullname="Roman Danyliw"/>, <contact
+      fullname="Peter Yee"/>, <contact fullname="Robert Wilton"/>,
+      <contact fullname="Erik Kline"/>, and <contact fullname="Menachem Dodge"/> for
+      suggestions, comments, and corrections to this document.
+      </t>
+    </section>
+  </back>
+</rfc>

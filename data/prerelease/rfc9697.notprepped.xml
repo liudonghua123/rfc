@@ -1,0 +1,294 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-sidrops-rrdp-desynchronization-04" number="9697" ipr="trust200902" xml:lang="en" sortRefs="true" symRefs="true" tocInclude="true" tocDepth="3" submissionType="IETF" consensus="true" updates="8182" obsoletes="" version="3">
+
+  <front>
+
+    <title abbrev="Detecting RRDP Session Desynchronization">Detecting RPKI Repository Delta Protocol (RRDP) Session Desynchronization</title>
+    <seriesInfo name="RFC" value="9697"/>
+    <author fullname="Job Snijders" initials="J." surname="Snijders">
+      <organization>Fastly</organization>
+      <address>
+        <postal>
+          <city>Amsterdam</city>
+          <country>Netherlands</country>
+        </postal>
+        <email>job@fastly.com</email>
+      </address>
+    </author>
+
+    <author fullname="Ties de Kock" initials="T." surname="de Kock">
+      <organization>RIPE NCC</organization>
+      <address>
+        <postal>
+          <city>Amsterdam</city>
+          <country>Netherlands</country>
+        </postal>
+        <email>tdekock@ripe.net</email>
+      </address>
+    </author>
+
+    <date month="December" year="2024"/>
+
+    <area>OPS</area>
+    <workgroup>sidrops</workgroup>
+
+    <keyword>desynchronization</keyword>
+    <keyword>RPKI</keyword>
+    <keyword>RRDP</keyword>
+
+    <abstract>
+      <t>
+        This document describes an approach for Resource Public Key Infrastructure (RPKI) Relying Parties to detect a particular form of RPKI Repository Delta Protocol (RRDP) session desynchronization and how to recover.
+        This document updates RFC 8182.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+
+      <t>
+        The Resource Public Key Infrastructure (RPKI) Repository Delta Protocol (RRDP) <xref target="RFC8182"/> is a one-way synchronization protocol for distributing RPKI data in the form of <em>differences</em> (deltas) between sequential repository states.
+        Relying Parties (RPs) apply a contiguous chain of deltas to synchronize their local copy of the repository with the current state of the remote Repository Server.
+        Delta files for any given session_id and serial number are expected to contain an immutable record of the state of the Repository Server at that given point in time, but this is not always the case.
+      </t>
+
+      <t>
+        This document describes an approach for RPs to detect a form of RRDP session desynchronization where the hash of a delta for a given serial number and session_id have mutated from the previous Update Notification File and how to recover.
+      </t>
+
+      <section anchor="requirements">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+      </section>
+    </section>
+
+    <section anchor="immutability">
+      <name>Immutability of RRDP Files</name>
+      <t>
+        <xref target="RFC8182" section="3.1"/> describes how discrete publication events such as the addition, modification, or deletion of one or more repository objects <em>can</em> be communicated as immutable files, highlighting advantages for publishers, such as the ability to precalculate files and make use of caching infrastructure.
+      </t>
+
+      <t>
+   Even though the global RPKI is understood to present a loosely
+   consistent view that depends on the cache's timing of updates (see
+   <xref target="RFC7115" section="6"/>), different caches having different data for
+   the same RRDP session at the same serial violates the principle of
+   least astonishment.
+      </t>
+
+      <t>
+        If an RRDP server over time serves differing data for a given session_id and serial number, distinct RP instances (depending on the moment they connected to the RRDP server) would end up with divergent local repositories.
+        Comparing only the server-provided session_id and latest serial number across distinct RP instances would not bring such divergence to light.
+      </t>
+
+      <t>
+        The RRDP specification <xref target="RFC8182"/> alludes to immutability being a property of RRDP files, but it doesn't make it clear that immutability is an absolute requirement for the RRDP to work well.
+      </t>
+    </section>
+
+    <section anchor="detection">
+      <name>Detection of Desynchronization</name>
+      <t>
+        Relying Parties can implement a mechanism to keep a record of the serial and hash attribute values in delta elements of the previous successful fetch of an Update Notification File.
+        Then, after fetching a new Update Notification File, the Relying Party should compare if the serial and hash values of previously seen serials match those in the newly fetched file.
+        If any differences are detected, this means that the Delta files were unexpectedly mutated, and the RP should proceed to <xref target="recovery"/>.
+      </t>
+
+      <section anchor="example">
+        <name>Example</name>
+        <t>
+          This section contains two versions of an Update Notification File to demonstrate an unexpected mutation.
+          The initial Update Notification File is as follows:
+        </t>
+
+<figure>
+<sourcecode type="xml"><![CDATA[
+<notification xmlns="http://www.ripe.net/rpki/rrdp" version="1"
+session_id="fe528335-db5f-48b2-be7e-bf0992d0b5ec" serial="1774">
+<snapshot uri="https://rrdp.example.net/1774/snapshot.xml"
+hash=
+"4b5f27b099737b8bf288a33796bfe825fb2014a69fd6aa99080380299952f2e2"
+/>
+<delta serial="1774" uri="https://rrdp.example.net/1774/delta.xml"
+hash=
+"effac94afd30bbf1cd6e180e7f445a4d4653cb4c91068fa9e7b669d49b5aaa00"
+/>
+<delta serial="1773" uri="https://rrdp.example.net/1773/delta.xml"
+hash=
+"731169254dd5de0ede94ba6999bda63b0fae9880873a3710e87a71bafb64761a"
+/>
+<delta serial="1772" uri="https://rrdp.example.net/1772/delta.xml"
+hash=
+"d4087585323fd6b7fd899ebf662ef213c469d39f53839fa6241847f4f6ceb939"
+/>
+</notification>]]>
+</sourcecode>
+</figure>
+        <t>
+          Based on the above Update Notification File, an RP implementation could record the following state:
+        </t>
+
+<figure anchor="state">
+<sourcecode type=""><![CDATA[
+fe528335-db5f-48b2-be7e-bf0992d0b5ec
+1774 effac94afd30bbf1cd6e180e7f445a4d4653cb4c91068fa9e7b669d49b5aaa00
+1773 731169254dd5de0ede94ba6999bda63b0fae9880873a3710e87a71bafb64761a
+1772 d4087585323fd6b7fd899ebf662ef213c469d39f53839fa6241847f4f6ceb939
+]]></sourcecode>
+</figure>
+
+        <t>
+          A new version of the Update Notification File is published as follows:
+        </t>
+
+<figure>
+<sourcecode type="xml"><![CDATA[
+<notification xmlns="http://www.ripe.net/rpki/rrdp" version="1"
+session_id="fe528335-db5f-48b2-be7e-bf0992d0b5ec" serial="1775">
+<snapshot uri="https://rrdp.example.net/1775/snapshot.xml"
+hash=
+"cd430c386deacb04bda55301c2aa49f192b529989b739f412aea01c9a77e5389"
+/>
+<delta serial="1775" uri="https://rrdp.example.net/1775/delta.xml"
+hash=
+"d199376e98a9095dbcf14ccd49208b4223a28a1327669f89566475d94b2b08cc"
+/>
+<delta serial="1774" uri="https://rrdp.example.net/1774/delta.xml"
+hash=
+"10ca28480a584105a059f95df5ca8369142fd7c8069380f84ebe613b8b89f0d3"
+/>
+<delta serial="1773" uri="https://rrdp.example.net/1773/delta.xml"
+hash=
+"731169254dd5de0ede94ba6999bda63b0fae9880873a3710e87a71bafb64761a"
+/>
+</notification>]]>
+</sourcecode>
+</figure>
+        <t>
+          Using its previously recorded state (see <xref target="state" />), the RP can compare the hash values for serials 1773 and 1774.
+          For serial 1774, compared to the earlier version of the Update Notification File, a different hash value is now listed, meaning an unexpected delta mutation occurred.
+        </t>
+
+      </section>
+    </section>
+
+    <section anchor="recovery">
+      <name>Recovery After Desynchronization</name>
+      <t>
+        Following the detection of RRDP session desynchronization, in order to return to a synchronized state, RP implementations <bcp14>SHOULD</bcp14> issue a warning and <bcp14>SHOULD</bcp14> download the latest Snapshot File and process it as described in <xref target="RFC8182" section="3.4.3" sectionFormat="of"/>.
+      </t>
+      <t>
+        See <xref target="security"/> for an overview of risks associated with desynchronization.
+      </t>
+    </section>
+
+    <section anchor="rfc8182">
+      <name>Changes to RFC 8182</name>
+
+      <t>
+         The following paragraph is added to <xref target="RFC8182" section="3.4.1"/>, "Processing the Update Notification File", after the paragraph that ends "The Relying Party <bcp14>MUST</bcp14> then download and process the Snapshot File specified in the downloaded Update Notification File as described in Section 3.4.3."
+      </t>
+
+      <t>NEW</t>
+      <blockquote>
+        <t>
+          If the session_id matches the last known session_id, the Relying Party <bcp14>SHOULD</bcp14> compare whether hash values associated with previously seen files for serials match the hash values of the corresponding serials in the newly fetched Update Notification File.
+          If any differences are detected, this means that files were unexpectedly mutated (see [RFC9697]).
+          The Relying Party <bcp14>SHOULD</bcp14> then download and process the Snapshot File specified in the downloaded Update Notification File as described in Section <xref target="RFC8182" section="3.4.3" sectionFormat="bare"/>. 
+        </t>
+      </blockquote>
+    </section>
+
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>
+        Due to the lifetime of RRDP sessions (often measured in months), desynchronization can persist for an extended period if undetected.
+      </t>
+      <t>
+        Caches in a desynchronized state pose a risk by emitting a different set of Validated Payloads than they would otherwise emit with a consistent repository copy.
+        Through the interaction of the desynchronization and the <em>failed fetch</em> mechanism described in <xref target="RFC9286" section="6.6"/>, Relying Parties could spuriously omit Validated Payloads or emit Validated Payloads that the Certification Authority intended to withdraw.
+        As a result, due to the desynchronized state, route decision making processes might consider route announcements intended to be marked valid as "unknown" or "invalid" for an indeterminate period.
+      </t>
+      <t>
+        Missing Validated Payloads negatively impact the ability to validate BGP announcements using mechanisms such as those described in <xref target="RFC6811"/> and <xref target="I-D.ietf-sidrops-aspa-verification"/>.
+      </t>
+      <t>
+        <xref target="RFC9286" section="6.6"/> advises RP implementations to continue to use cached versions of objects, but only until such time as they become stale.
+        By detecting whether the remote Repository Server is in an inconsistent state and then immediately switching to using the latest Snapshot File, RPs increase the probability to successfully replace objects before they become stale.
+      </t>
+    </section>
+
+    <section anchor="iana">
+     <name>IANA Considerations</name>
+      <t>
+        This document has no IANA actions.
+      </t> 
+    </section>
+  </middle>
+
+  <back>
+
+<displayreference target="I-D.ietf-sidrops-aspa-verification" to="ASPA"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8182.xml"/>
+
+      </references>
+
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6811.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7115.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9286.xml"/>
+
+<!-- [I-D.ietf-sidrops-aspa-verification] IESG State: I-D Exists as of 11/20/24 -->
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-sidrops-aspa-verification.xml"/>
+
+      </references>
+    </references>
+
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+
+      <t>During the hallway track at RIPE 86, <contact fullname="Ties de
+      Kock"/> shared the idea for detecting this particular form of RRDP
+      desynchronization, after which <contact fullname="Claudio Jeker"/>,
+      <contact fullname="Job Snijders"/>, and <contact fullname="Theo
+      Buehler"/> produced an implementation based on rpki-client.  Equipped
+      with tooling to detect this particular error condition, in subsequent
+      months it became apparent that unexpected delta mutations in the global
+      RPKI repositories do happen from time to time.</t>
+      <t>The authors wish to thank <contact fullname="Theo Buehler"/>,
+      <contact fullname="Mikhail Puzanov"/>, <contact fullname="Alberto
+      Leiva"/>, <contact fullname="Tom Harrison"/>, <contact fullname="Warren
+      Kumari"/>, <contact fullname="Behcet Sarikaya"/>, <contact
+      fullname="Murray Kucherawy"/>, <contact fullname="Éric Vyncke"/>,
+      <contact fullname="Roman Danyliw"/>, <contact fullname="Tim
+      Bruijnzeels"/>, and <contact fullname="Michael Hollyman"/> for their
+      careful review and feedback on this document.</t>
+    </section>
+
+  </back>
+</rfc>

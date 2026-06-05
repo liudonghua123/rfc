@@ -1,0 +1,1064 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" category="std" docName="draft-ietf-sidrops-signed-tal-16" number="9691" consensus="true" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+<title abbrev="A Profile for RPKI TAKs">A Profile for Resource Public Key Infrastructure (RPKI) Trust Anchor Keys (TAKs)
+    </title>
+    <seriesInfo name="RFC" value="9691"/>
+    <author initials="C." surname="Martinez" fullname="Carlos Martinez">
+      <organization>LACNIC</organization>
+      <address>
+        <postal>
+          <street>Rambla Mexico 6125</street>
+          <city>Montevideo</city>
+          <code>11400</code>
+          <country>Uruguay</country>
+        </postal>
+        <email>carlos@lacnic.net</email>
+        <uri>https://www.lacnic.net/</uri>
+      </address>
+    </author>
+    <author initials="G." surname="Michaelson" fullname="George G. Michaelson">
+      <organization abbrev="APNIC">Asia Pacific Network Information Centre</organization>
+      <address>
+        <postal>
+          <street>6 Cordelia St</street>
+          <city>South Brisbane</city>
+          <code>4101</code>
+          <country>Australia</country>
+          <region>QLD</region>
+        </postal>
+        <email>ggm@apnic.net</email>
+      </address>
+    </author>
+    <author initials="T." surname="Harrison" fullname="Tom Harrison">
+      <organization abbrev="APNIC">Asia Pacific Network Information Centre</organization>
+      <address>
+        <postal>
+          <street>6 Cordelia St</street>
+          <city>South Brisbane</city>
+          <code>4101</code>
+          <country>Australia</country>
+          <region>QLD</region>
+        </postal>
+        <email>tomh@apnic.net</email>
+      </address>
+    </author>
+    <author initials="T." surname="Bruijnzeels" fullname="Tim Bruijnzeels">
+      <organization>RIPE NCC
+      </organization>
+      <address>
+        <postal>
+          <postalLine>Stationsplein 11</postalLine>
+          <postalLine>Amsterdam</postalLine>
+          <postalLine>The Netherlands</postalLine>
+        </postal>
+        <email>tim@ripe.net</email>
+        <uri>https://www.ripe.net/</uri>
+      </address>
+    </author>
+    <author initials="R." surname="Austein" fullname="Rob Austein">
+      <organization>Dragon Research Labs</organization>
+      <address>
+        <email>sra@hactrn.net</email>
+      </address>
+    </author>
+    <date year="2024" month="December"/>
+    <area>OPS</area>
+    <workgroup>sidrops</workgroup>
+
+<keyword>security</keyword>
+<keyword>cryptography</keyword>
+<keyword>X.509</keyword>
+
+    <abstract>
+      <t>
+    A Trust Anchor Locator (TAL) is used by Relying Parties (RPs) in the
+    Resource Public Key Infrastructure (RPKI) to locate and validate a Trust
+    Anchor (TA) Certification Authority (CA) certificate used in RPKI
+    validation. This document defines an RPKI signed object for a Trust
+    Anchor Key (TAK).  A TAK object can be used by a TA to signal to RPs the
+    location(s) of the accompanying CA certificate for the current public key,
+    as well as the successor public key and the location(s) of its CA
+    certificate. This object helps to support planned key rollovers without
+    impacting RPKI validation.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    
+    <section anchor="overview" numbered="true" toc="default">
+      <name>Overview</name>
+      <t>
+      A Trust Anchor Locator (TAL) <xref target="RFC8630"
+      format="default"/> is used by Relying Parties (RPs) in the
+      Resource Public Key Infrastructure (RPKI) to locate and validate
+      Trust Anchor (TA) Certification Authority (CA) certificates used
+      in RPKI validation.  However, until now, there has been no
+      in-band way of notifying RPs of updates to a TAL.  In-band
+      notifications mean that TA operators can be more confident of
+      RPs being aware of key rollover operations.
+
+      </t>
+
+      <t>This document defines a new RPKI signed object that can be used to
+document the location(s) of the TA CA certificate for the current TA
+public key, as well as the value of the successor public key and the location(s) of
+its TA CA certificate. This allows RPs to be notified automatically of
+such changes and enables TAs to stage a successor public key so that
+planned key rollovers can be performed without risking the
+invalidation of the RPKI tree under the TA. We call this object the
+Trust Anchor Key (TAK) object.  </t>
+
+      <t>When RPs are first bootstrapped, they use a TAL to discover the
+      public key and location(s) of the CA certificate for a TA.  The RP can
+      then retrieve and validate the CA certificate and subsequently validate
+      the manifest <xref target="RFC9286" format="default"/> and Certificate
+      Revocation List (CRL) published by that TA (<xref target="RFC6487"
+      sectionFormat="of" section="5"/>). However, before processing any other
+      objects, it will first validate the TAK object if it is present.  If the
+      TAK object lists only the current public key, then the RP continues
+      processing as it would in the absence of a TAK object.  If the TAK
+      object includes a successor public key, the RP starts a 30-day
+      acceptance timer for that key and then continues standard top-down
+      validation with the current public key. During the following validation
+      runs up until the expiry of the acceptance timer, the RP verifies that
+      the public keys and the certificate URLs listed in the TAK object remain
+      unchanged.  If they remain unchanged as at that time, then the RP will
+      fetch the successor public key, update its local state with that public
+      key and its associated certificate location(s), and continue
+      processing using that public key.</t>
+
+      <t>The primary motivation for this work is being able to migrate
+      from a Hardware Security Module (HSM) produced by one vendor to
+      one produced by another, where the first vendor does not support
+      exporting private keys for use by the second.  There may be other
+      scenarios in which key rollover is useful, though.</t>
+
+    <section anchor="requirements-notation" numbered="true" toc="default">
+      <name>Requirements Notation</name>
+       <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+       "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+       NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+       "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+       "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+       are to be interpreted as described in BCP&nbsp;14 <xref
+       target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they
+       appear in all capitals, as shown here.</t>
+    </section>
+    </section>
+    <section anchor="tak-object-definition" numbered="true" toc="default">
+      <name>TAK Object Definition</name>
+      <t>The TAK object makes use of the template for RPKI digitally signed
+      objects <xref target="RFC6488" format="default"/>, which defines a
+      Cryptographic Message Syntax (CMS) <xref target="RFC5652"
+      format="default"/> wrapper for the content, as well as a generic
+      validation procedure for RPKI signed objects. Therefore, to complete the
+      specification of the TAK object (see <xref target="RFC6488"
+      sectionFormat="of" section="4"/>), this document defines the following:
+</t>
+      <ul spacing="normal">
+        <li>the OID (<xref target="content_type" format="default"/>) that
+        identifies the signed object as being a TAK (this OID appears within
+        the eContentType in the encapContentInfo object, as well as the
+        content-type signed attribute in the signerInfo object)
+  </li>
+        <li>the ASN.1 syntax for the TAK eContent (<xref target="e_content" format="default"/>)
+  </li>
+        <li>the additional steps required to validate a TAK (<xref target="validation" format="default"/>)
+  </li>
+      </ul>
+      <section anchor="content_type" numbered="true" toc="default">
+        <name>The TAK Object Content Type</name>
+        <t>This document specifies an OID for the TAK object as follows:
+</t>
+
+        <sourcecode type="asn.1"><![CDATA[
+   id-ct-signedTAL OBJECT IDENTIFIER ::=
+      { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) pkcs9(9)
+        smime(16) ct(1) 50 }
+]]></sourcecode>
+
+        <t>This OID <bcp14>MUST</bcp14> appear in both the eContentType in the encapContentInfo
+object and the content-type signed attribute in the signerInfo
+object (see <xref target="RFC6488" format="default" />).</t>
+
+      </section>
+      <section anchor="e_content" numbered="true" toc="default">
+        <name>The TAK Object eContent</name>
+        <t>The content of a TAK object is ASN.1 encoded using the Distinguished Encoding Rules (DER)
+<xref target="X.690" format="default"/> and is defined per the module in <xref target="asn1-module" format="default"/>.
+</t>
+        <section anchor="takey" numbered="true" toc="default">
+          <name>TAKey</name>
+          <t>This structure defines a TA public key similar to that from <xref target="RFC8630" format="default"/>. It contains a sequence of zero or more comments, one or more certificate URIs, and a
+SubjectPublicKeyInfo.
+</t>
+
+          <dl spacing="normal">
+            <dt>comments:</dt><dd>This field is semantically equivalent to the comment section defined in
+  <xref target="RFC8630" sectionFormat="of" section="2.2"/>. Each comment is
+  human-readable informational UTF-8 text <xref target="RFC3629" />, conforming to the
+  restrictions defined in <xref target="RFC5198"
+  sectionFormat="of" section="2"/>.  The leading "#" character that is used to
+  denote a comment in <xref target="RFC8630" format="default" /> is
+  omitted here.</dd>
+
+            <dt>certificateURIs:</dt><dd>This field is semantically equivalent to the URI section defined in
+  <xref target="RFC8630" sectionFormat="of" section="2.2"/>. It <bcp14>MUST</bcp14>
+contain at least one CertificateURI element. Each CertificateURI element contains the IA5String
+representation of either an rsync URI
+<xref target="RFC5781" format="default"/> or an HTTPS URI
+<xref target="RFC9110" format="default"/>.</dd>
+
+            <dt>subjectPublicKeyInfo:</dt><dd>This field contains a SubjectPublicKeyInfo (<xref target="RFC5280" sectionFormat="of" section="4.1.2.7"/>) in the DER format
+<xref target="X.690" format="default"/>.</dd>
+	  </dl>
+
+        </section>
+        <section anchor="tak" numbered="true" toc="default">
+          <name>TAK</name>
+
+          <dl spacing="normal">
+            <dt>version:</dt><dd>The version number of the TAK object <bcp14>MUST</bcp14> be 0.</dd>
+          
+            <dt>current:</dt><dd>This field contains the TA public key of the repository in
+which the TAK object is published.</dd>
+
+            <dt>predecessor:</dt><dd>This field contains the TA public key that was in use
+            for this TA immediately prior to the current TA public key, if
+            applicable.</dd>
+
+            <dt>successor:</dt><dd>This field contains the TA public key to be used in place of
+            the current public key, if applicable, after expiry of the relevant acceptance
+            timer.</dd>
+	  </dl>
+        </section>
+      </section>
+      <section anchor="validation" numbered="true" toc="default">
+        <name>TAK Object Validation</name>
+        <t>To determine whether a TAK object is valid, the RP <bcp14>MUST</bcp14> perform the
+following checks in
+addition to those specified in
+<xref target="RFC6488" format="default"/>:
+</t>
+        <ul spacing="normal">
+          <li>The eContentType OID matches the OID described in
+        <xref target="content_type" format="default"/>.
+    </li>
+          <li>The TAK object appears as the product of a TA CA
+          certificate (i.e., the TA CA certificate itself is the issuer
+          of the End-Entity (EE) certificate of the TAK object).
+    </li>
+          <li>The TA CA has published only one TAK object in its
+          repository for this public key, and this
+        object appears on the manifest as the only entry using the ".tak" extension (see
+        <xref target="RFC6481" format="default"/>).
+        </li>
+          <li>The EE certificate of this TAK object describes its Internet Number Resources (INRs) using
+        the "inherit" attribute.
+        </li>
+          <li>The decoded TAK content conforms to the format defined in
+        <xref target="e_content" format="default"/>.
+        </li>
+          <li>The SubjectPublicKeyInfo value of the current TA public key in the
+        TAK object matches that of the TA CA certificate used to issue
+        the EE certificate of the TAK object.</li>
+        </ul>
+        <t>If any of these checks do not succeed, the RP <bcp14>MUST</bcp14> ignore the TAK
+object and proceed as though it were not listed on the manifest.</t>
+        <t>The RP is not required to compare its current set of
+        certificateURIs for the current public key with those listed in the TAK
+        object.
+
+   The RP <bcp14>MAY</bcp14> alert the user that these sets of certificateURIs
+   do not match.  If this happens, the user may opt to manually update the set
+   of certificateURIs in their configuration.  
+
+
+   However, the RP <bcp14>MUST NOT</bcp14> automatically update its configuration to
+   use these certificateURIs in the event of inconsistency.  This is
+   because the migration of users to new certificateURIs should
+   happen by way of the successor public key process.</t>
+      </section>
+    </section>
+    <section anchor="mnt_obj" numbered="true" toc="default">
+      <name>TAK Object Generation and Publication</name>
+<t>A non-normative guideline for naming this object is that the filename be a
+value derived from the public key part of the entity's key pair, using the
+algorithm described for CRLs in <xref target="RFC6481" sectionFormat="of"
+section="2.2"/>.</t>
+    <t>The filename extension of ".tak" <bcp14>MUST</bcp14> be used to denote
+    the object as a TAK.
+</t>
+
+      <t>In order to generate a TAK object, the TA <bcp14>MUST</bcp14> perform the following actions:
+</t>
+      <ul spacing="normal">
+        <li>The TA <bcp14>MUST</bcp14> generate a one-time-use EE certificate for the TAK.</li>
+        <li>This EE certificate <bcp14>MUST</bcp14> have a unique key pair.</li>
+        <li>This EE certificate <bcp14>MUST</bcp14> have a Subject Information Access
+        (SIA) <xref target="RFC6487" /> extension access description field with an
+accessMethod OID value of id-ad-signedObject, where the associated accessLocation
+references the publication point of the TAK as an object URL.
+</li>
+<li>As described in <xref target="RFC6487" format="default"/>, the EE
+certificate used for this object must contain either the IP Address Delegation
+extension or the Autonomous System Identifier Delegation extension <xref
+target="RFC3779" format="default"/>, or both. However, because the resource
+set is irrelevant to this object type, this certificate <bcp14>MUST</bcp14>
+describe its INRs using the "inherit" attribute rather than explicitly
+describing a resource set.
+</li>
+        <li>This EE certificate <bcp14>MUST</bcp14> have a "notBefore" time that matches or predates the moment that
+the TAK will be published.
+</li>
+        <li>This EE certificate <bcp14>MUST</bcp14> have a "notAfter" time that reflects the intended duration for which
+this TAK will be published.  If the EE certificate for a TAK object is expired, it <bcp14>MUST</bcp14> no longer
+be published, but it <bcp14>MAY</bcp14> be replaced by a newly generated TAK object with equivalent
+content and an updated "notAfter" time.
+</li>
+        <li>The current TA public key for the TAK <bcp14>MUST</bcp14> match that of the TA CA
+certificate under which the TAK was issued.</li>
+
+      </ul>
+
+      <t>In distribution contexts that support media types, the
+      "application/rpki-signed-tal" media type can be used for TAK
+      objects.</t>
+
+    </section>
+    <section anchor="rp_use" numbered="true" toc="default">
+      <name>Relying Party Use</name>
+      <t>RPs <bcp14>MUST</bcp14> keep a record of the current public key for each
+configured TA, as well as the URI(s) where the CA certificate for this
+public key may be retrieved. This record is typically bootstrapped by the use of a pre-configured (and unsigned) TAL file
+<xref target="RFC8630" format="default"/>.</t>
+      <t>When performing top-down validation, RPs <bcp14>MUST</bcp14> first validate and
+process the TAK object for its current known public key by performing the following steps:
+</t>
+      <ul spacing="normal">
+        <li>A CA certificate is retrieved and validated from the known URIs as described in
+Sections <xref target="RFC8630" section="3" sectionFormat="bare"/> and <xref target="RFC8630" section="4" sectionFormat="bare"/> of
+<xref target="RFC8630" format="default"/>.
+</li>
+        <li>The manifest and CRL for this certificate are then validated as described
+in
+<xref target="RFC6487" format="default"/> and
+<xref target="RFC9286" format="default"/>.
+</li>
+        <li>If the TAK object is present, it is validated as described in
+<xref target="validation" format="default"/>.
+</li>
+      </ul>
+
+      <t>If the TAK object includes a successor public key, then the RP must
+      verify the successor public key by:</t>
+        <ul>
+        <li>performing top-down validation using the
+        successor public key in order to validate the TAK object for the
+        successor TA,</li>
+        <li>ensuring that a valid TAK object exists for the successor
+        TA,</li>
+        <li>ensuring that the successor TAK object's current public key matches the
+        initial TAK object's successor public key, and</li>
+        <li>ensuring that the successor TAK object's predecessor
+        public key matches
+        the initial TAK object's current public key.</li>
+        </ul>
+     
+        <t>
+      If any of these steps fails, then the successor public key has failed
+      verification.</t>
+
+      <t>If the successor public key passes verification and the RP has not
+      seen that successor public key on the previous successful validation
+      run for this TA, then the RP:</t>
+
+      <ul>
+      <li>sets an acceptance timer of 30 days for this
+      successor public key for this TA,</li>
+      <li>cancels the existing acceptance timer for this TA (if
+        applicable), and</li>
+        <li>continues standard top-down validation as
+        described in <xref target="RFC6487" format="default"/> using the
+        current public key.</li></ul>
+
+<t>If the successor public key passes verification and the RP has seen that
+successor public key on the previous successful validation run for this TA,
+the RP continues standard top-down validation using the current public key if
+the relevant acceptance timer has not expired. Otherwise, the RP updates its
+current known public key details for this TA to be those of the successor
+public key and begins top-down validation again using the successor public
+key.</t>
+
+      <t>If the successor public key does not pass verification or if the
+      TAK object does not include a successor public key, the RP
+      cancels the existing acceptance timer for this TA (if
+      applicable).</t>
+
+      <t>An RP <bcp14>MUST NOT</bcp14> use a successor public key for top-down validation
+      outside of the process described above, except for the purpose
+      of testing that the new public key is working correctly.  This allows a
+      TA to publish a successor public key for a period of time, allowing RPs
+      to test it while still being able to rely on RPs using the
+      current public key for their production RPKI operations.</t>
+
+      <t>A successor public key may have the same SubjectPublicKeyInfo value
+      as the current public key; this will be the case where a TA is updating
+      the certificateURIs for that public key.</t>
+
+      <section anchor="rp_manual" numbered="true" toc="default">
+	<name>Manual Update of TA Public Key Details</name>
+	
+      <t>An RP may opt to not support the automatic
+        transition of TA public key data, as defined in <xref target="rp_use"/>.
+        An alternative approach is for the RP to alert the
+        user when a new successor public key is seen and when the
+        relevant acceptance timer has expired. The user can then
+        manually transition to the new TA public key data.  This process
+        ensures that the benefits of the acceptance timer period are
+        still realised, as compared with TA public key update based on a TAL
+        distributed out of band by a TA.</t>
+
+      </section>
+
+    </section>
+    <section anchor="mnt_keys" numbered="true" toc="default">
+      <name>Maintaining Multiple TA Key Pairs</name>
+      <t>
+An RP that can process TAK objects will only ever use one public key for
+validation: either the current public key, or the successor public key once the
+relevant acceptance timer has expired.  By contrast, an RP that cannot process
+TAK objects will continue to use the public key details per its TAL (or
+equivalent manual configuration) indefinitely. As a result, even when a TA is
+using a TAK object in order to migrate clients to a new public key, the TA may
+have to maintain the previous key pair for a period of time alongside the new
+key pair in order to ensure continuity of service for older clients.</t>
+      
+      <t>For each TA key pair that a TA maintains, the signed material for
+      these key pairs <bcp14>MUST</bcp14> be published under different directories in the
+      context of the 'id-ad-caRepository' and 'id-ad-rpkiManifest'
+      SIA descriptions contained on the CA
+      certificates <xref target="RFC6487" format="default"/>.
+      Publishing objects under the same directory is potentially
+      confusing for RPs and could lead to object invalidity in the
+      event of filename collisions.</t>
+
+      <t> Also, the CA certificates for each maintained key pair and the
+      content published for each key pair <bcp14>MUST</bcp14> be equivalent (except for
+      the TAK object). In other words, for the purposes of RPKI
+      validation, it <bcp14>MUST NOT</bcp14> make a difference which of the public keys is
+      used as a starting point. </t>
+
+      <t>This means that the IP and Autonomous System (AS) resources contained on all
+      current CA certificates for the maintained
+TA key pairs <bcp14>MUST</bcp14> be the same. Furthermore, for any delegation of IP and AS
+resources to a child CA, the TA <bcp14>MUST</bcp14> have an equivalent CA certificate
+published under each of its key pairs. Any updates in delegations
+<bcp14>MUST</bcp14> be reflected under each of its key pairs. A TA <bcp14>SHOULD NOT</bcp14> publish any other objects besides a CRL,
+a manifest, a single TAK object, and any number of CA certificates for
+delegation to child CAs.
+</t>
+
+      <t>If a TA uses a single remote publication server (per <xref
+      target="RFC8181" format="default"/>) for its key pairs, then it
+      <bcp14>MUST</bcp14> include all &lt;publish/&gt; and &lt;withdraw/&gt;
+      Protocol Data Units (PDUs) for the products of each of its key pairs in
+      a single query in order to reduce the risk of RPs seeing inconsistent
+      data in the TA's RPKI repositories.</t>
+
+      <t>If a TA uses multiple publication servers, then the content for
+different key pairs will be out of sync at times. The TA
+<bcp14>SHOULD</bcp14> ensure that the
+duration of these moments is limited to the shortest possible time.
+Furthermore, the following
+should be observed:
+</t>
+      <ul spacing="normal">
+        <li>In cases where a CA certificate is revoked or replaced by a certificate with a
+reduced set of resources, these changes will not take effect fully
+until all the relevant repository publication points have been
+updated. Given that TA private key operations are normally
+performed infrequently, this is unlikely to be a problem: if the revocation or shrinking
+of an issued CA certificate is staged for days/weeks, then experiencing a delay of
+several minutes for the repository publication points to be updated is
+relatively insignificant.
+</li>
+        <li>In cases where a CA certificate is replaced by a certificate with
+an extended set of resources, the
+TA <bcp14>MUST</bcp14> inform the receiving CA only after all of its repository publication points have been
+updated. This ensures that the receiving CA will not issue any products that could be invalid
+if an RP uses a TA public key just before the CA certificate was due to be updated.
+</li>
+      </ul>
+      <t>Finally, note that the publication locations of CA certificates for
+      delegations to child CAs under each key pair will be different;
+      therefore, the Authority Information Access 'id-ad-caIssuers' values
+      (<xref target="RFC6487" sectionFormat="of" section="4.8.7"/>) on
+      certificates issued by the child CAs may not be as expected when
+      performing top-down validation, depending on the TA public key that is
+      used. However, these values are not critical to top-down validation, so
+      RPs performing such validation <bcp14>MUST NOT</bcp14> reject a
+      certificate simply because this value is not as expected.</t>
+    </section>
+    <section anchor="perf_roll" numbered="true" toc="default">
+      <name>Performing TA Key Rolls</name>
+      <t>This section describes how present-day RPKI TAs that use only one key pair and do not use TAK objects can use a TAK object to perform a planned
+key rollover.
+</t>
+      <section anchor="phase-1-add-a-tak-for-key-a" numbered="true" toc="default">
+        <name>Phase 1: Add a TAK for Key Pair 'A'</name>
+
+        <t>Before adding a successor public key, a TA may want to confirm
+        that it can maintain a TAK object for its current key pair only. We
+        will refer to this key pair as key pair 'A' throughout this section.
+        </t>
+      </section>
+
+      <section anchor="add_key" numbered="true" toc="default">
+        <name>Phase 2: Add a Key Pair 'B'</name>
+        <t>The TA can now generate a new key pair called 'B'. The
+        private key of this key pair <bcp14>MUST</bcp14> now be used to create a
+new CA certificate for the associated public key and issue equivalent CA certificates for delegations
+to child CAs as described in
+<xref target="mnt_keys" format="default"/>.
+</t>
+        <t>At this point, the TA can also construct a new TAL file
+<xref target="RFC8630" format="default"/> for
+the public key of key pair 'B' and locally test that the validation
+outcome for the new public key is equivalent
+to that of the other current public key(s).
+</t>
+
+        <t>When the TA is certain that the content for both public
+        keys is equivalent and
+        wants to initiate the migration from 'A' to 'B', it
+        issues a new TAK object under key pair 'A', with the public
+        key from that key pair as the
+        current public key for that object, the public key from key
+        pair 'B' as the successor public key, and
+        no predecessor public key.  It also issues a TAK object under key
+        pair 'B', with the public key from that key pair as the
+        current public key for that object, the public key from key pair 'A'
+        as the predecessor public key, and no successor public key.</t>
+        <t>Once this has happened, RP clients will start seeing the
+        new public key and setting acceptance timers accordingly.</t>
+      </section>
+
+      <section anchor="activate_key" numbered="true" toc="default">
+        <name>Phase 3: Update TAL to point to 'B'</name>
+        <t>At about the time that the TA expects clients to start
+        setting the public key from key pair 'B' as the current public
+        key, the TA must release a new TAL file for that public key.  It <bcp14>SHOULD</bcp14> use a different set of URIs in the TAL compared to the TAK
+file so that the TA can learn the proportion of RPs that can
+successfully validate and use the updated TAK objects.</t>
+        <t>To support RPs that do not take account of TAK objects, the TA
+should continue operating key pair 'A' for a period of time after the
+expected migration of clients to the public key from 'B'.  The length of that period of time is a
+local policy matter for that TA: for example, it might operate the key pair until no
+clients are attempting to validate using the associated public key.</t>
+      </section>
+
+      <section anchor="remove_key" numbered="true" toc="default">
+        <name>Phase 4: Remove Key Pair 'A'</name>
+        <t>The TA <bcp14>SHOULD</bcp14> now remove all content from the repository
+        used by key pair 'A' and destroy the private key for that key
+        pair.  
+RPs attempting to rely on a TAL for the public key from key pair 'A' from this
+point will not be able to perform RPKI validation for the TA and will have to
+update their local state manually by way of a new TAL file.</t>
+      </section>
+    </section>
+
+    <section anchor="using-tak-as-tal" numbered="true" toc="default">
+      <name>Using TAK Objects to Distribute TAL Data</name>
+      <t>RPs must be configured with RPKI TA data in
+    order to function correctly.  This TA data is typically
+    distributed in the TAL format defined in
+    <xref target="RFC8630"/>.
+
+    A TAK object can also serve as a format for
+    distribution of this data, though, because the TAKey data stored
+    in the TAK object contains the same data that would appear in a
+    TAL for the associated TA.</t>
+    
+      <t>RPs may support conversion of TAK objects into TAL
+    files.  RPs that support conversion <bcp14>MUST</bcp14> validate the
+    TAK object using the process from <xref target="validation"/>.  One exception to
+    the standard validation process in this context is that an RP <bcp14>MAY</bcp14> treat a TAK object as valid, even though it is
+    associated with a TA that the RP is not
+    currently configured to trust.  If the RP is relying on
+    this exception when converting a given TAK object, the RP
+    <bcp14>MUST</bcp14> communicate that fact to the user.</t>
+    
+      <t>When converting a TAK object, an RP <bcp14>MUST</bcp14> default to
+    producing a TAL file based on the 'current' TAKey in the TAK
+    object, though it <bcp14>MAY</bcp14> optionally support producing TAL files based
+    on the 'predecessor' and 'successor' TAKeys.</t>
+
+      <t>If the TAKey that is being converted has comments, an RP
+      <bcp14>MUST</bcp14> include those comments in the TAL file.</t>
+    
+      <t>If TAK object validation fails, then the RP <bcp14>MUST NOT</bcp14>
+    produce a TAL file based on the TAK object.</t>
+
+      <t>Users should be aware that TAK objects distributed out of band
+    have similar security properties to TAL files (i.e., there is no
+    authentication). In particular, TAK objects that are not signed by
+    TAs with which the RP is currently configured should
+    only be used if the source that distributes them is one the user
+    trusts to distribute TAL files.</t>
+
+      <t>If an RP is not transitioning to new TA data
+    using the automatic process described in <xref target="rp_use"/> or the
+    partially manual process described in <xref target="rp_manual"/>, then the user
+    will have to rely on an out-of-band mechanism for validating and
+    updating the TA data for the RP.  Users in
+    this situation should take similar care when updating a 
+TA using a TAK object file as when using a TAL file to update
+    TA data.</t>
+
+    </section>
+
+    <section anchor="deployment-considerations" numbered="true" toc="default">
+      <name>Deployment Considerations</name>
+
+      <section anchor="relying-party-support" numbered="true" toc="default">
+        <name>Relying Party Support</name>
+
+        <t>Publishing TAK objects while RPs do not support this standard
+        will result in those RPs rejecting these objects. It is not
+        expected that this will result in the invalidation of any other
+        object under a TA.</t>
+
+        <t>Some RPs may purposefully not support this mechanism: for
+        example, they may be implemented or configured such that they
+        are unable to update local current public key data.  TA operators
+        should take this into consideration when planning key
+        rollover.  However, these RPs would ideally still notify their
+        operators of planned key rollovers so that the operator could
+        update the relevant configuration manually.</t>
+      
+      </section>
+
+      <section anchor="alternate-transition-models" numbered="true" toc="default">
+        <name>Alternate Transition Models</name>
+
+          <t>Alternate models for TAL update exist and are complementary to
+          this mechanism.  For example, TAs can liaise directly with RP
+          software developers to include updated and reissued TAL files in new
+          code releases and use existing code update mechanisms in the RP
+          community to distribute the changes.</t> 
+
+<t>
+Additionally, these non-TA channels for distributing TAL data may themselves
+monitor for TAK objects and then update the TAL data in their distributions or
+packages accordingly. In this way, TAK objects may be useful even for RPs that
+don't implement in-band support for the protocol.</t>
+
+          <t>Non-TA channels for distributing TAL data should ensure,
+          so far as is possible, that their update mechanisms take
+          account of any changes that a user has made to their local
+          TA public key configuration.  For example, if a new public key is
+          published for a TA, but the non-TA channel's mechanism is
+          able to detect that a user had removed the TA's previous
+          public key
+          from their local TA public key configuration such that the user no
+          longer relies on it, then the mechanism should not add the new public key to the user's TA public key
+          configuration by default.</t>
+
+      </section>
+
+    </section>
+
+    <section anchor="operational-considerations" numbered="true" toc="default">
+      <name>Operational Considerations</name>
+
+      <section anchor="acceptance-timers" numbered="true" toc="default">
+        <name>Acceptance Timers</name>
+
+        <t>Acceptance timers are used in TAK objects in order to permit RPs to
+        test that the new public key is working correctly.  In turn, this
+        means that the TA operator will be able to gain confidence in the
+        correct functioning of the new public key before RPs are relying on
+        that public key in their production RPKI operations. If a successor
+        public key is not working correctly, a TA may remove that public key
+        from the current TAK object.</t>
+
+        <t>A TA that removes a successor public key from a TAK object
+        <bcp14>SHOULD NOT</bcp14> add the same successor public key back into
+        the TAK object for that TA.  This is because there may be an RP that
+        has fetched the TAK object while the successor public key was listed
+        in it and has started an acceptance timer accordingly but has not
+        fetched the TAK object during the period when the successor public key
+        was not listed in it.  If the unchanged successor public key is added
+        back into the TA, such an RP will transition to using the new TA
+        public key more quickly than other RPs, which may make debugging and
+        similar processes more complicated. A simple way of addressing this
+        problem in a situation where the TA operator doesn't want to reissue
+        the SubjectPublicKeyInfo content for the successor public key that was
+        withdrawn is to update the URL set for the successor public key.
+        Since RPs must take that URL set into account for the purposes of
+        initiating and cancelling acceptance timers, an RP that observes a
+        change to that URL set will cancel any existing acceptance timer it
+        has and initiate a new acceptance timer in its place.</t>
+
+      </section>
+
+    </section>
+
+    <section anchor="security-considerations" numbered="true" toc="default">
+      <name>Security Considerations</name>
+
+      <section anchor="previous-keys" numbered="true" toc="default">
+        <name>Previous Keys</name>
+
+        <t>A TA needs to consider the length of time for which it will
+        maintain previously current key pairs and their associated
+        repositories.  An RP that is seeded with old TAL data will run
+        for 30 days using the previous public key before migrating to
+        the next public key due to the acceptance timer requirements,
+        and this 30-day delay applies to each new key pair that has
+        been issued since the old TAL data was initially published.
+        In these instances, it may be better for the TA to send error
+        responses when receiving requests for the old publication
+        URLs so that the RP reports an error to its operator and the
+        operator seeds it with up-to-date TAL data immediately.</t>
+
+        <t>Once a TA has decided not to maintain a previously current
+        key pair and its associated repository, the TA <bcp14>SHOULD</bcp14> destroy
+        the associated private key.  The TA <bcp14>SHOULD</bcp14> also reuse the TA
+        CA certificate URLs from the previous TAL data for the next
+        TAL that it generates.  These measures will help to mitigate
+        the risk of an adversary gaining access to the private key and its
+        associated publication points in order to send
+        invalid or incorrect data to RPs seeded with the TAL data for
+        the corresponding public key.</t>
+
+      </section>
+
+      <section anchor="ta-compromise" numbered="true" toc="default">
+          <name>TA Compromise</name>
+
+          <t>TAK objects do not offer protection against compromise of
+          the current TA private key or the successor TA private key.
+          TA private key
+          compromise in general is out of scope for this document.</t>
+
+<t> While it is possible for a malicious actor to use TAK objects to cause RPs
+to transition from the current TA public key to a successor TA public key,
+such action is predicated on the malicious actor having compromised the
+current TA private key in the first place.  Since a malicious actor who has
+compromised the current TA private key has complete control over the TA
+anyway, TAK objects do not alter the security considerations relevant to this
+scenario.</t> </section> <section anchor="sec-alternate-transition-models"
+numbered="true" toc="default"> <name>Alternate Transition Models</name>
+
+        <t><xref target="alternate-transition-models" /> describes
+        other ways in which a TA may transition from one key pair to
+        another.  Transition by way of an in-band process reliant on
+        TAK objects is not mandatory for TAs or RPs, though the fact
+        that the TAK objects are verifiable by way of the
+        currently trusted TA public key is a benefit compared with existing
+        out-of-band mechanisms for TA public key distribution.</t>
+
+        <t>There will be a period of time where both the current
+        public key
+        and the successor public key are available for use, and RPs that are
+        initialised at different points of the transition process or
+        from different out-of-band sources may be using either the
+        current public key or the successor public key. TAs are required to ensure, so far as is possible, that RPKI
+   validation outcomes are the same regardless of which of the two
+   keys is used.</t>
+
+      </section>
+
+    </section>
+
+    <section anchor="iana-considerations" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+
+      <section anchor="content-type" numbered="true" toc="default">
+        <name>Content Type</name>
+        <t>IANA has registered an OID for one
+        content type in
+  the "SMI Security for S/MIME CMS Content Type (1.2.840.113549.1.9.16.1)"
+ registry as follows:</t>
+
+<table anchor="tab-1">
+  <thead>
+    <tr>
+      <th>Decimal</th>
+      <th>Description</th>
+      <th>References</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>50</td>
+      <td>id-ct-signedTAL</td>
+      <td><xref target="content_type"/></td>
+    </tr>
+  </tbody>
+</table>
+        <dl spacing="normal">
+          <dt>Description:</dt><dd>id-ct-signedTAL</dd>
+          <dt>OID:</dt><dd>1.2.840.113549.1.9.16.1.50</dd>
+          <dt>Specification:</dt><dd><xref target="content_type"/></dd>
+        </dl>
+      </section>
+
+      <section anchor="signed-object" numbered="true" toc="default">
+        <name>Signed Object</name>
+        <t>IANA has added the following to the "RPKI Signed Objects" registry:
+</t>
+
+<table anchor="tab-2">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>OID</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Trust Anchor Key</td>
+      <td>1.2.840.113549.1.9.16.1.50</td>
+      <td><xref target="content_type"/></td>
+    </tr>
+  </tbody>
+</table>
+
+        <t>IANA has also added the following note to the "RPKI
+        Signed Objects" registry:</t>
+
+        <blockquote>
+
+            Objects of the types listed in this registry, as well as
+            RPKI resource certificates and CRLs, are expected to be
+            validated using the RPKI.
+
+        </blockquote>
+
+      </section>
+
+      <section anchor="file-extension" numbered="true" toc="default">
+        <name>File Extension</name>
+        <t>IANA has added the following item for the Signed TAL file extension to the "RPKI Repository Name
+Schemes" registry created by <xref target="RFC6481"/>:
+</t>
+
+<table anchor="tab-3">
+  <name></name>
+  <thead>
+    <tr>
+      <th>Filename Extension</th>
+      <th>RPKI Object</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>.tak</td>
+      <td>Trust Anchor Key</td>
+      <td>RFC 9691</td>
+    </tr>
+  </tbody>
+</table>
+      </section>
+
+      <section anchor="module-identifier" numbered="true" toc="default">
+
+        <name>Module Identifier</name>
+        <t>IANA has registered an OID for one module identifier in
+  the "SMI Security for S/MIME Module Identifier (1.2.840.113549.1.9.16.0)"
+ registry as follows:</t>
+
+<table anchor="tab-4">
+  <name></name>
+  <thead>
+    <tr>
+      <th>Decimal</th>
+      <th>Description</th>
+      <th>References</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>74</td>
+      <td>RPKISignedTrustAnchorList-2021</td>
+      <td>RFC 9691</td>
+    </tr>
+  </tbody>
+</table>
+
+        <dl spacing="normal">
+          <dt>Description:</dt><dd>RPKISignedTrustAnchorList-2021</dd>
+          <dt>OID:</dt><dd>1.2.840.113549.1.9.16.0.74</dd>
+          <dt>Specification:</dt><dd>RFC 9691</dd>
+        </dl>
+      </section>
+
+      <section anchor="media-type" numbered="true" toc="default">
+        
+        <name>Registration of Media Type application/rpki-signed-tal</name>
+
+        <t>IANA has registered the media type "application/rpki-signed-tal" in the "Media Types" registry as follows:</t>
+
+        <dl>
+          <dt>Type name:</dt><dd>application</dd>
+          <dt>Subtype name:</dt><dd>rpki-signed-tal</dd>
+          <dt>Required parameters:</dt><dd>N/A</dd>
+          <dt>Optional parameters:</dt><dd>N/A</dd>
+          <dt>Encoding considerations:</dt><dd>binary</dd>
+          <dt>Security considerations:</dt>
+            <dd>Carries an RPKI Signed TAL.  This media type contains no active content.  See the Security Considerations section of RFC 9691 for further information.</dd>
+          <dt>Interoperability considerations:</dt><dd>N/A</dd>
+          <dt>Published specification:</dt><dd>RFC 9691</dd>
+          <dt>Applications that use this media type:</dt><dd>RPKI operators</dd>
+          <dt>Fragment identifier considerations:</dt><dd>N/A</dd>
+          <dt>Additional information:</dt><dd>
+          <t><br/></t>
+          <dl spacing="compact">
+              <dt>Content:</dt>
+                 <dd>This media type is for a signed object, as defined in RFC 6488, which contains trust anchor key material as defined in RFC 9691.</dd>
+              <dt>Magic number(s):</dt><dd>N/A</dd>
+              <dt>File extension(s):</dt><dd>.tak</dd>
+              <dt>Macintosh file type code(s):</dt><dd>N/A</dd>
+          </dl>
+      </dd>
+      <dt>Person &amp; email address to contact for further information:</dt>
+        <dd>iesg@ietf.org</dd>
+      <dt>Intended usage:</dt><dd>COMMON</dd>
+          <dt>Restrictions on usage:</dt><dd>N/A</dd>
+          <dt>Author:</dt><dd>sidrops WG</dd>
+          <dt>Change controller:</dt><dd>IESG</dd>
+        </dl>
+      </section>
+
+    </section>
+
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3629.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3779.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5198.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5781.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6481.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9286.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6487.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6488.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8181.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8630.xml"/>
+
+
+	<reference anchor='X.690' target="https://www.itu.int/rec/T-REC-X.690-202102-I/en">
+	<front>
+	    <title>
+	    Information technology - ASN.1 encoding rules:
+	    Specification of Basic Encoding Rules (BER), Canonical
+	    Encoding Rules (CER) and Distinguished Encoding Rules
+	    (DER)
+	    </title>
+	    <author>
+	    <organization>ITU-T</organization>
+	    </author>
+	    <date month="February" year="2021"/>
+	</front>
+        <seriesInfo name="ITU-T Recommendation" value="X.690"/>
+        <seriesInfo name="ISO/IEC" value="8825-1:2021"/>
+	</reference>
+
+      </references>
+
+      <references>
+        <name>Informative References</name>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5652.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5911.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5912.xml"/>
+      </references>
+
+    </references>
+
+    <section anchor="asn1-module" numbered="true" toc="default">
+      <name>ASN.1 Module</name>
+      <t>This appendix includes the ASN.1 module for the TAK object.</t>
+      <sourcecode name="" type="asn.1" markers="true">
+RPKISignedTrustAnchorList-2021
+    { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1)
+      pkcs9(9) smime(16) mod(0) 74 }
+
+DEFINITIONS EXPLICIT TAGS ::=
+BEGIN
+
+IMPORTS
+
+CONTENT-TYPE
+    FROM CryptographicMessageSyntax-2009 -- in [RFC5911]
+    { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1)
+      pkcs-9(9) smime(16) modules(0) id-mod-cms-2004-02(41) }
+
+SubjectPublicKeyInfo
+    FROM PKIX1Explicit-2009 -- in [RFC5912]
+    { iso(1) identified-organization(3) dod(6) internet(1)
+      security(5) mechanisms(5) pkix(7) id-mod(0)
+      id-mod-pkix1-explicit-02(51) } ;
+
+ct-signedTAL CONTENT-TYPE ::=
+    { TYPE TAK IDENTIFIED BY
+      id-ct-signedTAL }
+
+id-ct-signedTAL OBJECT IDENTIFIER ::= { iso(1) member-body(2)
+    us(840) rsadsi(113549) pkcs(1) pkcs9(9) smime(16) ct(1) 50 }
+
+CertificateURI ::= IA5String
+
+TAKey ::= SEQUENCE {
+    comments  SEQUENCE SIZE (0..MAX) OF UTF8String,
+    certificateURIs  SEQUENCE SIZE (1..MAX) OF CertificateURI,
+    subjectPublicKeyInfo  SubjectPublicKeyInfo
+}
+
+TAK ::= SEQUENCE {
+    version     INTEGER DEFAULT 0,
+    current     TAKey,
+    predecessor [0] TAKey OPTIONAL,
+    successor   [1] TAKey OPTIONAL
+}
+
+END
+    </sourcecode>
+    </section>
+    <section anchor="acknowledgments" numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>  
+      The authors wish to thank <contact fullname="Martin Hoffmann"/> for a
+      thorough review of the document, <contact fullname="Russ Housley"/> for
+      multiple reviews of the ASN.1 definitions and for providing a new module
+      for the TAK object, <contact fullname="Job Snijders"/> for the extensive
+      suggestions around TAK object structure/distribution and rpki-client
+      implementation work, and <contact fullname="Ties de Kock"/> for
+      text/suggestions around TAK/TAL distribution and general security
+      considerations.
+      </t>
+    </section>
+  </back>
+</rfc>

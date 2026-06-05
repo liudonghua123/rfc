@@ -1,0 +1,1341 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-v6ops-nd-considerations-14" number="9898" updates="" obsoletes="" consensus="true" category="info" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="ND Considerations">Neighbor Discovery Considerations in IPv6 Deployments</title>
+    <seriesInfo name="RFC" value="9898"/>
+    <author fullname="XiPeng Xiao">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <email>xipengxiao@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Eduard Vasilenko">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <email>vasilenko.eduard@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Eduard Metz">
+      <organization>KPN N.V.</organization>
+      <address>
+        <email>eduard.metz@kpn.com</email>
+      </address>
+    </author>
+    <author fullname="Gyan Mishra">
+      <organization>Verizon Inc.</organization>
+      <address>
+        <email>gyan.s.mishra@verizon.com</email>
+      </address>
+    </author>
+    <author fullname="Nick Buraglio">
+      <organization>Energy Sciences Network</organization>
+      <address>
+        <email>buraglio@es.net</email>
+      </address>
+    </author>
+    <date year="2025" month="November"/>
+    <area>OPS</area>
+    <workgroup>v6ops</workgroup>
+
+<keyword>ND</keyword>
+<keyword>NDP</keyword>
+<keyword>SLACC</keyword>
+<keyword>DHCPv6-PD</keyword>
+<keyword>host isolation</keyword>
+
+    <abstract>
+      <t>The Neighbor Discovery (ND) protocol is a critical component of the
+   IPv6 architecture. The protocol uses multicast in many messages. It
+   also assumes a security model where all nodes on a link are trusted.
+   Such a design might be inefficient in some scenarios (e.g., use of
+   multicast in wireless networks) or when nodes are not trustworthy
+   (e.g., public access networks). These security and operational
+   issues and the associated mitigation solutions are documented in
+   more than twenty RFCs. There is a need to track these issues and
+   solutions in a single document.</t>
+      <t>To that aim, this document summarizes the published ND issues and
+   then describes how all these issues originate from three causes.
+   Addressing the issues is made simpler by addressing the causes. This
+   document also analyzes the mitigation solutions and demonstrates
+   that isolating hosts into different subnets and links can help to
+   address the three causes. Guidance is provided for selecting a
+   suitable isolation method to prevent potential ND issues.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>Neighbor Discovery (ND) <xref target="RFC4861"/> specifies the mechanisms that IPv6
+   nodes (hosts and routers) on the same link use to communicate and
+   learn about each other. Stateless Address Autoconfiguration (SLAAC)
+   <xref target="RFC4862"/> builds on those ND mechanisms to let nodes configure their
+   own IPv6 addresses. When analyzing the issues nodes may encounter
+   with ND, it helps to view the ND messages they exchange throughout
+   their life cycle, taking SLAAC into consideration.</t>
+      <t>For a host, the overall procedure is as follows:</t>
+<ol spacing="normal" type="1">
+  <li>LLA DAD: The host forms a Link-Local Address (LLA) and performs
+  Duplicate Address Detection (DAD) using multicast Neighbor Solicitations
+  (NSs).</li>
+  <li>Router discovery: The host sends multicast Router Solicitations (RSs) to
+  discover a router on the link. The router responds with Router
+  Advertisements (RAs), providing subnet prefixes and other information. The
+  host installs a Neighbor Cache Entry (NCE) for that router upon receiving
+  the RAs. In contrast, the router cannot install an NCE for the host at this
+  moment of the exchange because the host's global IP address is still
+  unknown.  When the router later needs to forward a packet to the host's
+  global address, it will perform address resolution and install an NCE for
+  the host.</li>
+  <li>GUA DAD: The host forms a Global Unicast Address (GUA) <xref
+  target="RFC3587"/> or a Unique Local Address (ULA) <xref target="RFC4193"/>
+  and uses multicast NSs for DAD. For simplicity of description, this document
+  will not further distinguish GUA and ULA.</li>
+  <li>Next-hop determination and address resolution: When the host needs to
+  send a packet, it will first determine whether the next hop is a router or
+  an on-link host (which is the destination). If the next hop is a router, the
+  host already has the NCE for that router. If the next hop is an on-link
+  host, it will use multicast NSs to perform address resolution for the
+  destination host. As a result, the source host installs an NCE for the
+  destination host.</li>
+  <li>Node Unreachability Detection (NUD): The host uses unicast NSs to
+  determine whether another node with an NCE is still reachable.</li>
+  <li>Link-layer address change announcement: If a host's link-layer address
+  changes, it may use multicast Neighbor Advertisements (NAs) to announce its new
+  link-layer address to other nodes.</li>
+</ol>
+      <t>For a router, the procedure is similar except that there is no
+   router discovery. Instead, routers perform a Redirect procedure that
+   hosts do not have. A router sends a Redirect to inform a node of a
+   better next hop for the node's traffic.</t>
+
+      <t>ND uses multicast in many messages and trusts messages from all nodes; 
+   in addition, routers may install NCEs for hosts on demand when they are to
+   forward packets to these hosts.  These may lead to issues.
+   Concretely, various ND issues and mitigation solutions have been
+   published in more than 20 RFCs, including:</t>
+
+   <ul spacing="normal">
+     <li>"IPv6 Neighbor Discovery (ND) Trust Models and Threats" <xref target="RFC3756"/></li>
+     <li>"SEcure Neighbor Discovery (SEND)" <xref target="RFC3971"/></li>
+     <li>"Cryptographically Generated Addresses (CGA)" <xref target="RFC3972"/></li>
+     <li>"Neighbor Discovery Proxies (ND Proxy)" <xref target="RFC4389"/></li>
+     <li>"Optimistic Duplicate Address Detection (DAD) for IPv6" <xref target="RFC4429"/></li>
+     <li>"IPv6 in 3rd Generation Partnership Project (3GPP) Evolved Packet System (EPS)" <xref target="RFC6459"/></li>
+     <li>"IPv6 for Third Generation Partnership Project (3GPP) Cellular Hosts" <xref target="RFC7066"/></li>
+     <li>"IPv6 in the context of TR-101" <xref target="TR177"/></li>
+     <li>"Address Resolution Protocol (ARP) Mediation for IP Interworking of Layer 2 VPNs" <xref target="RFC6575"/></li>
+     <li>"Operational Neighbor Discovery Problems" <xref target="RFC6583"/></li>
+     <li>"Neighbor Discovery Optimization for IPv6 over Low-Power Wireless Personal Area Networks (6LoWPANs)" <xref target="RFC6775"/></li>
+     <li>"Registration Extensions for IPv6 over Low-Power Wireless Personal Area Network (6LoWPAN) Neighbor Discovery" <xref target="RFC8505"/></li>
+     <li>"Address-Protected Neighbor Discovery for Low-Power and Lossy Networks" <xref target="RFC8928"/></li>
+     <li>"IPv6 Backbone Router" <xref target="RFC8929"/></li>
+     <li>"Architecture and Framework for IPv6 over Non-Broadcast Access" <xref target="I-D.ietf-6man-ipv6-over-wireless"/></li>
+     <li>"Duplicate Address Detection Proxy" <xref target="RFC6957"/></li>
+     <li>"Source Address Validation Improvement (SAVI) Framework" <xref target="RFC7039"/></li>
+     <li>"IPv6 Router Advertisement Guard" <xref target="RFC6105"/></li>
+     <li>"Implementation Advice for IPv6 Router Advertisement Guard (RA-Guard)" <xref target="RFC7113"/></li>
+     <li>"Enhanced Duplicate Address Detection" <xref target="RFC7527"/></li>
+     <li>"The Scalable Address Resolution Protocol (SARP) for Large Data Centers" <xref target="RFC7586"/></li>
+     <li>"Reducing Energy Consumption of Router Advertisements" <xref target="RFC7772"/></li>
+     <li>"Unique IPv6 Prefix per Host" <xref target="RFC8273"/></li>
+     <li>"Transparent Interconnection of Lots of Links (TRILL): ARP and Neighbor Discovery (ND) Optimization" <xref target="RFC8302"/></li>
+     <li>"Gratuitous Neighbor Discovery: Creating Neighbor Cache Entries on First-Hop Routers" <xref target="RFC9131"/></li>
+     <li>"Operational Aspects of Proxy ARP/ND in Ethernet Virtual Private Networks" <xref target="RFC9161"/></li>
+     <li>"Using DHCPv6 Prefix Delegation (DHCPv6-PD) to Allocate Unique IPv6 Prefixes per Client in Large Broadcast Networks" <xref target="RFC9663"/></li>
+   </ul>
+
+      <t>This document summarizes these RFCs into a one-stop reference (as of
+   the time of writing) for easier access. This document also
+   identifies three causes of the issues and defines three host
+   isolation methods to address the causes and prevent potential ND
+   issues.</t>
+
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <t>This document uses the terms defined in <xref target="RFC4861"/>. Additional terms are defined in this section.</t>
+        <dl spacing="normal" newline="false">
+          <dt>MAC:</dt>
+          <dd><t>Media Access Control. To avoid confusion with link-local addresses, link-layer
+          addresses are referred to as "MAC addresses" in this document.</t></dd>
+          <dt>Host Isolation:</dt>
+	  <dd>Separating hosts into different subnets or links.</dd>
+          <dt>L3 Isolation:</dt>
+	  <dd>Allocating a Unique Prefix per Host (UPPH) <xref
+	  target="RFC8273"/> <xref target="RFC9663"/> so that every host is in
+	  a different subnet. Given that a unique prefix can be allocated per
+	  host on shared media, hosts in different subnets may be on the same
+	  link.</dd>
+          <dt>L2 Isolation:</dt>
+	  <dd>Taking measures to prevent a host from reaching other hosts
+	  directly in Layer 2 (L2) so that every host is in a different
+	  link. Due to the existence of Multi-Link Subnet <xref
+	  target="RFC4903"/>, hosts in different links may be in the same
+	  subnet. Therefore, L2 Isolation does not imply L3 Isolation, and L3
+	  Isolation does not imply L2 Isolation either.</dd>
+          <dt>L3+L2 Isolation:</dt>
+	  <dd>Applying L3 Isolation and L2 Isolation simultaneously so that
+	  every host is in a different subnet and on a different link.</dd>
+          <dt>Partial L2 Isolation:</dt>
+	  <dd>Using an L3 ND Proxy <xref target="RFC4389"/> device to
+	  represent the hosts behind it to other hosts in the same
+	  subnet. Within the subnet, ND multicast exchange is segmented into
+	  multiple smaller scopes, each represented by an ND Proxy device.</dd>
+	</dl>
+      </section>
+    </section>
+    <section anchor="review-of-inventoried-nd-issues">
+      <name>Review of Inventoried ND Issues</name>
+      <section anchor="multicast-may-cause-performance-and-reliability-issues">
+        <name>Multicast May Cause Performance and Reliability Issues</name>
+        <t>In some cases, ND uses multicast for NSs, NAs, RSs, and RAs. While
+   multicast can be highly efficient in certain scenarios (e.g., in
+   wired networks), multicast can also be inefficient in other
+   scenarios (e.g., in large L2 networks or wireless networks).</t>
+        <t>Typically, multicast can create a large amount of protocol traffic
+   in large L2 networks. This can consume network bandwidth, increase
+   processing overhead, and degrade network performance <xref target="RFC7342"/>.</t>
+        <t>In wireless networks, multicast can be inefficient or even
+   unreliable due to a higher probability of transmission interference,
+   lower data rate, and lack of acknowledgements (<xref target="RFC9119" section="3.1"/>).</t>
+        <t>Multicast-related performance issues of the various ND messages are
+   summarized below:</t>
+
+   <ul spacing="normal">
+     <li>
+       <t>Issue 1: LLA DAD degrades performance</t>
+       <t>In an L2 network of N addresses (which can be much larger than the
+       number of hosts, as each host can have multiple addresses), there can
+       be N such multicast messages. This may cause performance issues when N
+       is large.</t>
+     </li>
+     <li>
+       <t>Issue 2: Router's periodic unsolicited RAs drain host's battery</t>
+       <t>Multicast RAs are generally limited to one packet every
+       MIN_DELAY_BETWEEN_RAS (3 seconds), and there are usually only one or
+       two routers on the link, so it is unlikely to cause a performance
+       issue. However, for battery-powered hosts, such messages may wake them
+       up and drain their batteries <xref target="RFC7772"/>.</t>
+     </li>
+      <li>
+	<t>Issue 3: GUA DAD degrades performance</t>
+	<t>This is the same as in Issue 1.</t>
+      </li>
+      <li>
+	<t>Issue 4: Router's address resolution for hosts degrades performance</t>
+	<t>This is the same as in Issue 1.</t>
+      </li>
+     <li>
+       <t>Issue 5: Host's address resolution for hosts degrades performance</t>
+       <t>This is the same as in Issue 1.</t>
+     </li>
+     <li>
+       <t>Issue for further study: Multicast NAs for host's MAC address changes may degrade performance</t>
+       <t>With randomized and changing MAC addresses <xref target="RFC9797"/>,
+       there may be many such multicast messages.</t>
+     </li>
+   </ul>
+
+    <t>In wireless networks, multicast is more likely to cause packet loss.
+    Because DAD treats no response as no duplicate address detected, packet
+    loss may cause duplicate addresses to be undetected.  Multicast
+    reliability issues are summarized below:</t>
+
+   <ul spacing="normal">
+     <li>
+       <t>Issue 6: LLA DAD not completely reliable in wireless networks</t>
+     </li>
+     <li>
+       <t>Issue 7: GUA DAD not completely reliable in wireless networks</t>
+     </li>
+   </ul>
+        <t>Note: IPv6 address collisions are extremely unlikely. As a result,
+        these two issues are largely theoretical rather than practical.</t>
+      </section>
+
+      <section anchor="trusting-all-nodes-may-cause-on-link-security-issues">
+        <name>Trusting-All-Nodes May Cause On-Link Security Issues</name>
+
+        <t>In scenarios such as public access networks, some nodes may not be
+   trustworthy. An attacker on the link can cause the following on-link
+   security issues <xref target="RFC3756"/> <xref target="RFC9099"/>:</t>
+   
+   <ul spacing="normal">
+     <li>
+       <t>Issue 8: Source IP address spoofing</t>
+       <t>An attacker can use another node's IP address as the source address
+       of its ND message to pretend to be that node. The attacker can then
+       launch various Redirect or Denial-of-Service (DoS) attacks.</t>
+     </li>
+     <li>
+       <t>Issue 9: Denial of DAD</t>
+       <t>An attacker can repeatedly reply to a victim's DAD messages, causing
+       the victim's address configuration procedure to fail, resulting in a
+       DoS to the victim.</t>
+     </li>
+     <li>
+       <t>Issue 10: Rogue RAs</t>
+       <t>An attacker can send RAs to victim hosts to pretend to be a
+       router. The attacker can then launch various Redirect or DoS
+       attacks.</t>
+     </li>
+     <li>
+       <t>Issue 11: Spoofed redirects</t>
+       <t>An attacker can send forged Redirects to victim hosts to redirect
+       their traffic to the legitimate router itself.</t>
+     </li>
+     <li>
+       <t>Issue 12: Replay attacks</t>
+       <t>An attacker can capture valid ND messages and replay them later.</t>
+     </li>
+   </ul>
+      </section>
+      <section anchor="router-nce-on-demand-may-cause-forwarding-delay-nce-exhaustion-and-address-accountability-issues">
+        <name>Router-NCE-on-Demand May Cause Forwarding Delay, NCE Exhaustion, and Address Accountability Issues</name>
+        <t>When a router needs to forward a packet to a node but does not yet
+   have a Neighbor-Cache Entry (NCE) for that node, it first creates an
+   NCE in the INCOMPLETE state. The router then multicasts an NS to the
+   node's solicited-node multicast address. When the destination
+   replies with an NA containing its MAC address, the router updates
+   the NCE with that address and changes its state to REACHABLE,
+   thereby completing the entry. This process is referred to as "Router&nbhy;NCE&nbhy;on&nbhy;Demand" in this document.</t>
+        <t>Router-NCE-on-Demand can cause the following issues:</t>
+	<ul spacing="normal">
+          <li>
+	    <t>Issue 13: NCE exhaustion</t>
+	    <t>An attacker can send a high volume of packets targeting
+	    non-existent IP addresses, causing the router to create numerous
+	    NCEs in the INCOMPLETE state. The resulting resource exhaustion
+	    may cause the router to malfunction. This vulnerability, described
+	    as "NCE exhaustion" in this document, does not require the
+	    attacker to be on-link.</t>
+	  </li>
+	  <li>
+	    <t>Issue 14: Router forwarding delay</t>
+	    <t>When a packet arrives at a router, the router buffers it while
+	    attempting to determine the host's MAC address. This buffering
+	    delays forwarding and, depending on the router's buffer size, may
+	    lead to packet loss.  This delay is referred to as
+	    "Router&nbhy;NCE&nbhy;on&nbhy;Demand forwarding delay" in this document.</t>
+	  </li>
+	  <li>
+	    <t>Issue 15: Lack of address accountability</t>
+	    <t>With SLAAC, hosts generate their IP addresses. The router does
+	    not become aware of a host's IP address until an NCE entry is
+	    created. With DHCPv6 <xref target="RFC8415"/>, the router may not
+	    know the host's addresses unless it performs DHCPv6 snooping. In
+	    public access networks, where subscriber management often relies
+	    on IP address (or prefix) identification, this lack of address
+	    accountability poses a challenge <xref
+	    target="I-D.ccc-v6ops-address-accountability"/>. Without knowledge
+	    of the host's IP address, network administrators are unable to
+	    effectively manage subscribers, which is particularly problematic
+	    in public access networks. Moreover, once a router has created its
+	    NCEs, ND <xref target="RFC4861"/> provides no mechanism to
+	    retrieve them for management or monitoring, as noted in <xref
+	    section="2.6.1" sectionFormat="of" target="RFC9099"/>.</t>
+	  </li>
+	</ul>
+      </section>
+      <section anchor="summary-of-nd-issues">
+        <name>Summary of ND Issues</name>
+        <t>The ND issues, as discussed in Sections <xref target="multicast-may-cause-performance-and-reliability-issues" format="counter"/>, <xref target="trusting-all-nodes-may-cause-on-link-security-issues" format="counter"/>, and <xref target="router-nce-on-demand-may-cause-forwarding-delay-nce-exhaustion-and-address-accountability-issues" format="counter"/>, are summarized
+   below. These issues stem from three primary causes: multicast,
+   Trusting-all-nodes, and Router-NCE-on-Demand. Eliminating any of
+   these causes would also mitigate the corresponding issues. These
+   observations provide guidance for addressing and preventing ND-
+   related issues.</t>
+<ol spacing="normal" type="1">
+  <li><t>Multicast-related issues:</t>
+  <ul spacing="normal">
+    <li><t>Performance issues:</t>
+    <ul spacing="normal">
+      <li>Issue 1: LLA DAD degrades performance</li>
+      <li>Issue 2: Router's periodic unsolicited RAs drain host's battery</li>
+      <li>Issue 3: GUA DAD degrades performance</li>
+      <li>Issue 4: Router's address resolution for hosts degrades performance</li>
+      <li>Issue 5: Host's address resolution for hosts degrades performance</li>
+      </ul></li>
+    <li><t>Reliability issues:</t>
+    <ul spacing="normal">
+      <li>Issue 6: LLA DAD not completely reliable in wireless networks</li>
+      <li>Issue 7: GUA DAD not completely reliable in wireless networks</li>
+    </ul></li>
+  </ul></li>
+  <li><t>Trusting-all-nodes related issues:</t>
+    <ul spacing="normal">
+      <li>Issue 8: Source IP address spoofing</li>
+      <li>Issue 9: Denial of DAD</li>
+      <li>Issue 10: Rogue RAs</li>
+      <li>Issue 11: Spoofed redirects</li>
+      <li>Issue 12: Replay attacks</li>
+    </ul></li>
+  <li><t>Router-NCE-on-Demand related issues:</t>
+    <ul spacing="normal">
+      <li>Issue 13: NCE exhaustion</li>
+      <li>Issue 14: Router forwarding delay</li>
+      <li>Issue 15: Lack of address accountability</li>
+    </ul>
+  </li>
+</ol>
+        <t>These issues are potential vulnerabilities and may not manifest in
+   all usage scenarios.</t>
+        <t>When these issues may occur in a specific deployment, it is
+   advisable to consider the mitigation solutions available. They are
+   described in the following section.</t>
+      </section>
+    </section>
+    <section anchor="review-of-nd-mitigation-solutions">
+      <name>Review of ND Mitigation Solutions</name>
+      <t><xref target="solutions-table"/> summarizes ND mitigation solutions available for Issues 1-15
+   described in <xref target="summary-of-nd-issues" format="default"/>. Similar solutions are grouped, beginning
+   with those that address the most issues. Unrelated solutions are
+   ordered based on the issues (listed in <xref target="summary-of-nd-issues" format="default"/>) they address.
+   Each solution in the table will be explained in a sub-section later,
+   where abbreviations in the table are described.</t>
+      <t>In <xref target="solutions-table"/>, a letter code indicates the RFC category of the
+   mitigation solution (see BCP 9 <xref target="RFC2026"/> for an explanation of these
+   categories):</t>
+
+   <dl spacing="compact" newline="false" indent="5">
+     <dt>S:</dt><dd>Standards Track (Proposed Standard or Internet Standard)</dd>
+     <dt>E:</dt><dd>Experimental</dd>
+     <dt>I:</dt><dd>Informational</dd>
+     <dt>B:</dt><dd>Best Current Practice</dd>
+     <dt>N/A:</dt><dd>Not Applicable (not an RFC)</dd>
+   </dl>
+
+<t>The abbreviations in <xref target="solutions-table"/> correspond to <xref
+target="summary-of-nd-issues"/> as follows:</t>
+
+<dl spacing="compact" newline="false" indent="5">
+  <dt>On-link sec.:</dt><dd>Trusting-all-nodes related issues</dd>
+  <dt>NCE exh.:</dt><dd>NCE exhaustion</dd>
+  <dt>Fwd. delay:</dt><dd>Router forwarding delay</dd>
+  <dt>No addr. acc.:</dt><dd>Lack of address accountability</dd>
+</dl>
+
+<table anchor="solutions-table">
+  <name>Solutions for Identified Issues</name>
+  <thead>
+    <tr>
+      <th rowspan="2">ND solution</th>
+      <th rowspan="2">RFC cat.</th>
+      <th colspan="5">Multicast performance</th>
+      <th colspan="2">Reliability</th>
+      <th>On-link sec.</th>
+      <th>NCE exh.</th>
+      <th>Fwd. delay</th>
+      <th>No addr. acc.</th>
+    </tr>
+    <tr>
+      <th align="center">1</th>
+      <th align="center">2</th>
+      <th align="center">3</th>
+      <th align="center">4</th>
+      <th align="center">5</th>
+      <th align="center">6</th>
+      <th align="center">7</th>
+      <th align="center">8-12</th>
+      <th align="center">13</th>
+      <th align="center">14</th>
+      <th align="center">15</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>MBBv6</td>
+      <td align="center">I</td>
+      <td colspan="11" align="center">All identified issues solved</td>
+    </tr>
+    <tr>
+      <td>FBBv6</td>
+      <td align="center">N/A</td>
+      <td colspan="11" align="center">All identified issues solved</td>
+    </tr>
+    <tr>
+      <td>UPPH</td>
+      <td align="center">I</td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td align="center">X</td>
+      <td align="center">X</td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td align="center">X</td>
+      <td align="center">X</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>WiND</td>
+      <td align="center">S</td>
+      <td colspan="11" align="center">All issues solved for Low-Power and Lossy Networks (LLNs)</td>
+    </tr>
+    <tr>
+      <td>SARP</td>
+      <td align="center">E</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>ND TRILL</td>
+      <td align="center">S</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>ND EVPN</td>
+      <td align="center">S</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>RFC 7772</td>
+      <td align="center">B</td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>GRAND</td>
+      <td align="center">S</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>SAVI/RA-G</td>
+      <td align="center">I</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>RFC 6583</td>
+      <td align="center">I</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+      <td></td>
+      <td></td>
+    </tr>
+    <tr>
+      <td>RFC 9686</td>
+      <td align="center">S</td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td align="center">X</td>
+    </tr>
+  </tbody>
+</table>
+
+      <section anchor="nd-solution-in-mobile-broadband-ipv6">
+        <name>Mobile Broadband IPv6 (MBBv6)</name>
+        <t>The IPv6 solution defined in "IPv6 in 3rd Generation Partnership
+        Project (3GPP) Evolved Packet System (EPS)" <xref target="RFC6459"/>,
+        "IPv6 for Third Generation Partnership Project (3GPP) Cellular Hosts"
+        <xref target="RFC7066"/>, and "Extending an IPv6 /64 Prefix from a
+        Third Generation Partnership Project (3GPP) Mobile Interface to a LAN
+        Link" <xref target="RFC7278"/> is called Mobile Broadband IPv6
+        (MBBv6) in this document. They are Informational RFCs. The key points
+        are:</t>
+   <ul spacing="normal">
+     <li><t>Putting every host (e.g., the mobile User Equipment (UE)) in a
+     Point-to-Point (P2P) link with the router (e.g., the mobile
+     gateway) has the following outcomes:</t>
+     <ul spacing="normal">
+      <li>All multicast is effectively turned into unicast.</li>
+      <li>The P2P links do not have a MAC address. Therefore, Router-
+      NCE-on-Demand is not needed.</li>
+      <li>Trusting-all-nodes is only relevant to the router. By applying
+      filtering at the router (e.g., dropping RAs from the hosts), even
+      malicious hosts cannot cause harm.</li>
+     </ul></li>
+    <li>Assigning a unique /64 prefix to each host. Together with the
+    P2P link, this puts each host on a separate link and subnet.</li>
+    <li>Maintaining (prefix, interface) binding at the router for
+    forwarding purposes.</li>
+   </ul>
+        <t>Since all the three causes of ND issues are addressed, all the
+   issues discussed in <xref target="summary-of-nd-issues" format="default"/> are addressed.</t>
+      </section>
+      <section anchor="nd-solution-in-fixed-broadband-ipv6">
+        <name>Fixed Broadband IPv6 (FBBv6)</name>
+        <t>The IPv6 solution defined in "IPv6 in the context of TR-101" <xref target="TR177"/>
+   is called Fixed Broadband IPv6 (FBBv6) in this document. FBBv6 has
+   two flavors:</t>
+   <ul spacing="normal">
+     <li>P2P: Every host (e.g., the Residential Gateway (RG)) is in a
+    P2P link with the router (e.g., the Broadband Network Gateway
+    (BNG)). In this case, the solution is functionally similar to
+    MBBv6. All ND issues discussed in <xref target="summary-of-nd-issues" format="default"/> are solved.</li>
+    <li>Point to Multipoint (P2MP): All hosts (e.g., the RGs)
+    connected to an access device (e.g., the Optical Line Terminal
+    (OLT)) are in a P2MP link with the router (e.g., the BNG).  This
+    is achieved by placing all hosts in a single VLAN on the router
+    and configuring the OLT to block any frame from being forwarded
+    between its access ports; traffic from each host can travel
+    only up toward the router, not sideways to another host,
+    thereby preventing direct host-to-host communication.</li>
+   </ul>
+        <t>The following list summarizes the two key aspects of the FBBv6-P2MP
+   architecture as described in <xref target="TR177"/> and the associated benefits:</t>
+   <ul spacing="normal">
+     <li><t>Implementing DAD proxy <xref target="RFC6957"/>:</t>
+     <t>In a P2MP architecture described above, the normal ND DAD procedure
+     will break down because hosts cannot exchange NSs with one another. To
+     address this, the router participates in the DAD process as a DAD Proxy
+     to resolve address duplication.</t>
+     <t>The benefits are:</t>
+     <ul spacing="normal">
+       <li>Multicast traffic from all hosts to the router is effectively
+       converted into unicast, as hosts can only communicate directly with the
+       router.</li>
+       <li>The Trusting-all-nodes model is limited to the router. By applying
+       simple filtering (e.g., dropping RAs from hosts), the router can
+       mitigate security risks, even from malicious hosts.</li>
+   </ul></li>
+   <li><t>Assigning a unique /64 prefix to each host:</t>
+   <t>Assigning each host a unique /64 prefix results in several operational
+   improvements:</t>
+     <ul spacing="normal">
+       <li>The router can proactively install a forwarding entry for that
+       prefix towards the host, eliminating the need for
+       Router-NCE-on-Demand.</li>
+       <li>Since each host resides in a different subnet, traffic between
+       hosts is routed through the router, eliminating the need for hosts to
+       perform address resolution for one another.</li>
+       <li>Without address resolution, router multicast to hosts is limited to
+       unsolicited RAs. As each host resides in its own subnet, these RAs are
+       sent as unicast packets to individual hosts. This follows the approach
+       specified in <xref target="RFC6085"/>, where the host's MAC address replaces the
+       multicast MAC address in the RA.</li>
+     </ul></li>
+   </ul>
+        <t>Since all three causes of ND issues are addressed, all ND issues
+   (<xref target="summary-of-nd-issues" format="default"/>) are also addressed.</t>
+      </section>
+      <section anchor="unique-ipv6-prefix-per-host-upph">
+        <name>Unique Prefix per Host (UPPH)</name>
+        <t>Unique Prefix per Host (UPPH) solutions are described in <xref target="RFC8273"/> and <xref target="RFC9663"/>. Both are
+   Informational RFCs. <xref target="RFC8273"/> relies on SLAAC for unique prefix
+   allocation while <xref target="RFC9663"/> relies on DHCPv6 Prefix Delegation (DHCPv6-PD). That difference in
+   allocation mechanism does not change the discussion on ND issues,
+   because every IPv6 node is still required to run SLAAC, even when it
+   receives its prefix via DHCPv6-PD. Therefore, discussing <xref target="RFC8273"/>
+   alone is sufficient.</t>
+        <t><xref target="RFC8273"/> "improves host isolation and enhanced subscriber
+   management on shared network segments" such as Wi-Fi or Ethernet.
+   The key points are:</t>
+   <ul spacing="normal">
+     <li>When a prefix is allocated to the host, the router can proactively
+     install a forwarding entry for that prefix towards the host.  There is no
+     more Router-NCE-on-Demand.</li>
+     <li>Without address resolution, router multicast to hosts consists
+    only of unsolicited RAs. They will be sent to hosts one by one
+    in unicast because the prefix for every host is different.</li>
+    <li>Since different hosts are in different subnets, hosts will send
+    traffic to other hosts via the router. There is no host-to-host
+    address resolution.</li>
+  </ul>
+        <t>Therefore, ND issues caused by Router-NCE-on-Demand and router
+   multicast to hosts are prevented.</t>
+        <t><xref target="RFC8273"/> indicates that a "network implementing a
+        unique IPv6 prefix per host can simply ensure that devices cannot send
+        packets to each other except through the first-hop router". However,
+        when hosts are on a shared medium like Ethernet, ensuring "devices
+        cannot send packets to each other except through the first-hop router"
+        requires additional measures like Private VLAN <xref
+        target="RFC5517"/>. Without such additional measures, on a shared
+        medium, hosts can still reach each other in L2 as they belong to the
+        same Solicited-Node Multicast Group. Therefore, Trusting-all-nodes and
+        host multicast to routers may cause issues. Of the host multicast
+        issues (i.e., Issues 1, 3, 5, 6, and 7), UPPH prevents Issues 5 and 7,
+        because there is no need for address resolution among hosts (Issue 5),
+        and there is no possibility of GUA duplication (Issue 7). However,
+        Issues 1, 3, and 6 may occur.</t>
+      </section>
+
+      <section anchor="wireless-nd-and-subnet-nd">
+        <name>Wireless ND (WiND)</name>
+        <t>The term "Wireless ND (WiND)" is used in this document to describe
+        the fundamentally different ND solution for Low-Power and Lossy
+        Networks (LLNs) <xref target="RFC7102"/> that is defined in <xref
+        target="RFC6775"/>, <xref target="RFC8505"/>, <xref
+        target="RFC8928"/>, and <xref target="RFC8929"/> (Standards Track).
+        WiND changes host and router behaviors to use multicast only for
+        router discovery. The key points are:</t>
+   <ul spacing="normal">
+     <li>Hosts use unicast to proactively register their addresses at
+    the routers. Routers use unicast to communicate with hosts and
+    become an abstract registrar and arbitrator for address
+    ownership.</li>
+    <li>The router also proactively installs NCEs for the hosts. This
+    avoids the need for address resolution for the hosts.</li>
+    <li>The router sets the Prefix Information Option (PIO) L-bit to 0.
+    Each host communicates only with the router (<xref target="RFC4861" section="6.3.4"/>).</li>
+    <li>Other functionalities that are relevant only to LLNs.</li>
+  </ul>
+        <t>WiND addresses all ND issues (<xref target="summary-of-nd-issues" format="default"/>) in LLNs. However, WiND
+   support is not mandatory for general-purpose hosts. Therefore, it
+   cannot be relied upon as a deployment option without imposing
+   additional constraints on the participating nodes.</t>
+      </section>
+      <section anchor="scalable-address-resolution-protocol">
+        <name>Scalable Address Resolution Protocol (SARP)</name>
+        <t>The Scalable Address Resolution Protocol (SARP) <xref
+        target="RFC7586"/> was an Experimental solution. That experiment ended
+        in 2017, two years after the RFC was published. Because the idea has
+        been used in mitigation solutions for more specific scenarios
+        (described in Sections <xref
+        target="arp-and-nd-optimization-for-trill" format="counter"/> and
+        <xref target="proxy-arpnd-in-ethernet-virtual-private-networks-evpn"
+        format="counter"/>), it is worth describing here. The usage scenario
+        is Data Centers (DCs), where large L2 domains span across multiple
+        sites. In each site, multiple hosts are connected to a switch. The
+        hosts can be Virtual Machines (VMs), so the number can be large.  The
+        switches are interconnected by a pure or overlay L2 network.</t>
+        <t>The switch will snoop and install a (IP, MAC address) proxy table for
+   the local hosts. The switch will also reply to address resolution
+   requests from other sites to its hosts with its own MAC address. In
+   doing so, all hosts within a site will appear to have a single MAC
+   address to other sites. As such, a switch only needs to build a MAC
+   address table for the local hosts and the remote switches, not for
+   all the hosts in the L2 domain. Consequently, the MAC address table
+   size of the switches is significantly reduced. A switch will also
+   add the (IP, MAC address) replies from remote switches to its proxy
+   ND table so that it can reply to future address resolution requests
+   from local hosts for such IPs directly. This greatly reduces the
+   number of address resolution multicast in the network.</t>
+        <t>Unlike MBBv6, FBBv6, and UPPH, which try to address all ND issues
+   discussed in <xref target="summary-of-nd-issues" format="default"/>, SARP focuses on reducing address
+   resolution multicast to improve the performance and scalability of
+   large L2 domains in DCs.</t>
+      </section>
+      <section anchor="arp-and-nd-optimization-for-trill">
+        <name>ND Optimization for TRILL</name>
+        <t>ARP and ND optimization for Transparent Interconnection of Lots of Links (TRILL) <xref target="RFC8302"/>
+        (Standards Track) is similar to SARP (<xref
+        target="scalable-address-resolution-protocol" format="default"/>). It
+        can be considered an application of SARP in the TRILL environment.</t>
+        <t>Like SARP, ND optimization for TRILL focuses on reducing multicast address resolution. That is, it addresses Issue 5 (<xref target="multicast-may-cause-performance-and-reliability-issues" format="default"/>).</t>
+      </section>
+      <section anchor="proxy-arpnd-in-ethernet-virtual-private-networks-evpn">
+        <name>Proxy ND in Ethernet Virtual Private Networks (ND EVPN)</name>
+        <t>Proxy ARP/ND in EVPN is specified in <xref target="RFC9161"/> (Standards Track).
+   The usage scenario is DCs where large L2 domains span across
+   multiple sites. In each site, multiple hosts are connected to a
+   Provider Edge (PE) router.  The PEs are interconnected by EVPN
+   tunnels.</t>
+        <t>The PE of each site snoops the local address resolution NAs to build
+   (IP, MAC address) Proxy ND table entries. PEs then propagate such
+   Proxy ND entries to other PEs via the Border Gateway Protocol (BGP).
+   Each PE also snoops local hosts' address resolution NSs for remote
+   hosts. If an entry exists in its Proxy ND table for the remote
+   hosts, the PE will reply directly.  Consequently, the number of
+   multicast address resolution messages is significantly reduced.</t>
+        <t>Like SARP, Proxy ARP/ND in EVPN also focuses on reducing address
+   resolution multicast.</t>
+      </section>
+      <section anchor="reducing-router-advertisements">
+        <name>Reducing Router Advertisements per RFC 7772</name>
+        <t>Maintaining IPv6 connectivity requires that hosts be able to receive
+   periodic multicast RAs <xref target="RFC4861"/>.  Hosts that process unicast
+   packets while they are asleep must also process multicast RAs while
+   they are asleep. An excessive number of RAs can significantly reduce
+   the battery life of mobile hosts. <xref target="RFC7772"/> (Best Current Practice)
+   specifies a solution to reduce RAs:</t>
+   <ul spacing="normal">
+     <li>The router should respond to RS with unicast RA (rather than
+    the normal multicast RA) if the host's source IP address is
+    specified and the host's MAC address is valid. This way, other
+    hosts will not receive this RA.</li>
+    <li>The router should reduce the multicast RA frequency.</li>
+   </ul>
+        <t><xref target="RFC7772"/> addresses Issue 2 (<xref target="multicast-may-cause-performance-and-reliability-issues" format="default"/>).</t>
+      </section>
+      <section anchor="gratuitous-neighbor-discovery-grand">
+        <name>Gratuitous Neighbor Discovery (GRAND)</name>
+        <t>GRAND <xref target="RFC9131"/> (Standards Track) changes ND in the following ways:</t>
+	<ul spacing="normal">
+	  <li>A node sends unsolicited NAs upon assigning a new IPv6 address
+	  to its interface.</li>
+	  <li>A router creates a new NCE for the node and sets its state to
+	  STALE.</li>
+	</ul>
+        <t>When a packet for the host later arrives, the router can use the
+        existing STALE NCE to forward it immediately (<xref target="RFC4861"
+        sectionFormat="comma" section="7.2.2"/>). It then verifies
+        reachability by sending a unicast NS rather than a multicast one for
+        address resolution. In this way, GRAND eliminates the router
+        forwarding delay, but it does not solve other Router-NCE-on-Demand
+        issues. For example, NCE exhaustion can still happen.</t>
+      </section>
+      <section anchor="source-address-validation-improvement-savi-and-router-advertisement-guard">
+        <name>Source Address Validation Improvement (SAVI) and Router
+        Advertisement Guard (RA-Guard)</name>
+        <t>Source Address Validation Improvement (SAVI) <xref target="RFC7039"/> (Informational) binds an address to a port on an L2
+   switch and rejects claims from other ports for that address.
+   Therefore, a node cannot spoof the IP address of another node.</t>
+        <t>Router Advertisement Guard (RA-Guard) <xref target="RFC6105"/> <xref target="RFC7113"/>
+   (Informational) only allows RAs from a port that a router is
+   connected to. Therefore, nodes on other ports cannot pretend to be a
+   router.</t>
+        <t>SAVI and RA-Guard address the on-link security issues.</t>
+      </section>
+      <section anchor="rfc-6583-dealing-with-nce-exhaustion-attacks">
+        <name>Dealing with NCE Exhaustion Attacks per RFC 6583</name>
+        <t><xref target="RFC6583"/> (Informational) deals with the NCE
+        exhaustion attack issue (<xref
+        target="router-nce-on-demand-may-cause-forwarding-delay-nce-exhaustion-and-address-accountability-issues"
+        format="default"/>). It recommends that:</t>
+	<ul spacing="normal">
+	  <li>
+	    <t>Operators should:</t>
+	    <ul spacing="normal">
+	      <li>Filter unused address space so that messages to such
+              addresses can be dropped rather than triggering NCE
+              creation.</li>
+	      <li>Implement rate-limiting mechanisms for ND message
+              processing to prevent CPU and memory resources from being
+              overwhelmed.</li>
+	    </ul>
+	  </li>
+	  <li>
+	    <t>Vendors should:</t>
+	    <ul spacing="normal">
+	      <li>Prioritize NDP processing for existing NCEs over creating
+              new NCEs.</li>
+	    </ul>
+	  </li>
+	</ul>
+        <t><xref target="RFC6583"/> acknowledges that "some of these options are 'kludges',
+	and can be operationally difficult to manage". <xref target="RFC6583"/> partially
+	addresses the Router NCE exhaustion issue. In practice, router
+	vendors cap the number of NCEs per interface to prevent cache
+	exhaustion. If the link has more addresses than that cap, the router
+	cannot keep an entry for every address, and packets destined for
+	addresses without an NCE are simply dropped <xref target="RFC9663"/>.</t>
+      </section>
+      <section anchor="registering-self-generated-ipv6-addresses-using-dhcpv6">
+        <name>Registering Self-Generated IPv6 Addresses Using DHCPv6 per RFC 9686</name>
+        <t>In IPv4, network administrators can retrieve a host's IP address
+	from the DHCP server and use it for subscriber management. In IPv6
+   and SLAAC, this is not possible (<xref target="router-nce-on-demand-may-cause-forwarding-delay-nce-exhaustion-and-address-accountability-issues" format="default"/>).</t>
+        <t><xref target="RFC9686"/> (Standards Track) defines a method for informing a DHCPv6
+   server that a host has one or more self-generated or statically
+   configured addresses. This enables network administrators to
+   retrieve the IPv6 addresses for each host from the DHCPv6 server.
+   <xref target="RFC9686"/> provides a solution for Issue 15 (<xref target="router-nce-on-demand-may-cause-forwarding-delay-nce-exhaustion-and-address-accountability-issues" format="default"/>).</t>
+      </section>
+      <section anchor="enhanced-dad">
+        <name>Enhanced DAD</name>
+        <t>Enhanced DAD <xref target="RFC7527"/> (Standards Track) addresses a DAD failure
+   issue in a specific situation: a looped-back interface. DAD will
+   fail in a looped-back interface because the sending host will
+   receive the DAD message back and will interpret it as another host
+   is trying to use the same address. The solution is to include a
+   Nonce option <xref target="RFC3971"/> in each DAD message so that the sending host
+   can detect that the looped-back DAD message is sent by itself.</t>
+        <t>Enhanced DAD does not solve any ND issue. It extends ND to work in a
+   new scenario: a looped-back interface. It is reviewed here only for
+   completeness.</t>
+      </section>
+      <section anchor="nd-mediation-for-ip-interworking-of-layer-2-vpns">
+        <name>ND Mediation for IP Interworking of Layer 2 VPNs</name>
+        <t>ND mediation is specified in <xref target="RFC6575"/> (Standards Track). When two
+   Attachment Circuits (ACs) are interconnected by a Virtual Private
+   Wired Service (VPWS), and the two ACs are of different media (e.g.,
+   one is Ethernet while the other is Frame Relay), the two PEs must
+   interwork to provide mediation service so that a Customer Edge (CE)
+   can resolve the MAC address of the remote end. <xref target="RFC6575"/> specifies
+   such a solution.</t>
+        <t>ND mediation does not address any ND issue. It extends ND to work in
+   a new scenario: two ACs of different media interconnected by a VPWS.
+   It is reviewed here only for completeness.</t>
+      </section>
+      <section anchor="nd-solutions-defined-before-the-latest-versions-of-nd">
+        <name>ND Solutions Defined Before the Latest Versions of ND</name>
+        <t>The latest versions of ND and SLAAC are specified in <xref target="RFC4861"/> and
+   <xref target="RFC4862"/>. Several ND mitigation solutions were published before
+   <xref target="RFC4861"/>. They are reviewed in this section only for completeness.</t>
+        <section anchor="secure-neighbor-discovery-send">
+          <name>Secure Neighbor Discovery (SEND)</name>
+          <t>The purpose of SEND <xref target="RFC3971"/> (Standards Track) is
+          to ensure that hosts and routers are trustworthy.  SEND defined
+          three new ND options: Cryptographically Generated Addresses (CGA)
+          <xref target="RFC3972"/> (Standards Track), RSA public-key
+          cryptosystem, and Timestamp/Nonce. In addition, SEND also defined an
+          authorization delegation discovery process, an address ownership
+          proof mechanism, and requirements for the use of these components in
+          the ND protocol.</t>
+        </section>
+        <section anchor="cryptographically-generated-addresses-cga">
+          <name>Cryptographically Generated Addresses (CGA)</name>
+          <t>The purpose of CGA is to associate a cryptographic public key with
+   an IPv6 address in the SEND protocol. The key point is to generate
+   the Interface Identifier (IID) of an IPv6 address by computing a
+   cryptographic hash of the public key.  The resulting IPv6 address is
+   called a CGA.  The corresponding private key can then be used to
+   sign messages sent from the address.</t>
+          <t>CGA assumes that a legitimate host does not care about the bit
+   combination of the IID that would be created by some hash procedure.
+   The attacker needs an exact IID to impersonate the legitimate hosts,
+   but then the attacker is challenged to do a reverse hash calculation,
+   which is a strong mathematical challenge.</t>
+          <t>CGA is part of SEND. There is no reported deployment.</t>
+        </section>
+        <section anchor="nd-proxy">
+          <name>ND Proxy</name>
+          <t>ND Proxy <xref target="RFC4389"/> (Experimental) aims to enable multiple links
+   joined by an ND Proxy device to work as a single link.</t>
+<ul spacing="normal">
+ <li>When an ND Proxy receives an ND request from a host on a link,
+    it will proxy the message out the "best" (defined in the next
+    paragraph) outgoing interface. If there is no best interface,
+    the ND Proxy will proxy the message to all other links. Here,
+    proxy means acting as if the ND message originates from the ND
+    Proxy itself. That is, the ND Proxy will change the ND
+    message's source IP and source MAC address to the ND Proxy's
+    outgoing interface's IP and MAC address, and create an NCE
+    entry at the outgoing interface accordingly.</li>
+ <li>When ND Proxy receives an ND reply, it will act as if the ND
+    message is destined for itself, and update the NCE entry state
+    at the receiving interface. Based on such state information,
+    the ND Proxy can determine the "best" outgoing interface for
+    future ND requests. The ND Proxy then proxies the ND message
+    back to the requesting host.</li>
+</ul>
+          <t>ND Proxy is widely used in SARP (<xref
+          target="scalable-address-resolution-protocol" format="default"/>),
+          ND optimization for TRILL (<xref
+          target="arp-and-nd-optimization-for-trill" format="default"/>), and
+          Proxy ARP/ND in EVPN (<xref
+          target="proxy-arpnd-in-ethernet-virtual-private-networks-evpn"
+          format="default"/>).</t>
+        </section>
+        <section anchor="optimistic-dad">
+          <name>Optimistic DAD</name>
+          <t>Optimistic DAD <xref target="RFC4429"/> (Standards Track) seeks to minimize address
+   configuration delays in the successful case and to reduce disruption
+   as far as possible in the failure case. That is, Optimistic DAD lets
+   hosts immediately use the newly formed address to communicate before
+   DAD completes, assuming that DAD will succeed anyway. If the address
+   turns out to be duplicate, Optimistic DAD provides a set of
+   mechanisms to minimize the impact. Optimistic DAD modified the
+   original ND <xref target="RFC2461"/> and original SLAAC <xref target="RFC2462"/> (both of which are obsolete), but the solution was not
+   incorporated into the latest specifications of ND <xref target="RFC4861"/> and
+   SLAAC <xref target="RFC4862"/>. However, implementations of Optimistic DAD exist.</t>
+          <t>Optimistic DAD does not solve any ND issue (<xref target="review-of-inventoried-nd-issues" format="default"/>). It is
+   reviewed here only for completeness.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="guidelines-for-prevention-of-potential-nd-issues">
+      <name>Guidelines for Prevention of Potential ND Issues</name>
+      <t>By knowing the potential ND issues and associated mitigation
+   solutions, network administrators of existing IPv6 deployments can
+   assess whether these issues may occur in their networks and, if so,
+   whether to deploy the mitigation solutions proactively. Deploying
+   these solutions may take time and additional resources. Therefore,
+   it is advisable to plan.</t>
+      <t>Network administrators planning to start their IPv6 deployments can
+   use the issue-solution information to help plan their deployments.
+   Moreover, they can take proactive action to prevent potential ND
+   issues.</t>
+      <section anchor="learning-host-isolation-from-the-existing-solutions">
+        <name>Learning Host Isolation from the Existing Solutions</name>
+        <t>While various ND solutions may initially appear unrelated,
+   categorizing them into four distinct groups highlights an important
+   observation: host isolation is an effective strategy for
+   mitigating ND-related issues.</t>
+
+<ul spacing="normal">
+  <li><t>Group 1: L3 and L2 Isolation</t>
+  <t>This group includes MBBv6 and FBBv6, which isolate hosts at both L3 and
+  L2 by placing each host within its subnet and link. This prevents ND issues
+  caused by multicast and Trusting-all-nodes, as each host operates within its
+  isolated domain. Furthermore, since routers can route packets to a host
+  based on its unique prefix, the need for Router-NCE-on-Demand is also
+  eliminated. Therefore, L3 and L2 Isolation prevent all ND issues.</t></li>
+  <li><t>Group 2: L3 Isolation</t>
+  <t>This group includes UPPH solutions like <xref target="RFC8273"/> and
+  <xref target="RFC9663"/>, which isolate hosts into separate subnets while
+  potentially leaving them on the same shared medium. This approach mitigates
+  ND issues caused by router multicast to hosts and eliminates the need for
+  Router-NCE-on-Demand, as detailed in <xref
+  target="unique-ipv6-prefix-per-host-upph" format="default"/>.</t></li>
+  <li><t>Group 3: Partial L2 Isolation</t>
+  <t>This group encompasses solutions such as WiND, SARP, ND optimization for
+  TRILL, and Proxy ND in EVPN. These solutions use a proxy device to represent
+  the hosts behind it, effectively isolating those hosts into distinct
+  multicast domains. While hosts are still located within the same subnet,
+  their separation into different multicast domains reduces the scope of ND
+  issues related to multicast-based address resolution.</t></li>
+  <li><t>Group 4: Non-Isolating Solutions</t>
+  <t>The final group includes remaining solutions that do not implement host
+  isolation. These solutions do not prevent ND issues but instead focus on
+  addressing specific ND problems.</t></li>
+</ul>
+        <t>The analysis demonstrates that the stronger the isolation of hosts,
+   the more ND issues can be mitigated. This correlation is intuitive,
+   as isolating hosts reduces the multicast scope, minimizes the number
+   of nodes that must be trusted, and may eliminate the need for
+   Router-NCE-on-Demand, the three primary causes of ND issues.</t>
+        <t>This understanding can be used to prevent ND issues.</t>
+      </section>
+      <section anchor="applicability-of-various-isolation-methods">
+        <name>Applicability of Various Isolation Methods</name>
+        <section anchor="applicability-of-l3l2-isolation">
+          <name>Applicability of L3+L2 Isolation</name>
+          <t>Benefits:</t>
+	  <ul spacing="normal">
+            <li><t>All ND issues (<xref target="summary-of-nd-issues" format="default"/>) can be effectively mitigated.</t></li>
+	  </ul>
+          <t>Constraints:</t>
+          <ol spacing="normal" type="1">
+	    <li>
+              <t>L2 Isolation:</t>
+
+              <t>Actions must be taken to isolate hosts in L2. The required
+              effort varies by the chosen method and deployment context. For
+              example, the P2P method <xref target="RFC7066"/> is
+              heavyweight, while the Private VLAN method <xref
+              target="RFC5517"/> is more manageable.</t>
+            </li>
+            <li>
+              <t>Unique prefix allocation:</t>
+              <t>A large number of prefixes will be required, with one prefix
+              assigned per host. This is generally not a limitation for
+              IPv6. For instance, members of a Regional Internet Registry
+              (RIR) can obtain a /29 prefix allocation <xref
+              target="RIPE738"/>, which provides 32 billion /64 prefixes --
+              sufficient for any foreseeable deployment scenarios.  Practical
+              implementations, such as MBBv6 assigning /64 prefixes to
+              billions of mobile UEs <xref target="RFC6459"/>, and FBBv6
+              assigning /56 prefixes to hundreds of millions of routed RGs
+              <xref target="TR177"/>, demonstrate the feasibility of this
+              approach.</t>
+            </li>
+            <li>
+              <t>Privacy issue from unique prefix identifiability:</t>
+              <t>Assigning a unique prefix to each host may theoretically
+              reduce privacy, as hosts can be directly identified by their
+              assigned prefix. However, alternative host identification
+              methods, such as cookies, are commonly used. Therefore, unique
+              prefix identifiability may not make much difference. The actual
+              impact on privacy is therefore likely to be limited.</t>
+            </li>
+            <li>
+              <t>Router support for L3 Isolation:</t>
+              <t>The router must support an L3 Isolation solution, e.g., <xref
+              target="RFC8273"/> or <xref target="RFC9663"/>.</t>
+            </li>
+            <li>
+              <t>A large number of router interfaces may be needed:</t>
+              <t>If the P2P method is used, the router must instantiate a
+              separate logical interface for every attached host. In this
+              case, a large number of interfaces will be needed at the
+              router.</t>
+            </li>
+            <li>
+              <t>Router as a bottleneck:</t>
+              <t>Since all communication between hosts is routed through the
+              router, the router may become a performance bottleneck in
+              high-traffic scenarios.</t>
+            </li>
+            <li>
+              <t>Incompatibility with host-based multicast services:</t>
+              <t>Services that rely on multicast communication among hosts,
+              such as the Multicast Domain Name System <xref target="RFC6762"/>,
+              will be disrupted.</t>
+            </li>
+          </ol>
+        </section>
+        <section anchor="applicability-of-l3-isolation">
+          <name>Applicability of L3 Isolation</name>
+          <t>Benefits:</t>
+<ul spacing="normal">
+  <li><t>All ND issues (<xref target="summary-of-nd-issues" format="default"/>) are mitigated, with the exception
+    of:</t>
+    <ul spacing="normal">
+      <li>LLA DAD multicast degrades performance,</li>
+      <li>LLA DAD not reliable in wireless networks, and</li>
+      <li>on-link security.</li>
+    </ul>
+    <t>
+   These remaining issues depend on the characteristics of the
+   shared medium:</t>
+    <ul spacing="normal">
+      <li>If the shared medium is Ethernet, the issues related to LLA
+         DAD multicast are negligible.</li>
+      <li>If nodes can be trusted, such as in private networks, on-link security concerns are not significant.</li>
+    </ul></li>
+<li>There is no need for L2 Isolation. Consequently, this method can be
+    applied in a wide range of scenarios, making it possibly the
+    most practical host isolation method.</li>
+</ul>
+          <t>Constraints (as discussed in <xref target="applicability-of-l3l2-isolation" format="default"/>):</t>
+          <ol spacing="normal" type="1"><li>
+              <t>Unique prefix allocation</t>
+            </li>
+            <li>
+              <t>Router support for L3 Isolation</t>
+            </li>
+            <li>
+              <t>Router as a bottleneck</t>
+            </li>
+            <li>
+              <t>Privacy issue from unique prefix identifiability</t>
+            </li>
+          </ol>
+        </section>
+        <section anchor="applicability-of-partial-l2-isolation">
+          <name>Applicability of Partial L2 Isolation</name>
+
+          <t>Benefit:</t>
+
+	  <ul spacing="normal">
+	    <li>Reduced multicast traffic: This method reduces multicast
+	    traffic, particularly for address resolution, by dividing the
+	    subnet into multiple multicast domains.</li>
+	  </ul>
+
+          <t>Constraint:</t>
+	  <ul spacing="normal">
+	    <li>Router support for Partial L2 Isolation:
+          The router must implement a Partial L2 Isolation solution such as
+   WiND, SARP, ND optimization for TRILL, and Proxy ND in EVPN to
+   support this method.</li>
+	  </ul>
+        </section>
+      </section>
+      <section anchor="guidelines-for-applying-isolation-methods">
+        <name>Guidelines for Applying Isolation Methods</name>
+        <t>Based on the applicability analysis provided in the preceding
+   sections, network administrators can determine whether to implement
+   an isolation method and, if so, which method is most appropriate for
+   their specific deployment.</t>
+        <t>A simple guideline is to consider the isolation methods in the order
+   listed in the preceding sections, progressing from the strongest
+   isolation to the weakest:</t>
+   <ul spacing="normal">
+     <li>Stronger isolation methods can prevent more ND issues, but may
+    also impose higher entry requirements.</li>
+    <li>Weaker isolation methods have fewer entry requirements but may
+    leave some ND issues unmitigated.</li>
+   </ul>
+
+        <t>The choice between L3+L2 Isolation and L3 Isolation often depends on
+   the cost of implementing L2 Isolation:</t>
+   <ul spacing="normal">
+     <li>If the cost is acceptable, L3+L2 Isolation is preferable
+    because it eliminates every ND issue listed in <xref target="summary-of-nd-issues" format="default"/>.</li>
+    <li>Otherwise, L3 Isolation addresses most of those issues while
+    keeping the implementation effort reasonable.</li>
+    </ul>
+
+        <t>Selecting an isolation method that is either too strong or too weak
+   does not result in serious consequences:</t>
+   <ul spacing="normal">
+     <li>Choosing an overly strong isolation method may require the
+    network administrator to meet higher entry requirements
+    initially, such as measures for L2 Isolation, additional
+    prefixes, or additional router capabilities.</li>
+    <li>Choosing a weaker isolation method may necessitate deploying
+    supplemental ND mitigation techniques to address any unresolved
+    ND issues.</li>
+    </ul>
+        <t>In either case, the resulting solution can be functional and
+   effective.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document is a review of known ND issues and solutions,
+   including security. It does not introduce any new solutions.
+   Therefore, it does not introduce new security issues.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="I-D.ccc-v6ops-address-accountability" to="AddrAcc"/>
+    <displayreference target="RFC9797" to="MADINAS"/>
+    <displayreference target="I-D.ietf-6man-ipv6-over-wireless" to="SND"/>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4861.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4862.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="TR177" target="https://www.broadband-forum.org/pdfs/tr-177-1-0-1.pdf">
+          <front>
+            <title>IPv6 in the context of TR-101</title>
+            <author>
+              <organization>Broadband Forum</organization>
+            </author>
+            <date month="11" year="2017"/>
+          </front>
+          <refcontent>TR-177</refcontent>
+        </reference>
+        <reference anchor="RIPE738" target="https://www.ripe.net/publications/docs/ripe-738">
+          <front>
+            <title>IPv6 Address Allocation and Assignment Policy</title>
+            <author>
+              <organization>RIPE</organization>
+            </author>
+            <date month="03" year="2020"/>
+          </front>
+          <refcontent>RIPE-738</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3587.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4193.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3756.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3971.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3972.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4389.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4429.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6459.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7066.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6575.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6583.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6775.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8505.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8928.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8929.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-6man-ipv6-over-wireless.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6957.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7039.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6105.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7113.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7527.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7586.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7772.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8273.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8302.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9131.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9161.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9663.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4903.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7342.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9797.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9099.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8415.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ccc-v6ops-address-accountability.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2026.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7278.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6085.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5517.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7102.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9686.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2461.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2462.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6762.xml"/>
+      </references>
+    </references>
+
+<section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t>The authors would like to thank <contact fullname="Éric Vyncke"/>,
+      <contact fullname="Gunter Van de Velde"/>, <contact fullname="Lorenzo
+      Colitti"/>, <contact fullname="Erik Kline"/>, <contact fullname="Warren
+      Kumari"/>, <contact fullname="Mohamed Boucadair"/>, <contact
+      fullname="Gorry Fairhurst"/>, <contact fullname="Pascal Thubert"/>,
+      <contact fullname="Jen Linkova"/>, <contact fullname="Brian
+      Carpenter"/>, <contact fullname="Mike Ackermann"/>, <contact
+      fullname="Nalini Elkins"/>, <contact fullname="Ed Horley"/>, <contact
+      fullname="Ole Troan"/>, <contact fullname="David Thaler"/>, <contact
+      fullname="Chongfeng Xie"/>, <contact fullname="Chris Cummings"/>,
+      <contact fullname="Dale Carder"/>, <contact fullname="Tim Chown"/>,
+      <contact fullname="Priyanka Sinha"/>, <contact fullname="Aijun Wang"/>,
+      <contact fullname="Ines Robles"/>, <contact fullname="Magnus
+      Westerlund"/>, <contact fullname="Barry Leiba"/>, <contact fullname="Deb
+      Cooley"/>, and <contact fullname="Paul Wouters"/> for their reviews and
+      comments. The authors would also like to thank <contact fullname="Tim
+      Winters"/> for being the document shepherd.</t>
+    </section>
+  </back>
+</rfc>

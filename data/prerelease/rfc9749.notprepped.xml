@@ -1,0 +1,170 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-jmap-webpush-vapid-10" number="9749" category="std" consensus="true" submissionType="IETF" version="3" xml:lang="en" tocInclude="true" updates="" obsoletes="" symRefs="true">
+
+  
+  <front>
+    <title abbrev="Use of VAPID in JMAP Web Push">Use of Voluntary Application Server Identification (VAPID) in JSON Meta Application Protocol (JMAP) Web Push</title>
+    <seriesInfo name="RFC" value="9749"/>
+    <author initials="D." surname="Gultsch" fullname="Daniel Gultsch">
+      <address>
+        <email>daniel@gultsch.de</email>
+      </address>
+    </author>
+    <date year="2025" month="March"/>
+    <area>ART</area>
+    <workgroup>jmap</workgroup>
+
+    <abstract>
+      <t>This document defines a method for JSON Meta Application Protocol (JMAP) servers to advertise their
+      capability to authenticate Web Push notifications using the Voluntary
+      Application Server Identification (VAPID) protocol.</t>
+    </abstract>
+  </front>
+  <middle>
+
+
+<section anchor="introduction">
+      <name>Introduction</name>
+
+
+      <t>JMAP <xref target="RFC8620"/> specifies how clients can subscribe to events using a protocol that is compatible with Web Push <xref target="RFC8030"/>. Some push services require that the application server authenticate all push messages using the VAPID protocol <xref target="RFC8292"/>. To facilitate that, the client (or user agent in Web Push terminology) needs the VAPID public key of the application server to pass along to the push service when retrieving a new endpoint.</t>
+    </section>
+    <section anchor="conventions-used-in-this-document">
+      <name>Conventions Used in This Document</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are
+    to be interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/>
+    <xref target="RFC8174"/> when, and only when, they appear in all capitals,
+    as shown here.
+        </t>
+    </section>
+    <section anchor="discovering-support-for-vapid">
+      <name>Discovering Support for VAPID</name>
+      <t>The JMAP capabilities object is returned as part of the standard JMAP session object (see <xref section="2" sectionFormat="of" target="RFC8620"/>). Servers supporting this specification <bcp14>MUST</bcp14> add a property called <tt>urn:ietf:params:jmap:webpush-vapid</tt> to the capabilities object. The value of this property is an object that <bcp14>MUST</bcp14> contain the following information:</t>
+
+
+      <dl spacing="compact" newline="true">
+          <dt><tt>applicationServerKey</tt>: "String"</dt>
+          <dd>The Elliptic Curve Digital Signature Algorithm (ECDSA) public key that the push service will use to
+          authenticate the application server, in its uncompressed form (as
+          described in Section 2.3.3 of <xref target="SEC1"/>) and encoded using
+          base64url encoding <xref target="RFC7515"/>. Current systems use the
+          P-256 curve <xref target="FIPS186"/>.</dd>
+      </dl>
+
+      <aside>
+	<t>Informative Note: The format of the application server key was chosen to ensure compatibility with the browser API (Section 7.2 of <xref target="PUSH-API"/>), allowing the key to be directly copied and used without additional transformation. Additionally, as noted in <xref section="3.2" sectionFormat="of" target="RFC8292"/>, the X9.62 encoding (which is compatible with SEC1 encoding) simplifies key comparisons and is more compact than alternative formats.</t>
+      </aside>
+    </section>
+    <section anchor="issuing-push-notifications">
+      <name>Issuing Push Notifications</name>
+      <t>Every time the server sends a push message to a <tt>PushSubscription</tt> URL, it <bcp14>MUST</bcp14> authenticate the POST request using the protocol outlined in <xref target="RFC8292"/>. This includes both <tt>StateChange</tt> events and <tt>PushVerification</tt> notifications. To authenticate the request, the server <bcp14>MUST</bcp14> use a JSON Web Token (JWT) signed by the private key corresponding to the application server key. This application server key <bcp14>MUST</bcp14> be the one that was advertised in the capabilities object at the time the <tt>PushSubscription</tt> was created.</t>
+    </section>
+    <section anchor="key-rotation">
+      <name>Key Rotation</name>
+      <t>When a server needs to replace its VAPID key, it <bcp14>MUST</bcp14> update the <tt>sessionState</tt> per <xref target="RFC8620"/>. The client <bcp14>MUST</bcp14> monitor the JMAP session object for changes to the VAPID key and <bcp14>MUST</bcp14> recreate its push subscription when it detects such a change.</t>
+      <t>After key rotation, the server <bcp14>MAY</bcp14> continue to send push notifications for existing push subscriptions using the old application server key for a transitional period. This allows clients time to recreate their respective push subscriptions. At the end of the transitional period (or immediately for implementations that do not have one), the server <bcp14>MUST</bcp14> destroy push subscriptions that use the old key.</t>
+      <t>When destroying push subscriptions that include the data type <tt>PushSubscription</tt>, the server <bcp14>MAY</bcp14> issue one final <tt>StateChange</tt> push notification using the old URL and application server key to notify the client of changes to the <tt>PushSubscription</tt> data type. This prompts the client to make a <tt>PushSubscription/changes</tt> method call. The response to this call will contain an updated <tt>sessionState</tt>, which refers to a session object that contains the new VAPID key.</t>
+
+      <t>A race condition can occur when the server updates its VAPID key after the client has refreshed the session object but before calling the <tt>PushSubscription/set</tt> method. This situation causes the server to send a <tt>PushVerification</tt> object to a push resource URL that is now associated with an outdated VAPID key. Consequently, the push service will reject the <tt>PushVerification</tt> with a 403 (Forbidden) status code, as specified in <xref section="4.2" sectionFormat="of" target="RFC8292"/>.</t>
+      <t>To alleviate this problem, the client <bcp14>MUST</bcp14> check if the <tt>sessionState</tt> in the response from the <tt>PushSubscription/set</tt> method points to a session object with an <tt>applicationServerKey</tt> that matches their expectations. If there is a mismatch, the client <bcp14>MAY</bcp14> retry creating the <tt>PushSubscription</tt>. Additionally, the client <bcp14>MAY</bcp14> destroy the <tt>PushSubscription</tt> from the earlier, failed attempt.</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>During the key rotation process, synchronization issues between the client and server may arise. Specifically, a client might restrict a push subscription with the push service to an outdated key, while the server sends the <tt>PushVerification</tt> object authenticated with the newly rotated key. This mismatch leads to the push service rejecting the <tt>PushVerification</tt> request with a 403 (Forbidden) status code, as specified in <xref section="4.2" sectionFormat="of" target="RFC8292"/>.</t>
+      <t>Per the requirements of <xref section="7.2" sectionFormat="of" target="RFC8620"/>, the server <bcp14>MUST NOT</bcp14> retry the rejected <tt>PushVerification</tt> request. Consequently, the <tt>PushVerification</tt> object will not be delivered to the client.</t>
+      <t>To mitigate such issues, the client is responsible for detecting and resolving any synchronization discrepancies, as outlined in <xref target="key-rotation"/> of this document.</t>
+      <t>The inclusion of the <tt>urn:ietf:params:jmap:webpush-vapid</tt> property in the JMAP capabilities object is limited to providing information about the server's support for VAPID. This property does not reveal sensitive information, nor does it introduce new security or privacy risks beyond those inherent to JMAP and Web Push. The security considerations for JMAP <xref target="RFC8620"/> (especially Sections <xref section="8.6" sectionFormat="bare" target="RFC8620"/> and <xref section="8.7" sectionFormat="bare" target="RFC8620"/>), Web Push <xref target="RFC8030"/>, and VAPID <xref target="RFC8292"/> apply to this document.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="registration-of-the-jmap-capability-for-vapid">
+        <name>Registration of the JMAP Capability for VAPID</name>
+        <t>IANA has registered the following new capability in the "JMAP Capabilities" registry:</t>
+
+	<dl spacing="compact" newline="false">
+          <dt>Capability Name:</dt><dd><tt>urn:ietf:params:jmap:webpush-vapid</tt></dd>
+          <dt>Intended Use:</dt><dd>common</dd>
+          <dt>Change Controller:</dt><dd>IETF</dd>
+          <dt>Security and Privacy Considerations:</dt><dd>RFC 9749, <xref target="security-considerations"/></dd>
+          <dt>Reference:</dt><dd>RFC 9749</dd>
+	</dl>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+
+
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+
+        <reference anchor="FIPS186" target="https://doi.org/10.6028/NIST.FIPS.186-5">
+          <front>
+            <title>Digital Signature Standard (DSS)</title>
+            <author>
+              <organization>NIST</organization>
+            </author>
+            <date year="2023" month="February"/>
+          </front>
+          <seriesInfo name="NIST FIPS" value="186-5"/>
+          <seriesInfo name="DOI" value="10.6028/NIST.FIPS.186-5"/>
+        </reference>
+
+
+
+        <reference anchor="SEC1" target="http://www.secg.org/sec1-v2.pdf">
+          <front>
+            <title>SEC 1: Elliptic Curve Cryptography
+	    </title>
+            <author>
+              <organization>Standards for Efficient Cryptography Group</organization>
+            </author>
+            <date year="2009" month="May"/>
+          </front>
+          <refcontent>Version 2.0</refcontent>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8620.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8030.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8292.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7515.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="PUSH-API" target="https://www.w3.org/TR/push-api/">
+          <front>
+            <title>Push API</title>
+            <author initials="P" surname="Beverloo" role="editor">
+              <organization/>
+            </author>
+            <author initials="M" surname="Thomson" role="editor">
+              <organization/>
+            </author>
+            <author initials="M" surname="Caceres" role="editor">
+              <organization/>
+            </author>
+            <date year="2024" month="September"/>
+          </front>
+          <refcontent>W3C Working Draft</refcontent>
+        </reference>
+      </references>
+    </references>
+  </back>
+
+</rfc>

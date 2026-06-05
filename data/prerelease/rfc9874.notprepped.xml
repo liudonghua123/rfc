@@ -1,0 +1,784 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]> 
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="bcp" docName="draft-ietf-regext-epp-delete-bcp-10" number="9874" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" version="3" consensus="true" tocInclude="true" tocDepth="5" sortRefs="true" symRefs="true">
+
+    <front>
+        <title abbrev="Domain and Host Object Deletion in EPP">Best Practices for Deletion of Domain
+            and Host Objects in the Extensible Provisioning Protocol (EPP)</title>
+	    <seriesInfo name="RFC" value="9874"/>
+	    <seriesInfo name="BCP" value="244"/>
+        <author initials="S." surname="Hollenbeck" fullname="Scott Hollenbeck">
+            <organization>Verisign Labs</organization>
+            <address>
+                <postal>
+                    <street>12061 Bluemont Way</street>
+                    <city>Reston</city>
+                    <region>VA</region>
+                    <code>20190</code>
+                    <country>United States of America</country>
+                </postal>
+                <email>shollenbeck@verisign.com</email>
+                <uri>https://www.verisignlabs.com/</uri>
+            </address>
+        </author>
+
+        <author initials="W." surname="Carroll" fullname="William Carroll">
+            <organization>Verisign Labs</organization>
+            <address>
+                <postal>
+                    <street>12061 Bluemont Way</street>
+                    <city>Reston</city>
+                    <region>VA</region>
+                    <code>20190</code>
+                    <country>United States of America</country>
+                </postal>
+                <phone>+1 703 948-3200</phone>
+                <email>wicarroll@verisign.com</email>
+                <uri>https://verisign.com</uri>
+            </address>
+        </author>
+
+        <author initials="G." surname="Akiwate" fullname="Gautam Akiwate">
+            <organization>Stanford University</organization>
+            <address>
+                <postal>
+                    <street>450 Jane Stanford Way</street>
+                    <city>Stanford</city>
+                    <region>CA</region>
+                    <code>94305</code>
+                    <country>United States of America</country>
+                </postal>
+                <phone>+1 650 723-2300</phone>
+                <email>gakiwate@cs.stanford.edu</email>
+                <uri>https://cs.stanford.edu/~gakiwate/</uri>
+            </address>
+        </author>
+
+        <date month="September" year="2025"/>
+        <area>ART</area>
+        <workgroup>regext</workgroup>
+        <keyword>EPP</keyword>
+        <abstract>
+            <t>The Extensible Provisioning Protocol (EPP) includes commands for clients to delete
+                domain and host objects, both of which are used to publish information in the Domain
+                Name System (DNS). EPP also includes guidance for deletions that is intended
+                to avoid DNS resolution disruptions and maintain data consistency. However,
+                operational relationships between objects can make that guidance difficult to
+                implement. Some EPP clients have developed operational practices to delete those
+                objects that have unintended impacts on DNS resolution and security. This document
+				describes best current practices and proposes new potential practices to delete
+				domain and host objects that reduce the risk of DNS resolution failure and maintain
+				client-server data consistency.</t>
+        </abstract>
+    </front>
+    <middle>
+        <section anchor="introduction"><name>Introduction</name>
+            <t><xref target="RFC5731" section="3.2.2"/> contains text that has led some
+                domain name registrars (acting as EPP clients) to adopt an operational practice of
+                renaming name server host objects so that they can delete domain objects:</t>
+
+		<blockquote><t>A domain object <bcp14>SHOULD NOT</bcp14> be deleted if subordinate host objects are associated
+                with the domain object. For example, if domain "example.com" exists and host object
+                "ns1.example.com" also exists, then domain "example.com" <bcp14>SHOULD NOT</bcp14> be deleted until
+                host "ns1.example.com" has either been deleted or renamed to exist in a different
+                superordinate domain.</t></blockquote>
+
+            <t>Similarly, <xref target="RFC5732" section="3.2.2"/> contains this text
+                regarding deletion of host objects:</t>
+
+            <blockquote><t>A host name object <bcp14>SHOULD NOT</bcp14> be deleted if the host object is associated with any
+                other object. For example, if the host object is associated with a domain object,
+                the host object <bcp14>SHOULD NOT</bcp14> be deleted until the existing association has been
+                broken. Deleting a host object without first breaking existing associations can
+                cause DNS resolution failure for domain objects that refer to the deleted host
+                object.</t></blockquote>
+
+            <t>These recommendations create a dilemma when the sponsoring client for "example.com"
+                intends to delete "example.com" but its associated host object "ns1.example.com" is
+                also associated with domain objects sponsored by another client. It is advised not
+                to delete the host object due to its associated domain objects. However, the
+                associated domain objects cannot be directly updated because they are sponsored by
+                another client. This situation affects all EPP operators that have implemented
+                support for host objects.</t>
+            <t><xref target="RFC5732" section="3.2.5"/> describes host object renaming:</t>
+
+            <blockquote><t>Host name changes can have an impact on associated objects that refer to the host
+                object. A host name change <bcp14>SHOULD NOT</bcp14> require additional updates of associated
+                objects to preserve existing associations, with one exception: changing an external
+                host object that has associations with objects that are sponsored by a different
+                client. Attempts to update such hosts directly <bcp14>MUST</bcp14> fail with EPP error code 2305.
+                The change can be provisioned by creating a new external host with a new name and
+                any needed new attributes, and subsequently updating the other objects sponsored by
+                the client.</t></blockquote>
+            <t><xref target="RFC5732" section="1.1"/> includes a description of external hosts. Some EPP
+                clients have developed operational practices that use host object renaming to break
+                association between a domain object and host object. Note that the specific
+                method used to rename the host object can create DNS delegation failures and introduce
+                risks of loss of management control. If the new external host refers
+                to an unregistered domain, then a malicious actor may register the domain and create
+                the host object to gain control of DNS resolution for the domain previously associated
+                with "ns1.example.com". If the new external host offers an authoritative DNS service but
+                the domain is not assigned to an account, then a malicious actor may add the domain
+                to a service account and gain control of (i.e., hijack) DNS resolution functionality. If the
+                new external host
+                offers recursive DNS service or no DNS service, then DNS requests for the domain
+                will result in SERVFAIL messages or other errors. Aggressive requeries by DNS
+                resolvers may then create large numbers of spurious DNS queries for an unresolvable
+                domain. Note that renaming a host object to a name of an external host cannot be
+            reversed by the EPP client.</t>
+            <t>This document describes the rationale for the "<bcp14>SHOULD NOT</bcp14> be deleted" text in <xref target="RFC5731"/> and <xref target="RFC5732"/> as well as the risk 
+                associated with host object renaming. <xref target="practice-analysis" /> includes a detailed analysis 
+                of the practices that have been and can be used to mitigate that risk. 
+                <xref target="recommendations" /> includes specific recommendations for the best practices.</t>
+        </section>
+        <section><name>Conventions Used in This Document</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+        </section>
+        <section anchor="rationale"><name>Rationale for "<bcp14>SHOULD NOT</bcp14> be deleted"</name>
+            <section anchor="dns-cons"><name>DNS Considerations</name>
+                <t>The primary consideration when deleting domain and host objects concerns the
+                    potential impact on DNS resolution. Deletion of a domain object will make all
+                    name servers associated with subordinate host objects unresolvable. Deletion of
+                    a host object will make any domain that has been delegated to the associated
+                    name server unresolvable. The text in <xref target="RFC5731"/> and <xref target="RFC5732"/> was written to
+                    encourage clients to take singular, discrete steps to delete objects in a way
+                    that avoids breaking DNS resolution functionality. Additionally, allowing host
+                    objects to exist after deletion of their superordinate domain object invites
+                    hijacking, as a malicious actor may reregister the domain object, potentially
+                    controlling resolution for the host objects and for their associated domain
+                    objects. It also creates orphan glue as described in <xref target="SAC048"/>.</t>
+            </section>
+            <section anchor="client-server-cons"><name>Client-Server Consistency Considerations</name>
+                <t>A server that implicitly deletes subordinate host objects in response to a
+                    request to delete a domain object can create a data inconsistency condition in
+                    which the EPP client and the EPP server have different views of what remains
+                    registered after processing a &lt;delete&gt; command. The text in <xref target="RFC5731"/> and
+                    <xref target="RFC5732"/> was written to encourage clients to take singular, discrete steps to delete
+                    objects in a way that maintains client-server data consistency. Experience
+					suggests that this inconsistency poses little operational risk.</t>
+            </section>
+            <section anchor="relational-cons"><name>Relational Consistency Considerations</name>
+                <t>Implementations of EPP can have dependencies on the hierarchical domain
+                    object / host object relationship, which can exist in a relational database. In such
+                    instances, deletion of a domain object without addressing the existing
+                    subordinate host objects can cause relational consistency and integrity issues.
+                    The text in <xref target="RFC5731"/> and <xref target="RFC5732"/> was written to reduce the risk of these issues
+                    arising as a result of implicit object deletion.</t>
+            </section>
+        </section>
+        <section anchor="renaming-risk"><name>Host Object Renaming Risk</name>
+            <t>As described in <xref target="RFC5731"/>, it is possible to delete a domain object that has associated
+                host objects that are managed by other clients by renaming the host object to exist
+                in a different superordinate domain. This is commonly required when the sponsoring
+                client is unable to disassociate a host object from a domain object managed by
+                another client because only the second client is authorized to make changes to their
+                domain object and the EPP server requires host object disassociation to process a
+                request to delete a domain object. For example:</t>
+            <t>Domain object "domain1.example" is registered by ClientX.</t>
+            <t>Domain object "domain2.example" is registered by ClientY.</t>
+            <t>Subordinate host object "ns1.domain1.example" is registered and associated with
+                domain object "domain1.example" by ClientX.</t>
+            <t>Host object "ns1.domain1.example" is associated with domain object "domain2.example"
+                by ClientY.</t>
+            <t>ClientX wishes to delete domain object "domain1.example". It can modify domain object
+                "domain1.example" to remove the association of host object "ns1.domain1.example",
+                but
+                ClientX cannot remove the association of host object "ns1.domain1.example" from
+                domain
+                object "domain2.example" because "domain2.example" is sponsored by ClientY and
+                ClientX is unable to determine that relationship. Only ClientY can
+                modify domain object "domain2.example", and if they do not do so, ClientX will need
+                to
+                rename host object "ns1.domain1.example" so that "domain1.example" can be deleted.</t>
+            <t>ClientX renames host object "ns1.domain1.example" to "ns1.example.org", creating an
+                external host and meeting the EPP server's subordinate host object disassociation
+                requirement. The renamed host object "ns1.example.org" is referred to as a "sacrificial"
+                host <xref target="Risky-BIZness" />.</t>
+            <t>If domain "example.org" does not exist, this practice introduces a risk of DNS
+                resolution hijacking if someone were to register the "example.org" domain and create
+                a subordinate
+                host object named "ns1.example.org". That name server would receive DNS queries for
+                all domains delegated to it, allowing the operator of the name server to respond in
+                potentially malicious ways.</t>
+        </section>
+        <section anchor="practice-analysis"><name>Analysis of Practices for Domain and Host Object Deletion</name>
+            <t>EPP servers can employ a range of practices for domain
+                and host object deletion. Notably, the scope of any practice
+                discussed here is the EPP server that adopts the practice, the
+                domains managed by it, and the associated host objects where "associated" is described in <xref target="RFC5731"/> and <xref target="RFC5732"/>. The practices described in this document fall into two broad
+                categories: renaming objects to use sacrificial hosts and allowing objects to be
+                deleted even if there are existing data relationships. These practice categories are
+                described in the following sections. 
+                For a broader consideration of practices and potential impacts on registries and registrars, 
+                <xref target="SAC125" /> 
+                offers some complementary insight.
+            </t>
+            <section anchor="renaming-overall"><name>Renaming to Sacrificial Hosts</name>
+                <t>Sacrificial hosts are hosts whose name is intended to remove an existing relationship
+                between domain and host objects. To that end, sacrificial hosts are either renamed to an
+                external host or associated with a different domain object in the EPP server.
+                The first group of deletion practices use sacrificial
+                hosts leveraging existing  EPP server support for renaming host objects.</t>
+                <section anchor="renaming-overall-pros"><name>Practice Benefits</name>
+                    <t>Affected domains remain delegated in the zone. Registrars and 
+                    registrants of affected domains may be able to determine the intention 
+                    of the change.</t>
+                </section>
+                <section anchor="renaming-overall-cons"><name>Practice Detriments</name>
+                    <t>Zones are crowded with irrelevant records. Registrars and registrants of affected domains are required to clean them up.</t>
+                </section>
+                <section anchor="renaming-observed"><name>Observed Practices for Renaming to Sacrificial Hosts</name>
+                    <section anchor="renaming-external"><name>Renaming to External, Presumed Non-Existent Hosts</name>
+                        <t>As described above, this practice renames subordinate host objects to an
+                            external host in order to allow the deletion of the superordinate domain object.
+                            The
+                            external host is presumed to be non-existent by the deleting EPP client, but
+                            no check for existence is typically performed.
+                            This practice has been observed in use. This practice <bcp14>MUST NOT</bcp14> be used.
+                        </t>
+                        <section anchor="renaming-external-pros"><name>Practice Benefits</name>
+                            <t>The primary benefit is convenience for the deleting EPP client. The deleting
+                                EPP client is not required to
+                                maintain an authoritative DNS service or receive traffic.</t>
+                        </section>
+                        <section anchor="renaming-external-cons"><name>Practice Detriments</name>
+                            <t>Malicious actors have registered these parent domains and 
+                                created child host objects to take control of DNS resolution
+                                for associated domains <xref target="Risky-BIZness" />.</t>
+                            <t>Sponsoring clients of the associated domains are not informed of the change.
+                                Associated domains may no longer resolve if all their hosts are renamed.
+                                Associated domains may still resolve if they continue to be associated with
+                                existent hosts; in which case, their partial vulnerability to hijacking is
+                                more difficult to detect.</t>
+                        </section>
+                    </section>
+                    <section anchor="renaming-as112"><name>Renaming to "AS112.ARPA"</name>
+                        <t>Some domain registrars, acting as EPP clients, have renamed host objects
+                            to subdomains of "AS112.ARPA" or "EMPTY.AS112.ARPA" <xref
+                                target="Risky-BIZness-IRTF" />.
+                            This practice has been observed in use.
+                        </t>
+                        <section anchor="renaming-as112-pros"><name>Practice Benefits</name>
+                            <t>
+                                The primary benefit is convenience for the deleting EPP client. The deleting
+                                EPP client is
+                                not required to
+                                maintain an authoritative DNS service or receive traffic.
+                            </t>
+                        </section>
+                        <section anchor="renaming-as112-cons"><name>Practice Detriments</name>
+                            <t> This is a misuse of AS112, which is for reverse lookups on non-unique IPs,
+                                primarily so local admins can sinkhole non-global traffic <xref
+                                    target="RFC7535" />. 
+                                "EMPTY.AS112.ARPA" is designed to be used with DNAME aliasing, not as a parent domain for sacrificial name servers (see <xref
+                                    target="RFC7535" section="3"/>).
+                                    Unexpected AS112 traffic has previously caused
+                                problems with intrusion detection systems and firewalls <xref
+                                    target="RFC6305" />. Local administrators can potentially hijack
+                                requests. AS112 infrastructure must be maintained. </t>
+                        </section>
+                    </section>
+                    <section anchor="renaming-non-provisioned"><name>Renaming to Non-Authoritative Hosts</name>
+                        <t>Some domain registrars, acting as EPP clients, have maintained host objects
+                            with glue records pointing to prominent public recursive DNS services.
+                            This practice has been observed in use. This practice <bcp14>MUST NOT</bcp14> be used.
+                        </t>
+                        <section anchor="renaming-non-provisioned-pros"><name>Practice Benefits</name>
+                            <t>The primary benefit is convenience for the deleting EPP client. The deleting
+                                EPP client is
+                                not required to
+                                maintain an authoritative DNS service or receive traffic. </t>
+                        </section>
+                        <section anchor="renaming-non-provisioned-cons"><name>Practice Detriments</name>
+                            <t> Queries for the associated domains result in SERVFAIL or other failure
+                                responses. Some recursive name server implementations may aggressively
+                                requery for these responses, potentially resulting in large numbers of
+                                queries for unresolvable domains <xref target="RFC9520" />.</t>
+                        </section>
+                    </section>
+                    <section anchor="control-rename"><name>Renaming to Client-Maintained Dedicated Sacrificial Name Server Host Objects</name>
+                        <t>EPP clients <bcp14>MAY</bcp14> rename the host object to be deleted to a
+                        sacrificial name server host object maintained by the client.  This
+                        requires that the client maintain the registration of the sacrificial
+                        name server's superordinate domain.  The client may consider long
+                        registration periods and the use of registrar and registry lock
+                        services to maintain and protect the superordinate domain and the
+                        host object.  Failures to maintain these registrations have allowed
+                        domain hijacks <xref
+                        target="Risky-BIZness"/>.
+                        </t>
+                        <t>
+                        The client-maintained dedicated sacrificial name server <bcp14>MUST</bcp14> resolve to one or more IP addresses,
+                        and the client <bcp14>MUST</bcp14> operate an authoritative DNS name server on those addresses.  
+                        The name server <bcp14>MAY</bcp14> provide any valid response.
+                        </t>
+                        <t>
+                        This practice has been observed in use.
+                        </t>
+                        <section anchor="control-rename-pros"><name>Practice Benefits</name>
+                            <t> Associated domains are not able to be hijacked, remain in the zone, and have
+                                valid DNS records and a responsive DNS service. The service may provide
+                                responses that indicate problems with a domain's delegation, such as
+                                non-existence or including controlled interruption IP addresses <xref
+                                    target="RFC8023" />. </t>
+                        </section>
+                        <section anchor="control-rename-cons"><name>Practice Detriments</name>
+                            <t>This requires that the client maintain the registration of the sacrificial
+                                name server's superordinate domain. The client may consider long
+                                registration periods and the use of registrar and registry lock services to
+                                maintain and protect the superordinate domain and the host object. Failures
+                                to maintain these registrations have allowed domain hijacks <xref
+                                    target="Risky-BIZness"/>. 
+                            </t>
+                            <t>Failure responses may cause aggressive requerying (see <xref target="renaming-non-provisioned-cons" />).</t>
+                        </section>
+                    </section>
+                </section>
+                <section anchor="renaming-potential"><name>Potential Practices for Renaming to Sacrificial Hosts</name>
+                    <section anchor="renaming-pseudo-tld"><name>Renaming to Pseudo-TLD</name>
+                        <t>Clients may rename host objects to use ".alt" or another non-DNS pseudo-TLD (Top-Level Domain), as suggested in <xref target="Risky-BIZness-IRTF"/>. 
+                            This practice has not been observed in use. This practice <bcp14>MUST NOT</bcp14> be used.
+                        </t>
+                        <section anchor="renaming-pseudo-tld-pros"><name>Practice Benefits</name>
+                            <t>The primary benefit is convenience for the deleting
+                                EPP client. The deleting EPP client is not required to
+                                maintain an authoritative DNS service or receive
+                                traffic. Dependent domains cannot be hijacked through
+                                the registration of these identifiers and delegation in
+                                the DNS.</t>
+                        </section>
+                        <section anchor="renaming-pseudo-tld-cons"><name>Practice Detriments</name>
+                            <t>The ".alt" pseudo-TLD is to be used "to signify that this is an alternative
+                                (non-DNS) namespace and should not be looked up in a DNS context" <xref
+                                    target="RFC9476" />. Some EPP servers may restrict TLDs to valid
+                                IANA-delegated TLDs. These entries would mix DNS and non-DNS protocols, risk
+                                name collisions, create confusion, and potentially result in unpredictable
+                                resolver behaviors. These identifiers may be registered in non-DNS
+                                namespaces, potentially leading to hijacking vulnerabilities based in other
+                                systems. </t>
+                        </section>
+                    </section>
+                    <section anchor="renaming-existing-special-use"><name>Renaming to Existing Special-Use TLD</name>
+                        <t>Clients may rename host objects to a special-use TLD that cannot resolve in the DNS. Several variations have been suggested.
+                            This practice has not been observed in use.</t>
+                        <section anchor="renaming-existing-special-use-reserved"><name>Renaming to Reserved TLD</name>
+                            <t>Clients may rename host objects to use a reserved special-use <xref target="RFC6761"/> TLD,
+                                as suggested in <xref target="Risky-BIZness" />.</t>
+                            <section anchor="renaming-existing-special-use-pros"><name>Practice Benefits</name>
+                                <t>The primary benefit is convenience for the deleting
+                                    EPP client. These TLDs are already reserved and will not
+                                    resolve. The deleting EPP client is not required to
+                                    maintain an authoritative DNS service or receive
+                                    traffic. Dependent domains cannot be hijacked.</t>
+                            </section>
+                            <section anchor="renaming-existing-special-use-cons"><name>Practice Detriments</name>
+                                <t>The use of TLDs reserved for special purposes <xref target="RFC6761"/> may be confusing without a 
+                                domain designated by the community for this purpose 
+                                (see "sacrificial.invalid" in Sections <xref target="renaming-new-special-use" format="counter"/> and <xref target="recommendations" format="counter"/>). 
+                                In addition, their use may be prevented by EPP server policy.</t>
+                            </section>
+                        </section>
+                    </section>    
+                    <section anchor="renaming-new-special-use"><name>Renaming to a Special-Use Domain</name>
+                        <t>
+                            Clients would rename hosts to a special-use domain or subdomain thereof.
+                            The domain may be a special-use SLD (Second-Level Domain) (e.g., sacrificial.invalid) or a new reserved TLD (e.g., .sacrificial).
+                            Use of this domain would communicate the client's intention to create a sacrificial host.
+                            IANA would add this domain to the "Special-Use Domain Name" registry if such a new TLD is created using either
+                            IETF or ICANN processes. This practice has not been observed in use.
+                            In terms of the questions from <xref target="RFC6761" />:
+                        </t>
+                        <ol type="1" spacing="normal" indent="adaptive" start="1">
+                            <li derivedCounter="1.">
+                                These names are not expected to be visible to human users.
+                                However, the purpose of these domains is expected to be semantically recognizable to human users.
+                            </li>
+                            <li derivedCounter="2.">
+                                Application software is not expected to recognize these names
+                                as special or treat them differently than other allowed domain names.
+                            </li>
+                            <li derivedCounter="3.">
+                                Name resolution APIs and libraries are not expected to recognize
+                                these names as special or treat them differently than other allowed domain names.
+                            </li>
+                            <li derivedCounter="4.">
+                                Caching name servers are not expected to recognize these names
+                                as special or treat them differently than other allowed domain names.
+                            </li>
+                            <li derivedCounter="5.">
+                                Authoritative name servers are not expected to recognize
+                                these names as special or treat them differently than other allowed domain names.
+                                Requests to the root for this domain would result in an NXDOMAIN response <xref target="RFC9499" />.
+                            </li>
+                            <li derivedCounter="6.">
+                                DNS server operators will treat this domain and its subdomains as they would any other allowed names in the DNS.
+                            </li>
+                            <li derivedCounter="7.">
+                                DNS registries/registrars will not be able to register this domain and must deny requests to register it or its subdomains.
+                            </li>
+                        </ol>
+                            <section anchor="renaming-new-special-use-pros"><name>Practice Benefits</name>
+                                <t>
+                                    This option would offer clarity concerning the intentions of registrars that rename hosts. 
+                                    It would also enable registrars of affected domains ease of detection of renamed hosts.
+                                    This option is also convenient for the deleting EPP client. 
+                                    The deleting EPP client is not required to
+                                    maintain an authoritative DNS service or receive
+                                    traffic. 
+                                    Dependent domains cannot be hijacked through
+                                    the registration of these identifiers and delegation in
+                                    the DNS. 
+                                </t>
+                            </section>
+                            <section anchor="renaming-new-special-use-cons"><name>Practice Detriments</name>
+                                <t>
+                                    This would require cooperation and policy changes for registrars and registries. 
+                                </t>
+                            </section>                    
+                    </section>                    
+                    <section anchor="new-service"><name>Renaming to Community Sacrificial Name Server Service</name>
+                        <t>A new community-wide service could be created explicitly intended for use for
+                            renaming host records. This would require maintenance of name servers capable of
+                            authoritatively responding with NXDOMAIN or a controlled interruption IP
+                            addresses <xref target="RFC8023" /> for all queries without delegating domains
+                            or records. This service could use a new special-use TLD created through
+                            ICANN or IETF processes (e.g., ".sacrificial"), as an IAB request that IANA
+                            delegate an SLD for ".arpa" (e.g.,
+                            "sacrificial-nameserver.arpa"), or as a contracted sinkhole service by ICANN or
+                            other DNS ecosystem actors. This practice has not been observed in use.</t>
+                        <section anchor="new-service-pros"><name>Practice Benefits</name>
+                            <t>This is convenient for the deleting EPP client. The deleting EPP client is
+                                not required to
+                                maintain an authoritative DNS service or receive traffic. The associated
+                                domains are not vulnerable to hijacking.
+                                This would provide a well-understood, industry-standard solution, allowing
+                                registrars and registrants to easily identify associated domains that have
+                                been affected. Infrastructure operators could monitor traffic to identify
+                                affected associated domains that result in significant traffic and attempt
+                                to contact registrars and registrants.
+                                Economies of scale would allow reduced overall costs to the industry (in
+                                contrast to each client running an independent service).</t>
+                        </section>
+                        <section anchor="new-service-cons"><name>Practice Detriments</name>
+                            <t>Some entity must maintain the infrastructure for the service.</t>
+                        </section>
+                    </section>
+                </section>
+            </section>
+            <section anchor="delete-overall"><name>Deletion of Hosts</name>
+                <t>The second group of practices is based on EPP server support for allowing objects to be deleted
+                even if there are existing data relationships. The recommendations in <xref target="RFC5731"/> are intended to
+                maintain consistency. However, they are not requirements. </t>
+                <section anchor="delete-observed"><name>Observed Practices for Deletion of Hosts</name>
+                    <section anchor="automatic-delete"><name>Implicit Deletion of Affected Host Objects</name>
+                        <t> EPP servers may relax
+                            their constraints and allow sponsoring clients to delete host objects without consideration of 
+                            associations with domain objects sponsored by other clients. The registry automatically
+                            disassociates the deleted host objects from domain objects sponsored by other clients.
+                            This practice has been observed in use.
+                        </t>
+                        <section anchor="automatic-delete-pros"><name>Practice Benefits</name>
+                            <t>
+                                This is convenient for the deleting EPP client. The deleting EPP client is
+                                not required to
+                                maintain an authoritative DNS service or receive traffic. The associated
+                                domains are not vulnerable to hijacking.
+                            </t>
+                        </section>
+                        <section anchor="automatic-delete-cons"><name>Practice Detriments</name>	
+                            <t>This could
+                                result in domains with no name servers being removed from the zone
+                                or
+                                domains with only one name server remaining in the zone.
+                                Deletions could potentially affect large numbers of associated domains,
+                                placing strain on domain registries.
+                            </t>
+                        </section>
+                    </section>    
+                    <section anchor="inform-affected-client"><name>Inform Affected Clients</name>
+                        <t> The sponsoring clients of affected domain objects may also be informed of
+                            the change (e.g., through the EPP Change Poll extension <xref target="RFC8590" />).
+                            This practice has been observed in use.
+                        </t>
+                        <section anchor="inform-affected-client-pros"><name>Practice Benefits</name>
+                            <t>Updates help achieve the goals of client-server data consistency
+                                and minimal interruptions to resolution.
+                                The sponsoring clients of affected domain objects are able to
+                                update their database to reflect the change and would be able to inform
+                                the domain's registrant.
+                                The sponsoring clients can automatically update the
+                                affected domains to use another authoritative host. </t>
+                        </section>
+                        <section anchor="inform-affected-client-cons"><name>Practice Detriments</name>
+                            <t>
+                                This change requires additional development on the part of EPP
+                                servers and clients. There may be scalability concerns if large numbers
+                                of domain objects are updated in a single transaction.
+                            </t>
+                        </section>
+                    </section>
+                </section>
+                <section anchor="delete-potential"><name>Potential Practices for Deletion of Hosts</name>
+                    <section anchor="explicit-delete"><name>Request Explicit Deletion of Affected Host Objects</name>
+                        <t>Sponsoring clients requesting the deletion of host objects would explicitly request 
+                            their disassociation from domain objects sponsored by other clients. 
+                            This practice has not been observed in use.
+                        </t>
+                        <section anchor="explicit-delete-pros"><name>Practice Benefits</name>
+                            <t>
+                                Registries would not be required to unilaterally take responsibility for deletion. 
+                                The deleting EPP client is not required to maintain an authoritative DNS service or receive traffic. 
+                                The associated domains are not vulnerable to hijacking.
+                            </t>
+                        </section>
+                        <section anchor="explicit-delete-cons"><name>Practice Detriments</name>
+                            <t>This could result in domains with no name servers being removed from the zone or domains with only one name server remaining in the zone.
+                                Deletions could potentially affect large numbers of associated domains,
+                                placing strain on domain registries.
+                            </t>
+                        </section>
+                    </section>
+                    <section anchor="additional-deletion-details"><name>Provide Additional Deletion Details</name>
+                        <t>The EPP server may provide the deleting EPP client with additional details of the affected
+                            objects. The deleting EPP client may receive a response (e.g., using msg, reason, or msgQ elements of the EPP response <xref target="RFC5730" />)
+                            that deletion of the host object would affect
+                            domain objects sponsored by another client and may receive details about those objects (e.g., using the EPP poll command).
+                            This practice has not been observed in use.
+                        </t>
+                        <section anchor="additional-deletion-details-pros"><name>Practice Benefits</name>
+                            <t>
+                                The deleting EPP client would be able to better understand and assess
+                                the potential harms of host object deletion.
+                                Depending on the content of the message, the deleting EPP client might
+                                choose additional actions, such as delaying the deletion until manual
+                                approval can be obtained, renaming the host objects, or informing
+                                affected EPP clients.
+                                This would give EPP clients greater flexibility with respect to
+                                deletion. For example, they may choose only to exercise deletions that
+                                have no impact on other clients.
+                            </t>
+                        </section>
+                        <section anchor="additional-deletion-details-cons"><name>Practice Detriments</name>
+                            <t>
+                                This change would require additional development on the part of EPP
+                                servers and clients. There may be scalability concerns if large numbers
+                                of domain objects are updated in a single transaction. The EPP server
+                                must
+                                determine the relevant information to provide for the EPP client's
+                                assessment.
+                            </t>
+                        </section>
+                    </section>
+                    <section anchor="delete-with-restore"><name>Allow Explicit Deletion of a Domain with Restore Capability</name>
+                        <t>
+                            Explicit deletion of a domain name with a
+                            cascade purge of subordinate host objects and associations
+                            with other domains may be an unrecoverable operation, increasing
+                            the potential negative effects of malicious or accidental actions. 
+                        </t>
+                        <t>
+                            To mitigate this risk, EPP servers can allow for the explicit deletion of a domain with
+                            subordinate host objects associated with other domains only when the
+                            associations can be restored by the &lt;restore&gt; operation described in <xref target="RFC3915"/>.
+                        </t>
+                        <t>
+                            In order to allow restore, EPP servers may keep the subordinate host objects with a "pendingDelete" status 
+                            and keep associations with other domains. This makes the objects unavailable in the DNS and
+                            provides a preview of the deletion.
+                        </t>
+                        <t>
+                            If the action was malicious, accidental, or had
+                            negative side effects, the domain, its subordinate host objects, and
+                            the associations with other domains can be restored with the
+                            &lt;restore&gt; operation <xref target="RFC3915"/> during the redemption period.  The
+                            purge of the domain will correspond with the purging of the
+                            subordinate hosts objects and the associations at the end of the
+                            pending delete period <xref target="RFC3915"/>.  
+                        </t>
+                        <t>
+                            Due to the potentially large
+                            number of associations, the server can asynchronously update (e.g.,
+                            add and remove from DNS) and purge the associations.
+                        </t>
+                        <t>
+                            This practice has not been observed in use.
+                        </t>
+                        <section anchor="delete-with-restore-pros"><name>Practice Benefits</name>
+                            <t>
+                                This practice enables the clients to directly delete the domains that
+                                they need since the server will fully support restoration of the
+                                associations during the redemption period.  The management of the
+                                domain and the subordinate hosts will be simplified for the client by
+                                supporting the explicit deletion of the domain with the capability of
+                                mitigating a destructive malicious or accidental action.
+                            </t>
+                        </section>
+                        <section anchor="delete-with-restore-cons"><name>Practice Detriments</name>
+                            <t>
+                                By making it easier for a client to explicitly delete a domain having subordinate hosts
+                                with associations, there is higher risk of inadvertent side effects in a single delete command.
+                                There is existing risk in EPP of inadvertent side effects, such as adding the "clientHold"
+                                status to the domain that will impact the DNS resolution of the subordinate hosts and the
+                                associated delegations. The ability to easily roll back the command is key to minimize the
+                                impact of the side effects. Another issue is the potential size of the database transaction to
+                                disable, re-enable, or purge the subordinate host associations, since there is no limit to the
+                                number of associations to delegated domains. Servers can break up the disable, re-enable, or purge
+                                of the subordinate host associations into smaller transactions by implementing it asynchronously.
+                                </t>
+                        </section>
+                    </section>
+				</section>
+            </section>
+        </section>
+        <section anchor="recommendations"><name>Recommendations</name>
+            <t>EPP servers and clients <bcp14>MUST</bcp14> implement one of the following practices to delete domain and host objects with minimal undesired side effects:</t>
+            <ul>
+                <li>Rename host objects to a sacrificial name server host object maintained by the client
+                    (see <xref target="control-rename"/>).
+                </li>
+                <li> 
+                     Delete host objects and associations with the restore option (see <xref target="delete-with-restore"/>)
+                     based on explicit client requests (see <xref target="explicit-delete"/>). 
+                     Provide requesting clients additional deletion details (see <xref target="additional-deletion-details"/>),
+                     and inform affected clients of changes (see <xref target="inform-affected-client"/>).
+                </li>
+                <li>
+                    Rename host objects to a sacrificial name server host object that uses a special-use domain (see <xref target="renaming-new-special-use"/>)
+                    that avoids the special-use domain issues described in <xref target="RFC8244"/>. Use of "sacrificial.invalid" (see <xref
+                    target="renaming-new-special-use"/>) as the parent domain for the host objects is
+                    <bcp14>RECOMMENDED</bcp14> to avoid the overhead of creating a new TLD using either IETF or ICANN processes
+                    that offers no additional operational benefit.
+                </li>
+              </ul>
+              <t>All other practices described in <xref target="practice-analysis" /> are <bcp14>NOT RECOMMENDED</bcp14> due to undesired side effects.</t>
+        </section>
+
+        <section anchor="IANA"><name>IANA Considerations</name>
+            <t>This document has no IANA actions.</t>
+        </section>
+
+        <section anchor="Security"><name>Security Considerations</name>
+            <t>This document describes guidance found in <xref target="RFC5731"/> and <xref target="RFC5732"/> regarding the deletion
+                of domain and host objects by EPP clients. That guidance sometimes requires that
+                host objects be renamed such that they become "external" hosts (see 
+                <xref target="RFC5731" section="1.1"/>) in order to meet an EPP server's requirements
+                for host object disassociation prior to domain object deletion. Host object renaming
+                can introduce a risk of DNS resolution hijack under certain operational
+                conditions. This document provides guidance that is intended to reduce the risk of
+                DNS resolution failure or hijacking as part of the process of deleting EPP domain or
+                host objects.</t>
+
+            <t>Child domains that depend on host objects associated with domain objects sponsored by
+                another EPP client for DNS resolution may be protected from hijacking through the use
+                of DNSSEC. Their resolution may be protected from the effects of deletion by using
+                host objects associated with multiple domain objects. DNSSEC and multiple
+                host objects may interfere with the use of controlled interruption IP addresses to alert
+                registrants to DNS changes. EPP clients can periodically scan sponsored domains for
+                association with sacrificial name servers and alert end users concerning those domains.</t>
+				
+			<t>In absence of DNSSEC use by the victim, an attacker who gains control of a
+                single name server can use DNSSEC to instead take over the victim domain completely
+                if the registry operator and registrar process for automated DS maintenance neglects
+                to check all name servers for consistency in CDS/CDNSKEY records. In this scenario,
+                the domain will end up with DS records derived from the attacker CDS/CDNSKEY records
+                if, by chance, the queries happen to hit the attacker-controlled name server. Subsequently, validating
+                resolvers will no longer accept responses from the legitimate name servers.
+		Moreover, with
+                the use of CSYNC, an attacker may update the domain NS records, removing the legitimate
+                name servers entirely.</t>
+        </section>
+    </middle>
+    <back>
+        <references>
+            <name>References</name>
+            <references>
+                <name>Normative References</name>
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3915.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5730.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5731.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5732.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6761.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8244.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9476.xml" />
+            </references>
+            <references>
+                <name>Informative References</name>
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6305.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7535.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8023.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9499.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8590.xml" />
+                <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9520.xml" />
+
+                <reference anchor="Risky-BIZness">
+                    <front>
+                        <title>Risky BIZness: Risks Derived from Registrar Name Management</title>
+                        <author fullname="Gautam Akiwate" initials="G." surname="Akiwate" />
+                        <author fullname="Stefan Savage" initials="S." surname="Savage" />
+                        <author fullname="Geoffrey M. Voelker" initials="G." surname="Voelker" />
+                        <author fullname="KC Claffy" initials="K." surname="Claffy" />
+                        <date year="2021" month="Nov" />
+                    </front>
+                    <refcontent>IMC '21: Proceedings of the 21st ACM Internet Measurement Conference</refcontent>
+                    <seriesInfo name="DOI" value="10.1145/3487552.3487816"/>
+                </reference>
+
+                <reference anchor="Risky-BIZness-IRTF" target="https://datatracker.ietf.org/doc/slides-115-irtfopen-risky-bizness-risks-derived-from-registrar-name-management/">
+                    <front>
+                        <title>Risky BIZness: Risks Derived from Registrar Name Management</title>
+                        <author fullname="Gautam Akiwate" initials="G." surname="Akiwate" />
+                        <author fullname="Stefan Savage" initials="S." surname="Savage" />
+                        <author fullname="Geoffrey M. Voelker" initials="G." surname="Voelker" />
+                        <author fullname="KC Claffy" initials="K." surname="Claffy" />
+                        <date year="2022" month="Nov" />
+                    </front>
+                    <refcontent>IETF 115 Proceedings</refcontent>
+                </reference>
+
+                <reference anchor="SAC048"                    target="https://itp.cdn.icann.org/en/files/security-and-stability-advisory-committee-ssac-reports/sac-048-en.pdf">
+                    <front>
+                        <title>SSAC Comment on Orphan Glue Records in the Draft Applicant Guidebook</title>
+                        <author>
+                            <organization>ICANN Security and Stability Advisory Committee</organization>
+                        </author>
+                        <date year="2011" month="May" day="12" />
+                    </front>
+                    <seriesInfo name="SAC" value="048"/>
+                </reference>
+
+
+                <reference anchor="SAC125"                    target="https://itp.cdn.icann.org/en/files/security-and-stability-advisory-committee-ssac-reports/sac-125-09-05-2024-en.pdf">
+                    <front>
+                        <title>SSAC Report on Registrar Nameserver Management</title>
+                        <author>
+                            <organization>ICANN Security and Stability Advisory Committee</organization>
+                        </author>
+                        <date year="2024" month="May" day="9" />
+                    </front>
+                    <seriesInfo name="SAC" value="125"/>
+                </reference>
+            </references>
+          </references>	  
+        <section anchor="acks" numbered="false"><name>Acknowledgments</name>
+            <t>The authors would like to thank the following people for their contributions to this
+                document: <contact fullname="David Blacka"/>, <contact fullname="Brian Dickson"/>, <contact fullname="James Gould"/>, <contact fullname="Pawel Kowalik"/>, <contact fullname="Mario Loffredo"/>, <contact fullname="James Mitchell"/>, <contact fullname="Matthew Thomas"/>, <contact fullname="Peter
+                Thomassen"/>, and <contact fullname="Duane Wessels"/>.</t>
+        </section>
+      </back>
+</rfc>

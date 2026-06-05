@@ -1,0 +1,418 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" docName="draft-ietf-dnsop-rfc8109bis-07" number="9609" ipr="trust200902" category="bcp" obsoletes="8109" consensus="true" updates="" submissionType="IETF" xml:lang="en" symRefs="true" sortRefs="true" tocInclude="true" version="3">
+
+  <front>
+    <title abbrev="DNS Priming Queries">Initializing a DNS Resolver with Priming Queries</title>
+    <seriesInfo name="RFC" value="9609"/>
+    <seriesInfo name="BCP" value="209"/>
+    <author initials="P." surname="Koch" fullname="Peter Koch">
+      <organization>DENIC eG</organization>
+      <address>
+        <email>pk@DENIC.DE</email>
+      </address>
+    </author>
+    <author initials="M." surname="Larson" fullname="Matt Larson">
+      <organization>ICANN</organization>
+      <address>
+        <email>matt.larson@icann.org</email>
+      </address>
+    </author>
+    <author initials="P." surname="Hoffman" fullname="Paul Hoffman">
+      <organization>ICANN</organization>
+      <address>
+        <email>paul.hoffman@icann.org</email>
+      </address>
+    </author>
+    <date month="February" year="2025"/>
+    <area>OPS</area>
+    <workgroup>dnsop</workgroup>
+
+<keyword>DNS caching</keyword>
+<keyword>root zone</keyword>
+
+    <abstract>
+      <t>This document describes the queries that a DNS resolver should emit to initialize its
+cache. The result is that the resolver gets both a current NS resource record set (RRset) for the root
+zone and the necessary address information for reaching the root servers.</t>
+      <t>This document obsoletes RFC 8109.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Recursive DNS resolvers need a starting point to resolve queries. <xref target="RFC1034" format="default"/> describes a common scenario for recursive resolvers: They
+begin with an empty cache and some configuration for finding the names and
+addresses of the DNS root servers. <xref target="RFC1034" format="default"/> describes that
+configuration as a list of servers that will give authoritative answers to queries
+about the root. This has become a common implementation choice for recursive
+resolvers and is the topic of this document. </t>
+      <t>This document describes the steps needed for this common implementation
+choice. Note that this is not the only way to start a recursive name server with
+an empty cache, but it is the only one described in <xref target="RFC1034" format="default"/>.
+Some implementers have chosen other directions, some of which work well and
+others of which fail (sometimes disastrously) under different conditions.
+For example, an implementation that only gets the addresses of the root name
+servers from configuration, not from the DNS as described in this document,
+will have stale data that could cause slower resolution.</t>
+      <t>This document only deals with recursive name servers (also called "recursive resolvers" and just "resolvers") for the IN class.</t>
+
+<t>See <xref target="changes" format="default"/> for the list of changes from
+<xref target="RFC8109"/>.</t>
+
+      <section numbered="true" toc="default">
+        <name>Terminology</name>
+         <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+         "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>",
+         "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+         "<bcp14>SHOULD NOT</bcp14>",
+         "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+         "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+         are to be interpreted as described in BCP&nbsp;14
+         <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only
+         when, they appear in all capitals, as shown here.</t>
+        <t>
+See <xref target="RSSAC026v2" format="default"/> for terminology that relates to the root server system.
+See <xref target="RFC9499" format="default"/> for terminology that relates to the DNS in general.
+</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Description of Priming</name>
+      <t>Priming is the act of finding the list of root
+servers from a configuration that lists some or all of the purported IP
+addresses of some or all of those root servers.
+In priming, a recursive resolver starts with no cached information about the root servers,
+and it finishes with a full list of their names and addresses in its cache.</t>
+      <t>Priming is described in Sections&nbsp;<xref target="RFC1034" section="5.3.2" sectionFormat="bare"/> and <xref target="RFC1034" section="5.3.3" sectionFormat="bare"/> of <xref target="RFC1034" format="default"/>. (It is called "SBELT", a "safety belt" structure, in that document.)
+The scenario used in that description, that of a recursive server that is also
+authoritative, is no longer as common.</t>
+      <t>The configured list of IP addresses for the root servers usually comes from the
+vendor or distributor of the recursive server software.
+Although this list is generally accurate and complete at the time of distribution,
+it may become outdated over time.</t>
+      <t>The domain names for the root servers are called the
+"root server identifiers".
+Although this list has remained stable since 1997, the associated IPv4 and IPv6 addresses for these root server identifiers occasionally change.
+Research indicates that, following such changes, certain resolvers fail to update to the new addresses; for further details, refer to <xref target="OLD-J" format="default"/>.</t>
+      <t>Therefore, it is important that resolvers are able to cope with change,
+even without relying upon configuration updates to be applied by their operator.
+Root server identifier and address changes are the main reasons that resolvers
+need to use priming to get a full and accurate list of root servers,
+instead of just using a statically configured list.
+</t>
+      <t>
+See <xref target="RSSAC023v2" format="default"/> for a history of the root server system.
+</t>
+      <t>Although this document is targeted at the global DNS, it could apply to a private
+DNS as well. These terms are defined in <xref target="RFC9499" format="default"/>.</t>
+      <t>Some systems serve a copy of the full root zone on the same server as the resolver,
+e.g., as described in <xref target="RFC8806" format="default"/>.
+In such a setup, the resolver primes its cache using the same methods as those
+described in the rest of this document.</t>
+      <section numbered="true" toc="default">
+        <name>Content of Priming Information</name>
+        <t>As described above, the configuration for priming is a list of IP addresses.
+The priming information in software may be in any format that gives the software the
+addresses associated with at least some of the root server identifiers.</t>
+        <t>Some software has configuration that also contains the root server identifiers (such as "L.ROOT-SERVERS.NET"),
+sometimes as comments and sometimes as data consumed by the software.
+For example, the "root hints file" published by IANA at <eref target="https://www.internic.net/domain/named.root" brackets="angle"/>
+is derived directly from the root zone and contains all of the addresses
+of the root server identifiers found in the root zone.
+It is in DNS zone file presentation format and includes the root server identifiers.
+Although there is no harm in adding these names, they are not useful in
+the priming process.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Priming Queries</name>
+      <t>A priming query is a DNS query whose response provides root server identifiers and addresses.
+It has a QNAME of ".", a QTYPE of NS, and a QCLASS of IN;
+it is sent to one of the addresses in the configuration for the recursive resolver.
+The priming query can be sent over either UDP or TCP. If the query is sent over UDP,
+the source port <bcp14>SHOULD</bcp14> be randomly selected (see <xref target="RFC5452" format="default"/>) to hamper on-path attacks.
+DNS cookies <xref target="RFC7873" format="default"/> can also be used to hamper on-path attacks.
+The Recursion Desired (RD) bit <bcp14>SHOULD</bcp14> be set to 0. The meaning when RD is set
+to 1 is undefined for priming queries and is outside the scope of this document.</t>
+      <t>The recursive resolver <bcp14>SHOULD</bcp14> use EDNS0 <xref target="RFC6891" format="default"/> for priming
+queries and <bcp14>SHOULD</bcp14> announce and handle a reassembly size of at least 1024 octets
+<xref target="RFC3226" format="default"/>. Doing so allows responses that cover the size of a
+full priming response (see <xref target="primrespsize" format="default"/>) for the current
+set of root servers.
+See <xref target="dnssec_prime" format="default"/> for discussion of setting the
+DNSSEC OK (DO) bit (defined in <xref target="RFC4033" format="default"/>).</t>
+      <section numbered="true" toc="default">
+        <name>Repeating Priming Queries</name>
+        <t>The recursive resolver <bcp14>SHOULD</bcp14> send a priming query only when it is needed,
+such as when the resolver starts with an empty cache or when the NS resource record set (RRset) for
+the root zone has expired.
+Because the NS records for the root zone are not special, the recursive resolver
+expires those NS records according to their TTL values.
+(Note that a recursive resolver <bcp14>MAY</bcp14>
+pre-fetch the NS RRset before it expires.)</t>
+        <t>If a resolver chooses to pre-fetch the root NS RRset before that RRset has expired in its cache,
+it needs to choose whether to use the addresses for the root NS RRset that it already has in its cache
+or to use the addresses it has in its configuration.
+Such a resolver <bcp14>SHOULD</bcp14> send queries to the addresses in its cache in order to reduce the chance of delay
+due to out-of-date addresses in its configuration.</t>
+        <t>If a priming query does not get a response, the recursive
+resolver <bcp14>MUST</bcp14> retry the query with a different target address from the
+configuration.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Target Selection</name>
+        <t>In order to spread the load across all the root server identifiers, the
+recursive resolver <bcp14>SHOULD</bcp14> select the target for a priming query randomly from
+the list of addresses. The recursive resolver might choose either IPv4 or IPv6
+addresses based on its knowledge of whether the system on which it is running
+has adequate connectivity on either type of address.</t>
+        <t>Note that this recommended method is not the only way to choose from the list
+in a recursive resolver's configuration. Two other common methods include
+picking the first from the list, and remembering which address in the list gave
+the fastest response earlier and using that one. There are probably other
+methods in use today. However, the random method
+<bcp14>SHOULD</bcp14> be used for priming.</t>
+      </section>
+      <section anchor="dnssec_prime" numbered="true" toc="default">
+        <name>DNSSEC with Priming Queries</name>
+        <t>The root NS RRset is signed and can be validated by a DNSSEC validating resolver.
+At the time this document is published, the addresses for the names in the root NS RRset are in the "root-servers.net" zone.
+All root servers are also authoritative for the "root-servers.net" zone,
+which allows priming responses to include the appropriate root name server A and AAAA RRsets.
+However, because at the time this document is published the "root-servers.net" zone is not signed,
+the root name server A and AAAA RRsets cannot be validated.
+An attacker that is able to provide a spoofed priming response can provide alternative A and AAAA RRsets
+and thus fool a resolver into considering addresses under the control of the attacker to be authoritative for the root zone.</t>
+        <t>A rogue root name server can view all queries from the resolver to the root and alter all unsigned parts of responses,
+such as the parent-side NS RRsets and glue in referral responses.
+A resolver can be fooled into trusting child (Top-Level Domain (TLD)) NS addresses that are under the control of the attacker as being authoritative if the resolver:
+
+</t>
+        <ul>
+          <li>follows referrals from a rogue root server,</li>
+          <li>and does not explicitly query the authoritative NS RRset at the apex of the child (TLD) zone,</li>
+          <li>and does not explicitly query for the authoritative A and AAAA RRsets for the child (TLD) NS RRsets.</li>
+        </ul>
+        <t>
+
+With such resolvers, an attacker that controls a rogue root server effectively controls the entire domain name space
+and can view all queries and alter all unsigned data undetected unless other protections are configured at the resolver.</t>
+        <t>An attacker controlling a rogue root name server also has complete control over all unsigned delegations
+and over the entire domain name space in the case of non-DNSSEC validating resolvers.</t>
+        <t>If the "root-servers.net" zone is later signed or if the root servers are named in a
+different zone and that zone is signed, having DNSSEC validation for the priming queries
+might be valuable.
+The benefits and costs of resolvers validating the responses will depend heavily on
+the naming scheme used.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Priming Responses</name>
+      <t>A priming query is a normal DNS query. Thus, a root server cannot
+distinguish a priming query from any other query for the root NS RRset. Thus,
+the root server's response will also be a normal DNS response.</t>
+      <section numbered="true" toc="default" anchor="expected-prop-priming">
+        <name>Expected Properties of the Priming Response</name>
+        <t>The priming response <bcp14>MUST</bcp14> have an RCODE of NOERROR and <bcp14>MUST</bcp14> have the
+Authoritative Answer (AA) bit set. Also, it <bcp14>MUST</bcp14> have an NS RRset in the Answer section (because the
+NS RRset originates from the root zone) and an empty Authority section (because the
+NS RRset already appears in the Answer section). There will also be an Additional section with A
+and/or AAAA RRsets for the root servers pointed at by the NS RRset.</t>
+        <t>Resolver software <bcp14>SHOULD</bcp14> treat the response to the priming query as a normal
+DNS response, just as it would use any other data fed to its cache. Resolver
+software <bcp14>SHOULD NOT</bcp14> expect 13 NS RRs
+because, historically, some root servers have returned fewer.</t>
+      </section>
+      <section anchor="primrespsize" numbered="true" toc="default">
+        <name>Completeness of the Response</name>
+        <t>At the time this document is published,
+there are 13 root server operators operating a total of more than 1500 root server instances.
+Each instance has one IPv4 address and one IPv6 address.
+The combined size of all the A and AAAA RRsets
+exceeds the original 512-octet payload limit specified in <xref target="RFC1035" format="default"/>.</t>
+        <t>In the event of a response where the Additional section omits certain root server
+address information, reissuing of the priming query does not help with those root name
+servers that respond with a fixed order of addresses in the Additional section.  Instead,
+the recursive resolver needs to issue direct queries for A and AAAA RRsets for the
+remaining names. At the time this document is published, these RRsets would be authoritatively available from the root
+name servers.</t>
+        <t>If some root server addresses are omitted from the Additional section, there is no expectation that the TC bit in the
+response will be set to 1. At the time this document is written, many of the
+root servers are not setting the TC bit when omitting addresses from the Additional section.</t>
+
+        <t>Note that <xref target="RFC9471" format="default"/> updates <xref target="RFC1034" format="default"/> with respect to the use of the TC bit.
+It says</t>
+
+<blockquote>If message size constraints prevent the inclusion of all glue records for in-domain name servers over the chosen transport,
+the server <bcp14>MUST</bcp14> set the TC (Truncated) flag to inform the client that the response is incomplete
+and that the client <bcp14>SHOULD</bcp14> use another transport to retrieve the full response.</blockquote>
+
+<t>Because the priming response is not a referral, root server addresses in the priming response are not considered glue records.
+Thus, <xref target="RFC9471" format="default"/> does not apply to the priming response and root servers are not required to set the TC bit if not all root server addresses fit within message size constraints.
+There are no requirements on the number of root server addresses that a root server must include in a priming response.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Post-Priming Strategies</name>
+      <t>When a resolver has a zone's NS RRset in its cache and it receives a query
+for a domain in that zone that cannot be answered from its cache,
+the resolver has to choose which NS to send queries to.
+(This statement is as true for the root zone as for any other zone in the DNS.)
+Two common strategies for choosing are "determine the fastest name server and always use it" and
+"create buckets of fastness and pick randomly in the buckets".
+This document does not specify a preference for any particular strategy other than to suggest that
+resolvers not treat the root zone as special for this decision.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>Spoofing a response to a priming query can be used to redirect all
+of the queries originating from a victim recursive resolver to one
+or more servers for the attacker. Until the responses to priming queries
+are protected with DNSSEC, there is no definitive way to prevent such
+redirection.</t>
+      <t>An on-path attacker who sees a priming query coming from a resolver can inject false
+answers before a root server can give correct answers. If the attacker's answers are
+accepted, this can set up the ability to give further false answers for future queries to
+the resolver. False answers for root servers are more dangerous than, say, false answers
+for TLDs, because the root is the highest node of the DNS. See
+<xref target="dnssec_prime" format="default"/> for more discussion.</t>
+      <t>In both of the scenarios listed here, a validating resolver will be able to detect the attack
+if its chain of queries comes for a zone that is signed, but not for those that are unsigned.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>IANA Considerations</name>
+       <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1034.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3226.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4033.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5452.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6891.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7873.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8109.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9471.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9499.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8806.xml"/>
+
+        <reference anchor="OLD-J" target="https://indico.dns-oarc.net/event/24/contributions/378/">
+          <front>
+            <title>Thirteen Years of 'Old J Root'</title>
+            <author initials="D." surname="Wessels" fullname="Duane Wessels">
+              <organization/>
+            </author>
+            <author initials="J." surname="Castonguay" fullname="Jason Castonguay">
+              <organization/>
+            </author>
+            <author initials="P." surname="Barber" fullname="Piet Barber">
+              <organization/>
+            </author>
+            <date month="October" year="2015"/>
+          </front>
+          <refcontent>DNS-OARC Fall 2015 Workshop</refcontent>
+        </reference>
+
+        <reference anchor="RSSAC023v2" target="https://www.icann.org/en/system/files/files/rssac-023-17jun20-en.pdf">
+          <front>
+            <title>History of the Root Server System</title>
+            <author/>
+            <date month="June" year="2020"/>
+          </front>
+          <refcontent>A Report from the ICANN Root Server System Advisory Committee (RSSAC)</refcontent>
+          <refcontent>RSSAC023v2</refcontent>
+        </reference>
+
+        <reference anchor="RSSAC026v2" target="https://www.icann.org/en/system/files/files/rssac-026-lexicon-12mar20-en.pdf">
+          <front>
+            <title>RSSAC Lexicon</title>
+            <author/>
+            <date month="March" year="2020"/>
+          </front>
+          <refcontent>An Advisory from the ICANN Root Server System Advisory Committee (RSSAC)</refcontent>
+          <refcontent>RSSAC026v2</refcontent>
+        </reference>
+
+      </references>
+    </references>
+    <section anchor="changes" numbered="true" toc="default">
+      <name>Changes from RFC 8109</name>
+      <t>This document obsoletes <xref target="RFC8109" format="default"/>. The significant changes from RFC 8109
+are as follows:
+
+</t>
+      <ul spacing="normal">
+        <li>
+          <t>Added section on the content of priming information.</t>
+        </li>
+        <li>
+          <t>Added paragraph about no expectation that the TC bit in responses will be set.</t>
+        </li>
+        <li>
+          <t>Added paragraph about RFC 9471 and requirements on authoritative servers and the TC bit.
+This clarified the role of glue records and truncation for responses from the root zone.</t>
+        </li>
+        <li>
+          <t>Changed "man-in-the-middle" to "machine-in-the-middle" to be both
+more inclusive and more technically accurate.</t>
+        </li>
+        <li>
+          <t>Clarified that there are other effects of machine-in-the-middle attacks.</t>
+        </li>
+        <li>
+          <t>Clarified language for root server domain names as "root server identifiers".</t>
+        </li>
+        <li>
+          <t>Added short discussion of post-priming strategies.</t>
+        </li>
+        <li>
+          <t>Added informative references to Root Server System Advisory Committee (RSSAC) documents.</t>
+        </li>
+        <li>
+          <t>Added short discussion about this document and private DNS.</t>
+        </li>
+        <li>
+          <t>Clarified that machine-in-the-middle attacks could be successful for non-signed TLDs.</t>
+        </li>
+        <li>
+          <t>Added discussion of where resolvers that pre-fetch should get the root NS addresses.</t>
+        </li>
+        <li>
+          <t>Elevated the expectations in <xref target="expected-prop-priming"/> ("<xref target="expected-prop-priming" format="title"/>") to <bcp14>MUST</bcp14>-level.</t>
+        </li>
+        <li>
+          <t>Clarified that "currently" means "at the time this document is published".</t>
+        </li>
+        <li>
+          <t>Added a note about priming and RFC 8806.</t>
+        </li>
+        <li>
+          <t>Added a reference to research about discontinued root server addresses.</t>
+        </li>
+      </ul>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>RFC 8109 was the product of the DNSOP WG and benefited from the reviews done there.
+This document also benefited from review by <contact fullname="Duane Wessels"/>.</t>
+    </section>
+  </back>
+</rfc>

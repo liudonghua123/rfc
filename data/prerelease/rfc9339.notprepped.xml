@@ -1,0 +1,524 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-lsr-ospf-reverse-metric-13" number="9339" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.15.0 -->
+  <front>
+    <title abbrev="OSPF Reverse Metric">OSPF Reverse Metric</title>
+    <seriesInfo name="RFC" value="9339"/>
+    <author fullname="Ketan Talaulikar" initials="K." role="editor" surname="Talaulikar">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>ketant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Peter Psenak" initials="P." surname="Psenak">
+      <organization>Cisco Systems, Inc.</organization>
+      <address>
+        <postal>
+	  <extaddr>Apollo Business Center</extaddr>
+          <street>Mlynske nivy 43</street>
+          <city>Bratislava</city>
+          <code>821 09</code>
+          <country>Slovakia</country>
+        </postal>
+        <email>ppsenak@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Hugh Johnston" initials="H." surname="Johnston">
+      <organization>AT&amp;T Labs</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>hugh.johnston@att.com</email>
+      </address>
+    </author>
+    <date year="2022" month="December" />
+    <area>rtg</area>
+    <workgroup>lsr</workgroup>
+    <keyword>IGP</keyword>
+    <keyword>OSPF</keyword>
+    <abstract>
+
+      <t>This document specifies the extensions to OSPF that enable a router
+      to use Link-Local Signaling (LLS) to signal the metric that receiving
+      OSPF neighbor(s) should use for a link to the signaling router.  When
+      used on the link to the signaling router, the signaling of this reverse
+      metric (RM) allows a router to influence the amount of traffic flowing
+      towards itself. In certain use cases, this enables routers to maintain
+      symmetric metrics on both sides of a link between them.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="INTRO" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>A router running the OSPFv2 <xref target="RFC2328" format="default">
+      </xref> or OSPFv3 <xref target="RFC5340" format="default"/> routing
+      protocols originates a Router-LSA (Link State Advertisement) that
+      describes all its links to its neighbors and includes a metric that
+      indicates its "cost" to reach the neighbor over that link. Consider two
+      routers, R1 and R2, that are connected via a link. In the direction
+      R1-&gt;R2, the metric for this link is configured on R1. In the
+      direction R2-&gt;R1, the metric for this link is configured on R2. Thus,
+      the configuration on R1 influences the traffic that it forwards towards
+      R2, but does not influence the traffic that it may receive from R2 on
+      that same link.</t>
+      <t>This document describes certain use cases where a router is required
+      to signal what we call the "reverse metric" (RM) to its neighbor to
+      adjust the routing metric in the inbound direction. When R1 signals its
+      RM on its link to R2, R2 advertises this value as its
+      metric to R1 in its Router-LSA instead of its locally configured value.
+      Once this information is part of the topology, all other routers do
+      their computation using this value. This  may result in the desired
+      change in the traffic distribution that R1 wanted to achieve towards
+      itself over the link from R2.</t>
+
+      <t>This document describes extensions to OSPF LLS
+      <xref target="RFC5613" format="default"/> to signal OSPF RMs. <xref target="REVMETTLV" format="default"/> specifies the LLS Reverse Metric TLV and <xref target="REVTEMETTLV" format="default"/> specifies the LLS Reverse TE Metric TLV. The
+      related procedures are specified in <xref target="PROCEDURES" format="default"/>.</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section anchor="USECASE" numbered="true" toc="default">
+      <name>Use Cases</name>
+
+<t>This section describes certain use cases that are addressed by the OSPF RM. The usage of the OSPF RM need not be limited to these
+cases; it is intended to be a generic mechanism.</t>
+      <figure anchor="FIG1">
+        <name>Reference Dual Hub-and-Spoke Topology</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+           Core Network 
+       ^                ^
+       |                |
+       V                v
+  +----------+    +----------+
+  |  AGGR1   |    |  AGGR2   |
+  +----------+    +----------+
+    ^      ^        ^      ^
+    |      |        |      |
+    |      +-----------+   |
+    |               |  |   |
+    |      +--------+  |   |
+    v      v           v   v 
+ +-----------+      +-----------+
+ |    R1     |      |    RN     |
+ |  Router   | ...  |  Router   |
+ +-----------+      +-----------+]]></artwork>
+      </figure>
+
+      <t>Consider a deployment scenario, such as the one shown in <xref
+      target="FIG1" format="default"/>, where routers R1 through RN are
+      dual-home connected to AGGR1 and AGGR2 that are aggregating their
+      traffic towards a core network.</t>
+      <section anchor="MAINT" numbered="true" toc="default">
+        <name>Link Maintenance</name>
+        <t>Before network maintenance events are performed on individual
+        links, operators substantially increase (to maximum value) the OSPF
+        metric simultaneously on both routers attached to the same link. In
+        doing so, the routers generate new Router LSAs that are flooded
+        throughout the network and cause all routers to shift traffic onto
+        alternate paths (where available) with limited disruption (depending
+        on the network topology) to in-flight communications by applications
+        or end users. When performed successfully, this allows the operator to
+        perform disruptive augmentation, fault diagnosis, or repairs on a link
+        in a production network.</t>
+        <t>In deployments such as a hub-and-spoke topology (as shown in <xref
+        target="FIG1" format="default"/>), it is quite common to have routers
+        with several hundred interfaces and individual interfaces that move
+        anywhere from several hundred gigabits to terabits per second of
+        traffic. The challenge in such conditions is that the operator must
+        accurately identify the same point-to-point (P2P) link on two separate
+        devices to increase (and afterward decrease) the OSPF metric
+        appropriately and to do so in a coordinated manner. When considering
+        maintenance for PE-CE links when many Customer Edge (CE) routers
+        connect to a Provider Edge (PE) router, an additional challenge
+        related to coordinating access to the CE routers may arise when the
+        CEs are not managed by the provider.</t>
+        <t>The OSPF RM mechanism helps address these challenges.
+        The operator can set the link on one of the routers (generally the
+        hub, like AGGR1 or a PE) to a "maintenance mode". This causes the
+        router to advertise the maximum metric for that link and to signal its
+        neighbor on the same link to advertise maximum metric via the reverse
+        metric signaling mechanism. Once the link maintenance is completed and
+        the "maintenance mode" is turned off, the router returns to using its
+        provisioned metric for the link and stops the signaling of RM on that
+        link, resulting in its neighbor also reverting to its provisioned
+        metric for that link.</t>
+      </section>
+      <section anchor="ADAPTIVEMET" numbered="true" toc="default">
+        <name>Adaptive Metric Signaling</name>
+        <t>In <xref target="FIG1" format="default"/>, consider that at some point in time
+        (T), AGGR1 loses some of its capacity towards the core. This may result
+        in a congestion issue towards the core on AGGR1 that it needs to
+        mitigate by redirecting some of its traffic load to transit via AGGR2,
+        which is not experiencing a similar issue. Altering its link metric
+        towards the R1-RN routers would influence the traffic from the core
+        towards R1-RN, but not the other way around as desired.</t>
+        <t>In such a scenario, the AGGR1 router could signal an incremental
+        OSPF RM to some or all the R1-RN routers. When the R1-RN
+        routers add this signaled RM offset to the provisioned
+        metric on their links towards AGGR1, the path via AGGR2 becomes a
+        better path. This causes traffic towards the core to be diverted away
+        from AGGR1. Note that the RM mechanism allows such
+        adaptive metric changes to be applied on the AGGR1 as opposed to being
+        provisioned on a possibly large number of R1-RN routers.</t>
+        <t>The RM mechanism may be similarly applied between spine
+        and leaf nodes in a Clos network <xref target="CLOS" format="default"/> topology
+        deployment.</t>
+      </section>
+    </section>
+    <section anchor="SOLUTION" numbered="true" toc="default">
+      <name>Solution</name>
+      <t>To address the use cases described earlier and to allow an OSPF
+      router to indicate its RM for a specific link to its
+      neighbor(s), this document proposes to extend OSPF link-local signaling
+      to signal the Reverse Metric TLV in OSPF Hello packets. This ensures
+      that the RM signaling is scoped only to a specific link.
+      The router continues to include the Reverse Metric TLV in its Hello
+      packets on the link for as long as it needs its neighbor to use that
+      metric value towards itself. Further details of the procedures involved
+      are specified in <xref target="PROCEDURES" format="default"/>.</t>
+
+<t>The RM mechanism specified in this document applies only to
+P2P, Point-to-Multipoint (P2MP), and hybrid-broadcast-P2MP (<xref
+target="RFC6845" format="default"/>) links. It is not applicable for broadcast
+or Non-Broadcast Multi-Access (NBMA) links since the same objective is
+achieved there using the OSPF Two-Part Metric mechanism <xref target="RFC8042"
+format="default"/> for OSPFv2. The OSPFv3 solution for broadcast or NBMA links
+is outside the scope of this document.</t>
+    </section>
+    <section anchor="REVMETTLV" numbered="true" toc="default">
+      <name>LLS Reverse Metric TLV</name>
+      <t>The Reverse Metric TLV is a new LLS TLV. It has following
+      format:</t>
+      <figure anchor="FIG2">
+        <name>Reverse Metric TLV</name>
+
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     MTID      | Flags     |O|H|        Reverse Metric         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+      </figure>
+      <t>where:</t>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt>
+        <dd>19</dd>
+        <dt>Length:</dt>
+        <dd>4 octets</dd>
+        <dt>MTID:</dt>
+        <dd>The multi-topology identifier of the link (<xref target="RFC4915" format="default"/>).</dd>
+        <dt>Flags:</dt>
+        <dd>1 octet. The following flags are defined currently and the
+          rest <bcp14>MUST</bcp14> be set to 0 on transmission and ignored on reception:</dd>
+	  <dt/>
+       <dd>
+<dl newline="false" spacing="normal">
+            <dt>H (0x1):</dt><dd>Indicates that the neighbor should use the value
+              only if it is higher than its provisioned metric value for the
+              link.</dd>
+            <dt>O (0x2):</dt><dd>Indicates that the RM value provided is
+              an offset that is to be added to the provisioned metric.</dd>
+          </dl>
+        </dd>
+        <dt>Reverse Metric:</dt>
+        <dd>Unsigned integer of 2 octets that carries the
+          value or offset of RM to replace or be added to the
+          provisioned link metric.</dd>
+      </dl>
+    </section>
+    <section anchor="REVTEMETTLV" numbered="true" toc="default">
+      <name>LLS Reverse TE Metric TLV</name>
+      <t>The Reverse TE Metric TLV is a new LLS TLV. It has the following
+      format:</t>
+      <figure anchor="FIG3">
+        <name>Reverse TE Metric TLV</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   Flags   |O|H|                 RESERVED                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Reverse TE Metric                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+      </figure>
+      <t>where:</t>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt>
+        <dd>20</dd>
+        <dt>Length:</dt>
+        <dd>4 octets</dd>
+        <dt>Flags:</dt>
+        <dd>1 octet. The following flags are defined currently and the
+          rest <bcp14>MUST</bcp14> be set to 0 on transmission and ignored on reception:</dd>
+        <dt/>
+        <dd>
+<dl newline="false" spacing="normal">
+            <dt>H (0x1):</dt><dd>Indicates that the neighbor should use the value
+              only if it is higher than its provisioned TE metric value for
+              the link.</dd>
+            <dt>O (0x2):</dt><dd>Indicates that the reverse TE metric value provided
+              is an offset that is to be added to the provisioned TE
+              metric.</dd>
+          </dl>
+        </dd>
+        <dt>RESERVED:</dt>
+        <dd>24-bit field. <bcp14>MUST</bcp14> be set to 0 on transmission and <bcp14>MUST</bcp14>
+          be ignored on receipt.</dd>
+        <dt>Reverse TE Metric:</dt>
+        <dd>Unsigned integer of 4 octets that carries the
+          value or offset of reverse traffic engineering metric to replace or
+          to be added to the provisioned TE metric of the link.</dd>
+      </dl>
+    </section>
+    <section anchor="PROCEDURES" numbered="true" toc="default">
+      <name>Procedures</name>
+      <t>When a router needs to signal an RM value that its neighbor(s) should
+      use for a link towards the router, it includes the Reverse Metric TLV in
+      the LLS block of its Hello packets sent on that link and continues to
+      include this TLV for as long as the router needs its neighbor to use this value.
+      The mechanisms used to determine the value to be used for the RM is
+      specific to the implementation and use case, and is outside the scope of
+      this document. For example, the RM value may be derived based on the
+      router's link bandwidth with respect to a reference bandwidth.</t>
+      <t>A router receiving a Hello packet from its neighbor that contains the
+      Reverse Metric TLV on a link <bcp14>MUST</bcp14> use the RM value to derive the metric
+      for the link to the advertising router in its Router-LSA when the
+      RM feature is enabled (refer to <xref target="OPER" format="default"/> for
+      details on enablement of RM). When the O flag is set, the metric value
+      to be advertised is derived by adding the value in the TLV to the
+      provisioned metric for the link. The metric value 0xffff (maximum
+      interface cost) is advertised when the sum exceeds the maximum interface
+      cost. When the O flag is clear, the metric value to be advertised is
+      copied directly from the value in the TLV. When the H flag is set and
+      the O flag is clear, the metric value to be advertised is copied
+      directly from the value in the TLV only when the RM value signaled is
+      higher than the provisioned metric for the link. The H and O flags are
+      mutually exclusive; the H flag is ignored when the O flag is set.</t>
+      <t>A router stops including the Reverse Metric TLV in its Hello packets
+      when it needs its neighbors to go back to using their own provisioned
+      metric values. When this happens, a router that has modified its metric
+      in response to receiving a Reverse Metric TLV from its neighbor <bcp14>MUST</bcp14>
+      revert to using its provisioned metric value.</t>
+      <t>In certain scenarios, two or more routers may start the RM signaling
+      on the same link. This could create collision scenarios. 
+The following
+      guidelines are <bcp14>RECOMMENDED</bcp14> for adoption to ensure that there is no
+      instability in the network due to churn in their metric caused by the
+      signaling of RM:</t>
+      <ul spacing="normal">
+
+        <li>The RM value that is signaled by a router to its neighbor should
+   not be derived from the RM being signaled by any of
+   its neighbors on any of its links.</li>
+        <li>The RM value that is signaled by a router to its neighbor should
+   not be derived from the RM being signaled by any of
+   its neighbors on any of its links. RM signaling from
+          other routers can affect the router's metric advertised in its
+          Router-LSA. When deriving the RM values that a router signals to its
+          neighbors, it should use its provisioned local metric values not
+          influenced by any RM signaling.</li>
+      </ul>
+      <t>Based on these guidelines, a router would not start, stop, or change
+      its RM signaling based on the RM signaling initiated by
+      some other routers. Based on the local configuration policy, each router
+      would end up accepting the RM value signaled by its neighbor and there
+      would be no churn of metrics on the link or the network on account of RM
+      signaling.</t>
+      <t>In certain use cases when symmetrical metrics are desired (e.g., when
+      metrics are derived based on link bandwidth), the RM signaling can be
+      enabled on routers on either end of a link. In other use cases (as
+      described in <xref target="MAINT" format="default"/>), RM signaling may need to be
+      enabled only on the router at one end of a link.</t>
+      <t>When using multi-topology routing with OSPF <xref target="RFC4915" format="default"/>,
+      a router <bcp14>MAY</bcp14> include multiple instances of the Reverse Metric TLV in the
+      LLS block of its Hello packet (one for each of the topologies for which
+      it desires to signal the RM). A router <bcp14>MUST NOT</bcp14> include more
+      than one instance of this TLV per MTID. If more than a single instance
+      of this TLV per MTID is present, the receiving router <bcp14>MUST</bcp14> only use the
+      value from the first instance and ignore the others.</t>
+      <t>In certain scenarios, the OSPF router may also require the
+      modification of the TE metric being advertised by its neighbor router
+      towards itself in the inbound direction. Using similar procedures to
+      those described above, the Reverse TE Metric TLV <bcp14>MAY</bcp14> be
+      used to signal the reverse TE metric for router links. The neighbor
+      <bcp14>MUST</bcp14> use the reverse TE metric value to derive the TE
+      metric advertised in the TE Metric sub-TLV of the Link TLV in its TE
+      Opaque LSA <xref target="RFC3630" format="default"/> when the reverse
+      metric feature is enabled (refer <xref target="OPER" format="default"/>
+      for details on enablement of RM). The rules for doing so are analogous
+      to those given above for the Router-LSA.</t>
+    </section>
+    <section anchor="OPER" numbered="true" toc="default">
+      <name>Operational Guidelines</name>
+      <t>The signaled RM does not alter the OSPF metric parameters
+      stored in a receiving router's persistent provisioning database.</t>
+      <t>Routers that receive an RM advertisement
+      <bcp14>SHOULD</bcp14> log an event to notify system administration.
+
+
+
+This will assist in rapidly
+           identifying the node in the network that is advertising an OSPF
+           metric or TE metric different from what is configured locally
+           on the device.</t>
+      <t>When the link TE metric is raised to the maximum value, either due to
+      the RM mechanism or by explicit user configuration, this
+      <bcp14>SHOULD</bcp14> immediately trigger the CSPF (Constrained Shortest Path First)
+      recalculation to move the TE traffic away from that link.</t>
+      <t>An implementation <bcp14>MUST NOT</bcp14> signal RM to neighbors by
+      default and <bcp14>MUST</bcp14> provide a configuration option to enable the signaling
+      of RM on specific links. An implementation <bcp14>MUST NOT</bcp14> accept
+      the RM from its neighbors by default. An implementation <bcp14>MAY</bcp14> provide
+      configuration to accept the RM globally on the device, or per area, but
+      an implementation <bcp14>MUST</bcp14> support configuration to enable/disable
+      acceptance of the RM from neighbors on specific links. This is to
+      safeguard against inadvertent use of RM.</t>
+      <t>For the use case in <xref target="MAINT" format="default"/>, it is <bcp14>RECOMMENDED</bcp14> that
+      the network operator limit the period of enablement of the reverse
+      metric mechanism to be only the duration of a network maintenance
+      window.</t>
+      
+      <t><xref target="RFC9129" format="default"/> specifies the base OSPF YANG
+      data model. The required configuration and operational elements for this
+      feature are expected to be introduced as an augmentation to this base
+      OSPF YANG data model.</t>
+
+      
+    </section>
+    <section anchor="BACKW" numbered="true" toc="default">
+      <name>Backward Compatibility</name>
+      <t>The signaling specified in this document happens at a link-local
+      level between routers on that link. A router that does not support this
+      specification would ignore the Reverse Metric and Reverse TE Metric LLS
+      TLVs and not update its metric(s) in the other LSAs. As a result, the
+      behavior would be the same as prior to this specification. Therefore,
+      there are no backward compatibility related issues or considerations
+      that need to be taken care of when implementing this specification.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>IANA has registered code points from the "Link Local Signalling
+      TLV Identifiers (LLS Types)" registry in the "Open Shortest Path First (OSPF) Link
+      Local Signalling (LLS) - Type/Length/Value Identifiers (TLV)" registry
+      group for the TLVs introduced in this document as follows:</t>
+
+<ul spacing="normal">
+      <li>19 - Reverse Metric TLV</li>
+      <li>20 - Reverse TE Metric TLV</li>
+</ul> 
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The security considerations for "OSPF Link-Local Signaling" <xref target="RFC5613" format="default"/> also apply to the extension described in this
+      document. The purpose of using the reverse metric TLVs is to alter the metrics
+used by routers on the link and influence the flow and routing of traffic over
+the network. Hence, modification of the Reverse Metric and
+      Reverse TE Metric TLVs may result in traffic being misrouted. If
+      authentication is being used in the OSPFv2 routing domain <xref target="RFC5709" format="default"/><xref target="RFC7474" format="default"> </xref>, then the
+      Cryptographic Authentication TLV <xref target="RFC5613" format="default"/> <bcp14>MUST</bcp14> also be
+      used to protect the contents of the LLS block.</t>
+      <t>A router that is misbehaving or misconfigured may end up signaling
+      varying values of RMs or toggle the state of RM.
+      This can result in a neighbor router having to frequently update its
+      Router LSA, causing network churn and instability despite existing OSPF
+      protocol mechanisms (e.g., MinLSInterval, and <xref target="RFC8405" format="default"/>).
+      It is <bcp14>RECOMMENDED</bcp14> that implementations support the detection of frequent
+      changes in RM signaling and ignore the RM (i.e.,
+      revert to using their provisioned metric value) during such
+      conditions.</t>
+      <t>The reception of malformed LLS TLVs or sub-TLVs <bcp14>SHOULD</bcp14> be logged, but
+      such logging <bcp14>MUST</bcp14> be rate-limited to prevent Denial of Service (DoS)
+      attacks.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2328.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3630.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5340.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5613.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4915.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8042.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6845.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7474.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5709.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8500.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8405.xml"/>
+
+<!-- [I-D.ietf-ospf-yang] Published as RFC 9129 -->
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9129.xml"/>
+
+        <reference anchor="CLOS" target="">
+          <front>
+            <title>A study of non-blocking switching networks</title>
+	  <author fullname="Charles Clos" initials="C" surname="Clos">
+            </author>
+            <date month="March" year="1953"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1002/j.1538-7305.1953.tb01433.x"/>
+	  <refcontent>The Bell System Technical Journal, Vol. 32, Issue 2</refcontent>
+	</reference> 
+      </references>
+    </references>
+
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+<name>Acknowledgements</name>
+
+
+      <t>The authors would like to thank:</t>
+<ul><li><t>
+      <contact fullname="Jay Karthik"/>
+      for his contributions to the use cases and the review of the
+      solution.</t></li>
+      <li><t><contact fullname="Les Ginsberg"/>,
+      <contact fullname="Aijun Wang"/>, <contact fullname="Gyan Mishra"/>,
+      <contact fullname="Matthew Bocci"/>, <contact fullname="Thomas
+      Fossati"/>, and <contact fullname="Steve Hanna"/> for their review and
+feedback.</t></li>
+<li> <t><contact
+      fullname="Acee Lindem"/> for a detailed shepherd's review and
+comments.</t></li>
+<li><t><contact
+      fullname="John Scudder"/> for his detailed AD review and suggestions for improvement.</t></li></ul>
+      <t>The document leverages the concept of RM for IS-IS, its
+      related use cases, and applicability aspects from <xref target="RFC8500"
+      format="default"/>.</t>
+    </section>
+ </back> 
+</rfc>
+

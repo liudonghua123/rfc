@@ -1,0 +1,1342 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-wish-whip-16" number="9725" category="std" consensus="true" updates="8840, 8842" obsoletes="" tocInclude="true" submissionType="IETF" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+
+  <front>
+    <title abbrev="whip">WebRTC-HTTP Ingestion Protocol (WHIP)</title>
+    <seriesInfo name="RFC" value="9725"/>
+    <author initials="S." surname="Garcia Murillo" fullname="Sergio Garcia Murillo">
+      <organization>Millicast</organization>
+      <address>
+        <email>sergio.garcia.murillo@cosmosoftware.io</email>
+      </address>
+    </author>
+    <author initials="A." surname="Gouaillard" fullname="Alexandre Gouaillard">
+      <organization>CoSMo Software</organization>
+      <address>
+        <email>alex.gouaillard@cosmosoftware.io</email>
+      </address>
+    </author>
+    <date year="2025" month="March"/>
+    <area>WIT</area>
+    <workgroup>wish</workgroup>
+
+    <abstract>
+
+      <t>This document describes a simple HTTP-based protocol that will allow
+      WebRTC-based ingestion of content into streaming services and/or
+      Content Delivery Networks (CDNs).</t>
+      <t>This document updates RFCs 8840 and 8842.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>The IETF RTCWEB Working Group standardized the JavaScript Session Establishment Protocol (JSEP) <xref
+      target="RFC9429"/>, a mechanism used to control the setup, management,
+      and teardown of a multimedia session. It also describes how to negotiate
+      media flows using the offer/answer model with the Session Description
+      Protocol (SDP) <xref target="RFC3264"/>, including the formats for data
+      sent over the wire (e.g., media types, codec parameters, and
+      encryption). WebRTC intentionally does not specify a signaling transport
+      protocol at the application level.</t>
+
+<t>Unfortunately, the lack of a standardized signaling mechanism in
+WebRTC has been an obstacle to its adoption as an ingestion protocol
+within the broadcast and streaming industry, where a streamlined
+production pipeline is taken for granted. For example, cables carrying raw
+media to hardware encoders are plugged in and then the encoded media is
+pushed to any streaming service or Content Delivery Network (CDN) using an
+ingestion protocol.
+      </t>
+      <t>While WebRTC can be integrated with standard signaling protocols like
+      SIP <xref target="RFC3261"/> or Extensible Messaging and Presence
+      Protocol (XMPP) <xref target="RFC6120"/>, they are not designed to be
+      used in broadcasting and streaming services, and there is also no sign of
+      adoption in that industry. The Real-Time Streaming Protocol (RTSP) <xref target="RFC7826"/>, which is based
+      on RTP, does not support the SDP offer/answer model <xref
+      target="RFC3264"/> for negotiating the characteristics of the media
+      session.</t>
+      <t>This document proposes a simple protocol based on HTTP for supporting WebRTC as a media ingestion method that:</t>
+      <ul spacing="normal">
+        <li>
+          <t>is easy to implement,</t>
+        </li>
+        <li>
+          <t>is as easy to use as popular IP-based broadcast protocols,</t>
+        </li>
+        <li>
+          <t>is fully compliant with WebRTC and RTCWEB specs,</t>
+        </li>
+        <li>
+          <t>enables ingestion on both classical media platforms and WebRTC end-to-end platforms (achieving the lowest possible latency),</t>
+        </li>
+        <li>
+          <t>lowers the requirements on both hardware encoders and broadcasting services to support WebRTC, and</t>
+        </li>
+        <li>
+          <t>is usable in both web browsers and standalone encoders.</t>
+        </li>
+      </ul>
+    </section>
+
+    <section anchor="terminology">
+      <name>Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+</section>
+    <section anchor="overview">
+      <name>Overview</name>
+      <t>The WebRTC-HTTP Ingestion Protocol (WHIP) is designed to facilitate a
+      one-time exchange of Session Description Protocol (SDP) offers and
+      answers using HTTP POST requests. This exchange is a fundamental step in
+      establishing an Interactive Connectivity Establishment (ICE) and
+      Datagram Transport Layer Security (DTLS) session between the WHIP
+      client, which represents the encoder or media producer, and the media
+      server, which is the broadcasting ingestion endpoint.</t>
+      <t>Upon successful establishment of the ICE/DTLS session, unidirectional
+      media data transmission commences from the WHIP client to the media
+      server. It is important to note that SDP renegotiations are not
+      supported in WHIP. This means that no modifications to the "m=" sections
+      can be made after the initial SDP offer/answer exchange via HTTP POST is
+      completed and that only ICE-related information can be updated via HTTP PATCH
+      requests as defined in <xref target="ice-support"/>.</t>
+      <t>The following diagram illustrates the core operation of WHIP
+      for initiating and terminating an ingest session:</t>
+
+      <figure anchor="whip-protocol-operation">
+        <name>WHIP Session Setup and Teardown</name>
+        <artwork><![CDATA[
++-------------+    +---------------+ +--------------+ +---------------+
+| WHIP client |    | WHIP endpoint | | Media server | | WHIP session  |
++--+----------+    +---------+-----+ +------+-------+ +--------|------+
+   |                         |              |                  |       
+   |                         |              |                  |       
+   |HTTP POST (SDP offer)    |              |                  |       
+   +------------------------>+              |                  |       
+   |201 Created (SDP answer) |              |                  |       
+   +<------------------------+              |                  |       
+   |          ICE/STUN REQUEST              |                  |       
+   +--------------------------------------->+                  |       
+   |          ICE/STUN RESPONSE             |                  |       
+   |<---------------------------------------+                  |       
+   |          DTLS SETUP                    |                  |       
+   |<======================================>|                  |       
+   |          RTP/RTCP FLOW                 |                  |       
+   +<-------------------------------------->+                  |       
+   | HTTP DELETE                                               |       
+   +---------------------------------------------------------->+       
+   | 200 OK                                                    |       
+   <-----------------------------------------------------------x
+]]></artwork>
+      </figure>
+
+      <t>The elements in <xref target="whip-protocol-operation"/> are
+      described as follows:</t>
+      <dl spacing="normal">
+          <dt>WHIP client:</dt><dd>This represents the WebRTC media encoder or
+          producer, which functions as a client of WHIP by
+          encoding and delivering media to a remote media server.</dd>
+          <dt>WHIP endpoint:</dt><dd>This denotes the ingest server that
+          receives the initial WHIP request.</dd>
+          <dt>WHIP endpoint URL:</dt><dd>This refers to the URL of the WHIP endpoint responsible for creating the WHIP session.</dd>
+          <dt>Media server:</dt><dd>This is the WebRTC media server or
+          consumer responsible for establishing the media session with the
+          WHIP client and receiving the media content it produces.</dd>
+          <dt>WHIP session:</dt><dd>This indicates the server handling the
+          allocated HTTP resource by the WHIP endpoint for an ongoing ingest
+          session.</dd>
+
+	  
+          <dt>WHIP session URL:</dt><dd>This refers to the URL of the WHIP resource
+          allocated by the WHIP endpoint for a specific media session. To
+          modify the session (e.g., ICE operations or session termination), the
+          WHIP client can send requests to the WHIP session using this URL.</dd>
+      </dl>
+
+      <t><xref target="whip-protocol-operation"/> illustrates the
+      communication flow between a WHIP client, WHIP endpoint, media server,
+      and WHIP session. This flow outlines the process of setting up and
+      tearing down an ingest session using WHIP, which involves
+      negotiation, ICE for Network Address Translation (NAT) traversal, DTLS 
+      and the Secure Real-time Transport Protocol (SRTP) for security, and
+      RTP/RTCP for media transport:</t>
+
+      <ul spacing="normal">
+        <li>The WHIP client initiates the communication by sending an HTTP
+        POST with an SDP offer to the WHIP endpoint.
+	</li>
+        <li>The WHIP endpoint responds with a "201 Created" message containing
+        an SDP answer.
+	</li>
+        <li>The WHIP client and media server establish ICE and DTLS
+        sessions for NAT traversal and secure communication.
+	</li>
+          <li>RTP and RTCP flows are established for media transmission from the
+          WHIP client to the media server, secured by the SRTP profile.
+          </li>
+          <li>The WHIP client sends an HTTP DELETE to terminate the WHIP session.
+	  </li>
+          <li>The WHIP session responds with a "200 OK" to confirm the session
+          termination.
+	  </li>
+      </ul>
+    </section>
+    <section anchor="protocol-operation">
+      <name>Protocol Operation</name>
+      <section anchor="http-usage">
+        <name>HTTP Usage</name>
+
+        <t>Following the guidelines in <xref target="BCP56"/>, WHIP clients
+        <bcp14>MUST NOT</bcp14> match error codes returned by the WHIP
+        endpoints and resources to a specific error cause indicated in this
+        specification. WHIP clients <bcp14>MUST</bcp14> be able to handle all
+        applicable status codes by gracefully falling back to the generic n00
+        semantics of a given status code on unknown error codes. WHIP
+        endpoints and resources could convey finer-grained error information
+        by a problem details json object in the response message body of the
+        failed request as per <xref target="RFC9457"/>.</t>
+
+        <t>The WHIP endpoints and sessions are origin servers as defined in
+        <xref section="3.6" sectionFormat="of" target="RFC9110"/>; they handle the
+        requests and provide responses for the underlying HTTP
+        resources. Those HTTP resources do not have any representation defined
+        in this specification, so the WHIP endpoints and sessions
+        <bcp14>MUST</bcp14> return a 2xx successful response with no content
+        when a GET request is received.</t>
+      </section>
+
+      <section anchor="ingest-session-set-up">
+        <name>Ingest Session Setup</name>
+
+	<t>In order to set up an ingest session, the WHIP client
+        <bcp14>MUST</bcp14> generate an SDP offer according to the JSEP rules
+        for an initial offer as per <xref section="5.2.1" sectionFormat="of"
+        target="RFC9429"/> and send an HTTP POST request as per <xref
+        section="9.3.3" sectionFormat="of" target="RFC9110"/> to the
+        configured WHIP endpoint URL.</t>
+
+        <t>The HTTP POST request <bcp14>MUST</bcp14> have a content type of
+        "application/sdp" and contain the SDP offer as the body. The WHIP
+        endpoint <bcp14>MUST</bcp14> generate an SDP answer according to the
+        JSEP rules for an initial answer as per <xref section="5.3.1"
+        sectionFormat="of" target="RFC9429"/> and return the following: a "201 Created"
+        response with a content type of "application/sdp", the SDP answer as
+        the body, and a Location header field pointing to the newly created
+        WHIP session. If the HTTP POST to the WHIP endpoint has a content type
+        different than "application/sdp" or the SDP is malformed, the WHIP
+        endpoint <bcp14>MUST</bcp14> reject the HTTP POST request with an
+        appropriate 4xx error response.</t>
+
+        <t>As WHIP only supports the ingestion use case with
+        unidirectional media, the WHIP client <bcp14>SHOULD</bcp14> use the
+        "sendonly" attribute in the SDP offer but <bcp14>MAY</bcp14> use the
+        "sendrecv" attribute instead; the "inactive" and "recvonly" attributes
+        <bcp14>MUST NOT</bcp14> be used. The WHIP endpoint <bcp14>MUST</bcp14>
+        use the "recvonly" attribute in the SDP answer.</t>
+
+        <t><xref target="sdp-exchange-example"/> is an example of an
+        HTTP POST sent from a WHIP client to a WHIP endpoint and the "201
+        Created" response from the WHIP endpoint containing the Location
+        header pointing to the newly created WHIP session.</t>
+        <figure anchor="sdp-exchange-example">
+          <name>Example of the SDP Offer/Answer Exchange Done via an HTTP POST</name>
+          <sourcecode type="http-message"><![CDATA[
+POST /whip/endpoint HTTP/1.1
+Host: whip.example.com
+Content-Type: application/sdp
+Content-Length: 1101
+
+v=0
+o=- 5228595038118931041 2 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=extmap-allow-mixed
+a=ice-options:trickle ice2
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:EsAw
+a=ice-pwd:bP+XJMM09aR8AiX1jdukzR6Y
+a=fingerprint:sha-256 DA:7B:57:DC:28:CE:04:4F:31:79:85:C4:31:67:EB:
+   27:58:29:ED:77:2A:0D:24:AE:ED:AD:30:BC:BD:F1:9C:02
+a=setup:actpass
+a=mid:0
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=sendonly
+a=msid:d46fb922-d52a-4e9c-aa87-444eadc1521b ce326ecf-a081-453a-8f9f-
+   0605d5ef4128
+a=rtcp-mux
+a=rtcp-mux-only
+a=rtpmap:111 opus/48000/2
+a=fmtp:111 minptime=10;useinbandfec=1
+m=video 0 UDP/TLS/RTP/SAVPF 96 97
+a=mid:1
+a=bundle-only
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+a=extmap:11 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
+a=sendonly
+a=msid:d46fb922-d52a-4e9c-aa87-444eadc1521b 3956b460-40f4-4d05-acef-
+   03abcdd8c6fd
+a=rtpmap:96 VP8/90000
+a=rtcp-fb:96 ccm fir
+a=rtcp-fb:96 nack
+a=rtcp-fb:96 nack pli
+a=rtpmap:97 rtx/90000
+a=fmtp:97 apt=96
+
+HTTP/1.1 201 Created
+ETag: "xyzzy"
+Content-Type: application/sdp
+Content-Length: 1053
+Location: https://whip.example.com/session/id
+
+v=0
+o=- 1657793490019 1 IN IP4 127.0.0.1
+s=-
+t=0 0
+a=group:BUNDLE 0 1
+a=extmap-allow-mixed
+a=ice-lite
+a=ice-options:trickle ice2
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+c=IN IP4 0.0.0.0
+a=rtcp:9 IN IP4 0.0.0.0
+a=ice-ufrag:38sdf4fdsf54
+a=ice-pwd:2e13dde17c1cb009202f627fab90cbec358d766d049c9697
+a=fingerprint:sha-256 F7:EB:F3:3E:AC:D2:EA:A7:C1:EC:79:D9:B3:8A:35:
+   DA:70:86:4F:46:D9:2D:CC:D0:BC:81:9F:67:EF:34:2E:BD
+a=candidate:1 1 UDP 2130706431 198.51.100.1 39132 typ host
+a=setup:passive
+a=mid:0
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=recvonly
+a=rtcp-mux
+a=rtcp-mux-only
+a=rtpmap:111 opus/48000/2
+a=fmtp:111 minptime=10;useinbandfec=1
+m=video 0 UDP/TLS/RTP/SAVPF 96 97
+c=IN IP4 0.0.0.0
+a=mid:1
+a=bundle-only
+a=extmap:4 urn:ietf:params:rtp-hdrext:sdes:mid
+a=extmap:10 urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id
+a=extmap:11 urn:ietf:params:rtp-hdrext:sdes:repaired-rtp-stream-id
+a=recvonly
+a=rtpmap:96 VP8/90000
+a=rtcp-fb:96 ccm fir
+a=rtcp-fb:96 nack
+a=rtcp-fb:96 nack pli
+a=rtpmap:97 rtx/90000
+a=fmtp:97 apt=96
+]]></sourcecode>
+        </figure>
+
+
+
+
+        <t>Once a session is set up, consent freshness as per <xref
+        target="RFC7675"/> <bcp14>SHALL</bcp14> be used to detect non-graceful
+        disconnection by full ICE implementations and DTLS teardown for
+        session termination by either side.</t>
+
+        <t>To explicitly terminate a WHIP session, the WHIP client
+        <bcp14>MUST</bcp14> send an HTTP DELETE request to the WHIP session
+        URL returned in the Location header field of the initial HTTP
+        POST. Upon receiving the HTTP DELETE request, the WHIP session will be
+        removed and the resources freed on the media server, terminating the
+        ICE and DTLS sessions.</t>
+
+        <t>A media server terminating a session <bcp14>MUST</bcp14> follow the
+        procedures in <xref section="5.2" sectionFormat="of"
+        target="RFC7675"/> for immediate revocation of consent.</t>
+
+        <t>The WHIP endpoints <bcp14>MUST</bcp14> support OPTIONS requests for
+        Cross-Origin Resource Sharing (CORS) as defined in <xref
+        target="FETCH"/>. The "200 OK" response to any OPTIONS request
+        <bcp14>SHOULD</bcp14> include an Accept-Post header with a media
+        type value of "application/sdp" as per <xref
+        target="W3C.REC-ldp-20150226"/>.</t>
+      </section>
+
+      <section anchor="ice-support">
+        <name>ICE Support</name>
+
+        <t>ICE <xref target="RFC8445"/> is a protocol that addresses the
+        complexities of NAT traversal commonly encountered in Internet
+        communication. NATs hinder direct communication between devices on
+        different local networks, posing challenges for real-time
+        applications. ICE facilitates seamless connectivity by employing
+        techniques to discover and negotiate efficient communication
+        paths.</t>
+
+        <t>Trickle ICE <xref target="RFC8838"/> optimizes the connectivity
+        process by incrementally sharing potential communication paths,
+        reducing latency, and facilitating quicker establishment.</t>
+
+        <t>ICE restarts are crucial for maintaining connectivity in dynamic
+        network conditions or disruptions, allowing devices to re-establish
+        communication paths without complete renegotiation. This ensures
+        minimal latency and reliable real-time communication.</t>
+
+        <t>Trickle ICE and ICE restart support are <bcp14>RECOMMENDED</bcp14>
+        for both WHIP sessions and clients.</t>
+
+        <section anchor="http-patch-usage">
+          <name>HTTP PATCH Request Usage</name>
+
+          <t>The WHIP client <bcp14>MAY</bcp14> perform Trickle ICE or ICE
+          restarts by sending an HTTP PATCH request as per <xref
+          target="RFC5789"/> to the WHIP session URL. This HTTP PATCH request <bcp14>MUST</bcp14> contain a body with
+          an SDP fragment with media type "application/trickle-ice-sdpfrag" as
+          specified in <xref target="RFC8840"/>, which carries the relevant ICE
+          information. If the HTTP PATCH request sent to the WHIP session URL has a content
+          type different than "application/trickle-ice-sdpfrag" or the SDP
+          fragment is malformed, the WHIP session <bcp14>MUST</bcp14> reject
+          the HTTP PATCH with an appropriate 4xx error response.</t>
+
+          <t>If the WHIP session supports either Trickle ICE or ICE restarts,
+          but not both, it <bcp14>MUST</bcp14> return a "422 Unprocessable
+          Content" error response for the HTTP PATCH requests that are not
+          supported as per <xref section="15.5.21" sectionFormat="of"
+          target="RFC9110"/>.</t>
+
+          <t>The WHIP client <bcp14>MAY</bcp14> send overlapping HTTP PATCH
+          requests to one WHIP session.
+
+	  Consequently, those HTTP PATCH requests may be received out of order
+	  by the WHIP session. Thus, if the WHIP session supports ICE
+	  restarts, it <bcp14>MUST</bcp14> generate a unique strong entity-tag
+	  identifying the ICE session as per <xref section="8.8.3"
+	  sectionFormat="of" target="RFC9110"/>.
+	  The initial value of the
+          entity-tag identifying the initial ICE session <bcp14>MUST</bcp14>
+          be returned in an ETag header field in the "201 Created" response to
+          the initial POST request to the WHIP endpoint.</t>
+
+
+          <t>WHIP clients <bcp14>SHOULD NOT</bcp14> use entity-tag validation
+          when matching a specific ICE session is not required, for example, when
+          initiating a DELETE request to terminate a session.
+          WHIP sessions <bcp14>MUST</bcp14> ignore any entity-tag
+          value sent by the WHIP client when ICE session matching is not
+          required, as in the HTTP DELETE request.</t>
+
+	  <t>Missing or outdated ETags in the PATCH requests from WHIP clients
+          will be answered by WHIP sessions as per <xref section="13.1.1"
+          sectionFormat="of" target="RFC9110"/> and <xref section="3"
+          sectionFormat="of" target="RFC6585"/>, with a "428 Precondition
+          Required" response for a missing entity-tag and a "412 Precondition
+          Failed" response for a non-matching entity-tag.</t>
+        </section>
+        <section anchor="trickle-ice">
+          <name>Trickle ICE</name>
+
+          <t>Depending on the Trickle ICE support on the WHIP client, the
+          initial offer by the WHIP client <bcp14>MAY</bcp14> be sent after
+          the full ICE gathering is complete with the full list of ICE
+          candidates, or it <bcp14>MAY</bcp14> only contain local candidates
+          (or even an empty list of candidates) as per <xref
+          target="RFC8445"/>. For the purpose of reducing setup times, when
+          using Trickle ICE, the WHIP client <bcp14>SHOULD</bcp14> send the SDP
+          offer (containing either locally gathered ICE
+          candidates or an empty list of candidates) as soon as possible.</t>
+          <t>In order to simplify the protocol, the WHIP session cannot signal
+          additional ICE candidates to the WHIP client after the SDP answer
+          has been sent. The WHIP endpoint <bcp14>SHALL</bcp14> gather all the
+          ICE candidates for the media server before responding to the client
+          request, and the SDP answer <bcp14>SHALL</bcp14> contain the full
+          list of ICE candidates of the media server.</t>
+
+          <t>As the WHIP client needs to know the WHIP session URL associated
+          with the ICE session in order to send a PATCH request containing new
+          ICE candidates, it <bcp14>MUST</bcp14> wait and buffer any gathered
+          candidates until the "201 Created" HTTP response to the initial POST
+          request is received.  In order to reduce the HTTP traffic and
+          processing time required, the WHIP client <bcp14>SHOULD</bcp14> send
+          a single aggregated HTTP PATCH request with all the buffered ICE
+          candidates once the response is received.  Additionally, if ICE
+          restarts are supported by the WHIP session, the WHIP client needs to
+          know the entity-tag associated with the ICE session in order to send
+          a PATCH request containing new ICE candidates; thus, it
+          <bcp14>MUST</bcp14> also wait and buffer any gathered candidates
+          until it receives the HTTP response with the new entity-tag value to
+          the last PATCH request performing an ICE restart.</t>
+          <t>WHIP clients generating the HTTP PATCH body with the SDP fragment
+          and its subsequent processing by WHIP sessions <bcp14>MUST</bcp14>
+          follow the guidelines defined in <xref section="4.4"
+          sectionFormat="of" target="RFC8840"/> with the following
+          considerations:</t>
+          <ul spacing="normal">
+            <li>
+              <t>As per <xref target="RFC9429"/>, only "m=" sections not marked
+              as bundle-only can gather ICE candidates, so given that the
+              "max-bundle" policy is being used, the SDP fragment will contain
+              only the offerer-tagged "m=" line of the bundle group.</t>
+            </li>
+            <li>
+              <t>The WHIP client <bcp14>MAY</bcp14> exclude ICE candidates
+              from the HTTP PATCH body if they have already been confirmed by
+              the WHIP session with a successful HTTP response to a previous
+              HTTP PATCH request.</t>
+            </li>
+          </ul>
+          <t>WHIP sessions and clients that support Trickle ICE
+          <bcp14>MUST</bcp14> make use of entity-tags and conditional requests
+          as explained in <xref target="http-patch-usage"/>.</t>
+          <t>When a WHIP session receives a PATCH request that adds new ICE
+          candidates without performing an ICE restart, it <bcp14>MUST</bcp14>
+          return a "204 No Content" response without a body and <bcp14>MUST
+          NOT</bcp14> include an ETag header in the response. If the WHIP
+          session does not support a candidate transport or is not able to
+          resolve the connection address, it <bcp14>MUST</bcp14> silently
+          discard the candidate and continue processing the rest of the
+          request normally.</t>
+
+          <t><xref target="trickle-ice-example"/> shows an example of the
+          Trickle ICE procedure where the WHIP client sends a PATCH request
+          with updated ICE candidate information and receives a successful
+          response from the WHIP session.</t>
+	  
+          <figure anchor="trickle-ice-example">
+            <name>Example of a Trickle ICE Request and Response</name>
+            <sourcecode type="http-message"><![CDATA[
+PATCH /session/id HTTP/1.1
+Host: whip.example.com
+If-Match: "xyzzy"
+Content-Type: application/trickle-ice-sdpfrag
+Content-Length: 576
+
+a=group:BUNDLE 0 1
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+a=mid:0
+a=ice-ufrag:EsAw
+a=ice-pwd:P2uYro0UCOQ4zxjKXaWCBui1
+a=candidate:1387637174 1 udp 2122260223 192.0.2.1 61764 typ host
+   generation 0 ufrag EsAw network-id 1
+a=candidate:3471623853 1 udp 2122194687 198.51.100.2 61765 typ host
+   generation 0 ufrag EsAw network-id 2
+a=candidate:473322822 1 tcp 1518280447 192.0.2.1 9 typ host tcptype
+   active generation 0 ufrag EsAw network-id 1
+a=candidate:2154773085 1 tcp 1518214911 198.51.100.2 9 typ host
+   tcptype active generation 0 ufrag EsAw network-id 2
+a=end-of-candidates
+
+HTTP/1.1 204 No Content
+]]></sourcecode>
+          </figure>
+
+        </section>
+
+        <section anchor="ice-restarts">
+          <name>ICE Restarts</name>
+          <t>As defined in <xref target="RFC8839"/>, when an ICE restart
+          occurs, a new SDP offer/answer exchange is triggered. However, as
+          WHIP does not support renegotiation of non-ICE-related SDP
+          information, a WHIP client will not send a new offer when an ICE
+          restart occurs. Instead, the WHIP client and WHIP session will only
+          exchange the relevant ICE information via an HTTP PATCH request as
+          defined in <xref target="http-patch-usage"/> and <bcp14>MUST</bcp14>
+          assume that the previously negotiated non-ICE-related SDP
+          information still applies after the ICE restart.</t>
+          <t>When performing an ICE restart, the WHIP client
+          <bcp14>MUST</bcp14> include the updated "ice-pwd" and "ice-ufrag" in
+          the SDP fragment of the HTTP PATCH request body as well as the new
+          set of gathered ICE candidates as defined in <xref
+          target="RFC8840"/>.  Similar to what is defined in <xref
+          target="trickle-ice"/>, as per <xref target="RFC9429"/>, only
+          "m=" sections not marked as bundle-only can gather ICE candidates, so
+          given that the "max-bundle" policy is being used, the SDP fragment
+          will contain only the offerer-tagged "m=" line of the bundle group.  A
+          WHIP client sending a PATCH request for performing ICE restart
+          <bcp14>MUST</bcp14> contain an If-Match header field with a
+          field-value of "*" as per <xref section="13.1.1" sectionFormat="of"
+          target="RFC9110"/>.</t>
+          <t><xref target="RFC8840"/> states that an agent <bcp14>MUST</bcp14>
+          discard any received requests containing "ice-pwd" and "ice-ufrag"
+          attributes that do not match those of the current ICE Negotiation
+          Session. However, any WHIP session receiving updated "ice-pwd"
+          and "ice-ufrag" attributes <bcp14>MUST</bcp14> consider the request
+          as performing an ICE restart instead and, if supported,
+          <bcp14>SHALL</bcp14> return a "200 OK" with an
+          "application/trickle-ice-sdpfrag" body containing the new ICE
+          username fragment and password and a new set of ICE candidates for
+          the WHIP session. Also, the "200 OK" response for a successful ICE
+          restart <bcp14>MUST</bcp14> contain the new entity-tag corresponding
+          to the new ICE session in an ETag response header field and
+          <bcp14>MAY</bcp14> contain a new set of ICE candidates for the media
+          server.</t>
+          <t>As defined in <xref section="4.4.1.1.1" sectionFormat="of"
+          target="RFC8839"/>, the set of candidates after an ICE restart may
+          include some, none, or all of the previous candidates for that data
+          stream and may include a totally new set of candidates. Therefore, after
+          performing a successful ICE restart, both the WHIP client and the
+          WHIP session <bcp14>MUST</bcp14> replace the previous set of remote
+          candidates with the new set exchanged in the HTTP PATCH request and
+          response, discarding any remote ICE candidate not present on the new
+          set. Both the WHIP client and the WHIP session <bcp14>MUST</bcp14>
+          ensure that the HTTP PATCH request and response bodies include the
+          same "ice-options," "ice-pacing," and "ice-lite" attributes as those
+          used in the SDP offer or answer.</t>
+          <t>If the ICE restart request cannot be satisfied by the WHIP
+          session, the resource <bcp14>MUST</bcp14> return an appropriate HTTP
+          error code and <bcp14>MUST NOT</bcp14> terminate the session
+          immediately and keep the existing ICE session. The WHIP client
+          <bcp14>MAY</bcp14> retry performing a new ICE restart or terminate
+          the session by issuing an HTTP DELETE request instead. In any case,
+          the session <bcp14>MUST</bcp14> be terminated if the ICE consent
+          expires as a consequence of the failed ICE restart as per <xref
+          section="5.1" sectionFormat="of" target="RFC7675"/>.</t>
+          <t>In case of unstable network conditions, the ICE restart HTTP
+          PATCH requests and responses might be received out of order. In
+          order to mitigate this scenario, when the client performs an ICE
+          restart, it <bcp14>MUST</bcp14> discard any previous ICE username fragment
+          and password and ignore any further HTTP PATCH response
+          received from a pending HTTP PATCH request. WHIP clients
+          <bcp14>MUST</bcp14> apply only the ICE information received in the
+          response to the last sent request. If there is a mismatch between
+          the ICE information at the WHIP client and at the WHIP session
+          (because of an out-of-order request), the Session Traversal
+          Utilities for NAT (STUN) requests will contain invalid ICE
+          information and will be dropped by the receiving side. If this
+          situation is detected by the WHIP client, it <bcp14>MUST</bcp14>
+          send a new ICE restart request to the server.</t>
+
+          <t><xref target="trickle-restart-example"/> demonstrates a Trickle ICE
+          restart procedure example. The WHIP client sends a PATCH request
+          containing updated ICE information, including a new username fragment and
+          password, along with newly gathered ICE candidates. In response, the
+          WHIP session provides ICE information for the session after the ICE
+          restart, including the updated username fragment and password, as well as the
+          previous ICE candidate.</t>
+	  
+          <figure anchor="trickle-restart-example">
+            <name>Example of an ICE Restart Request and Response</name>
+            <sourcecode type="http-message"><![CDATA[
+PATCH /session/id HTTP/1.1
+Host: whip.example.com
+If-Match: "*"
+Content-Type: application/trickle-ice-sdpfrag
+Content-Length: 82
+
+a=ice-options:trickle ice2
+a=group:BUNDLE 0 1
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+a=mid:0
+a=ice-ufrag:ysXw
+a=ice-pwd:vw5LmwG4y/e6dPP/zAP9Gp5k
+a=candidate:1387637174 1 udp 2122260223 192.0.2.1 61764 typ host
+   generation 0 ufrag EsAw network-id 1
+a=candidate:3471623853 1 udp 2122194687 198.51.100.2 61765 typ host
+   generation 0 ufrag EsAw network-id 2
+a=candidate:473322822 1 tcp 1518280447 192.0.2.1 9 typ host tcptype
+   active generation 0 ufrag EsAw network-id 1
+a=candidate:2154773085 1 tcp 1518214911 198.51.100.2 9 typ host
+   tcptype active generation 0 ufrag EsAw network-id 2
+
+HTTP/1.1 200 OK
+ETag: "abccd"
+Content-Type: application/trickle-ice-sdpfrag
+Content-Length: 252
+
+a=ice-lite
+a=ice-options:trickle ice2
+a=group:BUNDLE 0 1
+m=audio 9 UDP/TLS/RTP/SAVPF 111
+a=mid:0
+a=ice-ufrag:289b31b754eaa438
+a=ice-pwd:0b66f472495ef0ccac7bda653ab6be49ea13114472a5d10a
+a=candidate:1 1 udp 2130706431 198.51.100.1 39132 typ host
+a=end-of-candidates
+]]></sourcecode>
+          </figure>
+
+        </section>
+      </section>
+      <section anchor="webrtc-constraints">
+        <name>WebRTC Constraints</name>
+        <t>To simplify the implementation of WHIP in both clients and media
+        servers, WHIP introduces specific restrictions on WebRTC usage. The
+        following subsections will explain these restrictions in detail.</t>
+        <section anchor="sdp-bundle">
+          <name>SDP Bundle</name>
+          <t>Both the WHIP client and the WHIP endpoint <bcp14>SHALL</bcp14>
+          support <xref target="RFC9143"/> and use the "max-bundle" policy as
+          defined in <xref target="RFC9429"/>. The WHIP client and the media
+          server <bcp14>MUST</bcp14> support multiplexed media associated with
+          the BUNDLE group as per <xref section="9" sectionFormat="of"
+          target="RFC9143"/>. In addition, per <xref target="RFC9143"/>, the
+          WHIP client and media server <bcp14>SHALL</bcp14> use RTP/RTCP
+          multiplexing for all bundled media. In order to reduce the network
+          resources required at the media server, both the WHIP client and
+          WHIP endpoints <bcp14>MUST</bcp14> include the "rtcp-mux-only"
+          attribute in each bundled "m=" section as per <xref section="3"
+          sectionFormat="of" target="RFC8858"/>.</t>
+        </section>
+        <section anchor="single-mediastream">
+          <name>Single MediaStream</name>
+
+
+          <t>WHIP only supports a single MediaStream as defined in <xref
+          target="RFC8830"/>; therefore, all "m=" sections <bcp14>MUST</bcp14>
+          contain a "msid" attribute with the same value. The MediaStream
+          <bcp14>MUST</bcp14> contain at least one MediaStreamTrack of any
+          media kind, and it <bcp14>MUST NOT</bcp14> have two or more 
+          MediaStreamTracks for the same media (audio or video). However, it
+          would be possible for future revisions of this specification to allow more
+          than a single MediaStream or MediaStreamTrack of each media
+          kind. Therefore, in order to ensure forward compatibility, if the
+          number of audio and/or video MediaStreamTracks or the number of
+          MediaStreams are not supported by the WHIP endpoint, it
+          <bcp14>MUST</bcp14> reject the HTTP POST request with a "422
+          Unprocessable Content" or "400 Bad Request" error response. The WHIP
+          endpoint <bcp14>MAY</bcp14> also return a problem statement that provides further error
+          details about the failed request, as
+          recommended in <xref target="http-usage"/>.</t>
+        </section>
+
+
+
+        <section anchor="no-partially-successful-answers">
+          <name>No Partially Successful Answers</name>
+          <t>The WHIP endpoint <bcp14>SHOULD NOT</bcp14> reject individual
+          "m=" sections, as specified in <xref section="5.3.1" sectionFormat="of"
+          target="RFC9429"/>, if an error occurs when processing the "m="
+          section; instead, it <bcp14>SHOULD</bcp14> reject the HTTP POST request with a "422 Unprocessable
+          Content" or "400 Bad Request" error response to prevent having
+          partially successful ingest sessions, which can be misleading to end
+          users. The WHIP endpoint <bcp14>MAY</bcp14> also return a problem
+          statement as recommended in <xref target="http-usage"/> proving
+          further error details about the failed request.</t>
+        </section>
+        <section anchor="dtls-setup-role-and-sdp-setup-attribute">
+          <name>DTLS Setup Role and SDP "setup" Attribute</name>
+          <t>When a WHIP client sends an SDP offer, it <bcp14>SHOULD</bcp14>
+          insert an SDP "setup" attribute with an "actpass" attribute value,
+          as defined in <xref target="RFC8842"/>. However, if the WHIP client
+          only implements the DTLS client role, it <bcp14>MAY</bcp14> use an
+          SDP "setup" attribute with an "active" attribute value. If the WHIP
+          endpoint does not support an SDP offer with an SDP "setup" attribute
+          with an "active" attribute value, it <bcp14>SHOULD</bcp14> reject
+          the request with a "422 Unprocessable Content" or "400 Bad Request"
+          error response.</t>
+          <t>NOTE: <xref target="RFC8842"/> defines that the offerer
+          must insert an SDP "setup" attribute with an "actpass" attribute
+          value. However, the WHIP client will always communicate with a media
+          server that is expected to support the DTLS server role, in which
+          case the client might choose to only implement support for the DTLS
+          client role.</t>
+        </section>
+        <section anchor="trickle-ice-and-ice-restarts">
+          <name>Trickle ICE and ICE Restarts</name>
+          <t>The media server <bcp14>SHOULD</bcp14> support full ICE, unless
+          it is connected to the Internet with an IP address that is
+          accessible by each WHIP client that is authorized to use it, in
+          which case it <bcp14>MAY</bcp14> support only ICE lite. The WHIP
+          client <bcp14>MUST</bcp14> implement and use full ICE.</t>
+          <t>Trickle ICE and ICE restart support is <bcp14>OPTIONAL</bcp14>
+          for both the WHIP clients and media servers as explained in <xref
+          target="ice-support"/>.</t>
+        </section>
+      </section>
+      <section anchor="load-balancing-and-redirections">
+        <name>Load Balancing and Redirections</name>
+        <t>WHIP endpoints and media servers might not be colocated on the same
+        server, so it is possible to load balance incoming requests to
+        different media servers.</t>
+
+	
+        <t>WHIP clients <bcp14>SHALL</bcp14> support HTTP redirections as per
+        <xref section="15.4" sectionFormat="of" target="RFC9110"/>. In order
+        to avoid POST requests being redirected as GET requests, status codes
+        "301 Moved Permanently" and "302 Found" <bcp14>MUST NOT</bcp14> be used; the preferred method
+        for performing load balancing is via the "307 Temporary Redirect"
+        response status code as described in <xref section="15.4.8"
+        sectionFormat="of" target="RFC9110"/>. Redirections are not required
+        to be supported for the PATCH and DELETE requests.</t>
+        <t>In case of high load, the WHIP endpoints <bcp14>MAY</bcp14> return
+        a "503 Service Unavailable" response indicating that the server is
+        currently unable to handle the request due to a temporary overload or
+        scheduled maintenance as described in <xref section="15.6.4"
+        sectionFormat="of" target="RFC9110"/>, which will likely be alleviated
+        after some delay. The WHIP endpoint might send a Retry-After header
+        field indicating the minimum time that the user agent ought to wait
+        before making a follow-up request as described in <xref
+        section="10.2.3" sectionFormat="of" target="RFC9110"/>.</t>
+      </section>
+      <section anchor="stunturn-server-configuration">
+        <name>STUN/TURN Server Configuration</name>
+        <t>The WHIP endpoint <bcp14>MAY</bcp14> return STUN/TURN server configuration URLs and credentials usable by the client in the "201 Created" response to the HTTP POST request to the WHIP endpoint URL.</t>
+        <t>A reference to each STUN/TURN server will be returned using the Link header field <xref target="RFC8288"/> with a "rel" attribute value of "ice-server". The Link target URI is the server URI as defined in <xref target="RFC7064"/> and <xref target="RFC7065"/>. The credentials are encoded in the Link target attributes as follows:</t>
+
+
+        <ul spacing="normal">
+            <li>username: If the Link header field represents a Traversal Using Relays around NAT (TURN) server, then this attribute specifies the username to use with that TURN server.
+            </li>
+            <li>credential: This attribute represents a long-term
+            authentication password, as described in <xref section="9.2"
+            sectionFormat="of" target="RFC8489"/>.</li>
+
+        </ul>
+
+        <t><xref target="stun-server-example"/> illustrates the Link headers included in a "201 Created" response, providing the ICE server URLs and associated credentials.</t>
+	
+        <figure anchor="stun-server-example">
+          <name>Example of a STUN/TURN Server's Configuration</name>
+          <sourcecode type="http-message"><![CDATA[
+Link: <stun:stun.example.net>; rel="ice-server"
+Link: <turn:turn.example.net?transport=udp>; rel="ice-server";
+      username="user"; credential="myPassword"
+Link: <turn:turn.example.net?transport=tcp>; rel="ice-server";
+      username="user"; credential="myPassword"
+Link: <turns:turn.example.net?transport=tcp>; rel="ice-server";
+      username="user"; credential="myPassword"
+]]></sourcecode>
+        </figure>
+
+
+        <t>NOTE: The naming of both the "rel" attribute value of
+        "ice-server" and the target attributes follows that used in the
+        RTCConfiguration dictionary in Section 4.2.1 of the W3C WebRTC
+        recommendation (see <xref target="W3C.REC-webrtc-20250313"/>). The "rel"
+        attribute value of "ice-server" is not prepended with the
+        "urn:ietf:params:whip:" so it can be reused by other specifications,
+        which may use this mechanism to configure the usage of STUN/TURN
+        servers.</t>
+        <t>NOTE: Depending on the ICE agent implementation, the WHIP
+        client may need to call the setConfiguration method before calling the
+        setLocalDescription method with the local SDP offer in order
+        to avoid having to perform an ICE restart for applying the updated
+        STUN/TURN server configuration on the next ICE gathering
+        phase.</t>
+
+
+        <t>There are some WebRTC implementations that do not support updating
+        the STUN/TURN server configuration after the local offer has been
+        created as specified in <xref section="4.1.18" sectionFormat="of"
+        target="RFC9429"/>. In order to support these clients, the WHIP
+        endpoint <bcp14>MAY</bcp14> also include the STUN/TURN server
+        configuration in the responses to OPTIONS requests sent to the WHIP
+        endpoint URL before the POST request is sent. However, this method is
+        <bcp14>NOT RECOMMENDED</bcp14> to be used by the WHIP clients, and if it is
+        supported by the underlying WHIP client's WebRTC implementation, the
+        WHIP client <bcp14>SHOULD</bcp14> wait for the information to be
+        returned by the WHIP endpoint in the response of the HTTP POST request
+        instead.</t>
+        <t>The generation of the TURN server credentials may require
+        sending a request to an external provider, which can both add
+        latency to the OPTIONS request processing and increase the processing
+        required to handle that request. In order to prevent this, the WHIP
+        endpoint <bcp14>SHOULD NOT</bcp14> return the STUN/TURN server
+        configuration if the OPTIONS request is a preflight request for CORS
+        as defined in <xref target="FETCH"/>, that is, if the OPTIONS request
+        does not contain an Access-Control-Request-Method with a POST value
+        and the Access-Control-Request-Headers HTTP header does not contain
+        the Link value.</t>
+        <t>The WHIP clients <bcp14>MAY</bcp14> also support configuring the
+        STUN/TURN server URIs with long-term credentials provided by either
+        the broadcasting service or an external TURN provider, overriding the
+        values provided by the WHIP endpoint.</t>
+        <section anchor="congestion-control">
+          <name>Congestion Control</name>
+
+          <t><xref target="RFC8836"/> defines the congestion control
+          requirements for interactive real-time media to be used in
+          WebRTC. These requirements are based on the assumption that the data
+          needs to be provided continuously within a very limited time window
+          (a delay of no more than hundreds of milliseconds end-to-end). If
+          the latency target is higher, some of the requirements present in
+          <xref target="RFC8836"/> could be relaxed to allow more flexible
+          implementations.</t>
+        </section>
+      </section>
+      <section anchor="authentication-and-authorization">
+        <name>Authentication and Authorization</name>
+        <t>All WHIP endpoints, sessions, and clients <bcp14>MUST</bcp14>
+        support HTTP authentication as per <xref section="11"
+        sectionFormat="of" target="RFC9110"/>. Additionally, in order to
+        ensure interoperability, bearer token authentication as defined in the
+        next section <bcp14>MUST</bcp14> be supported by all WHIP
+        entities. However, this does not preclude the support of additional
+        HTTP authentication schemes as defined in <xref section="11.6"
+        sectionFormat="of" target="RFC9110"/>.</t>
+        <section anchor="bearer-token-authentication">
+          <name>Bearer Token Authentication</name>
+
+
+
+          <t>WHIP endpoints and sessions <bcp14>MAY</bcp14> require the HTTP
+          request to be authenticated using an HTTP Authorization header field
+          with a bearer token as specified in <xref section="2.1"
+          sectionFormat="of" target="RFC6750"/>. WHIP clients
+          <bcp14>MUST</bcp14> implement this authentication and authorization
+          mechanism and send the HTTP Authorization header field in all HTTP
+          requests sent to either the WHIP endpoint or session (except the
+          preflight OPTIONS requests for CORS).</t>
+
+          <t>The nature, syntax, and semantics of the bearer token, as well as
+          how to distribute it to the client, are outside the scope of this
+          document. Examples of tokens that could be used
+          include, but are not limited to, JSON Web Tokens (JWTs) as per
+          <xref target="RFC8725"/> and a shared secret
+          stored on a database. The tokens are typically made available to the
+          end user alongside the WHIP endpoint URL and configured on the WHIP
+          clients (similar to the way Real Time Messaging Protocol (RTMP) URLs
+          and Stream Keys are distributed).</t>
+          <t>WHIP endpoints and sessions could perform the authentication and
+          authorization by encoding an authentication token within the URLs
+          for the WHIP endpoints or sessions instead. In case the WHIP client
+          is not configured to use a bearer token, the HTTP Authorization
+          header field <bcp14>MUST NOT</bcp14> be sent in any request.</t>
+        </section>
+      </section>
+      <section anchor="simulcast-and-scalable-video-coding">
+        <name>Simulcast and Scalable Video Coding</name>
+        <t>Simulcast as per <xref target="RFC8853"/> <bcp14>MAY</bcp14> be
+        supported by both the media servers and WHIP clients through
+        negotiation in the SDP offer/answer.</t>
+        <t>If the client supports simulcast and wants to enable it for
+        ingesting, it <bcp14>MUST</bcp14> negotiate the support in the SDP
+        offer according to the procedures in <xref section="5.3"
+        sectionFormat="of" target="RFC8853"/>. A server accepting a simulcast
+        offer <bcp14>MUST</bcp14> create an answer according to the procedures
+        in <xref section="5.3.2" sectionFormat="of" target="RFC8853"/>.</t>
+        <t>It is possible for both media servers and WHIP clients to support
+        Scalable Video Coding (SVC). However, as there is no universal
+        negotiation mechanism in SDP for SVC, the encoder must consider the
+        negotiated codec(s), intended usage, and SVC support in available
+        decoders when configuring SVC.</t>
+      </section>
+      <section anchor="protocol-extensions">
+        <name>Protocol Extensions</name>
+        <t>In order to support future extensions to be defined for WHIP, a common procedure for registering and announcing the new
+        extensions is defined.</t>
+        <t>Protocol extensions supported by the WHIP sessions
+        <bcp14>MUST</bcp14> be advertised to the WHIP client in the "201
+        Created" response to the initial HTTP POST request sent to the WHIP
+        endpoint.  The WHIP endpoint <bcp14>MUST</bcp14> return one Link
+        header field for each extension that it supports, with the extension
+        "rel" attribute value containing the extension URN and the URL for the
+        HTTP resource that will be available for receiving requests related to
+        that extension.</t>
+        <t>Protocol extensions are optional for both WHIP clients and
+        servers. WHIP clients <bcp14>MUST</bcp14> ignore any Link target attribute
+        with an unknown "rel" attribute value, and WHIP sessions <bcp14>MUST
+        NOT</bcp14> require the usage of any extension.</t>
+
+	
+        <t>Each protocol extension <bcp14>MUST</bcp14> register a unique "rel"
+        attribute value that starts with the prefix
+        "urn:ietf:params:whip:ext" in the "WebRTC-HTTP Ingestion Protocol (WHIP)
+    Extension URNs" registry (<xref
+        target="urn-whip-ext-registry"/>).</t>
+        <t>For example, consider a potential extension of server-to-client
+        communication using server-sent events as specified in Section 9.2 of
+        <xref target="HTML"/>. The URL for connecting to the server-sent event
+        resource for the ingested stream could be returned in the initial HTTP
+        "201 Created" response with a Link header field and a "rel"
+        attribute of "urn:ietf:params:whip:ext:example:server-sent-events"
+        (this document does not specify such an extension and uses it only as
+        an example).</t>
+        <t>In this theoretical case, the "201 Created" response to the HTTP
+        POST request would look like:</t>
+
+        <t><xref target="protocol-extension-example"/> shows the "201 Created"
+        response to the HTTP POST request in this theoretical case (i.e., the
+        WHIP extension supported by the WHIP session, as indicated in
+        the Link header of the "201 Created" response).
+	</t>
+
+	
+        <figure anchor="protocol-extension-example">
+          <name>Example of a WHIP Extension</name>
+          <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 201 Created
+Content-Type: application/sdp
+Location: https://whip.example.com/session/id
+Link: <https://whip.example.com/session/id/sse>;
+      rel="urn:ietf:params:whip:ext:example:server-sent-events"
+]]></sourcecode>
+        </figure>
+
+      </section>
+    </section>
+
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document specifies a new protocol on top of HTTP and WebRTC;
+      thus, security protocols and considerations from related specifications
+      apply to the WHIP specification. These include:</t>
+
+      <ul>
+          <li>WebRTC security considerations: See <xref
+          target="RFC8826"/>. HTTPS <bcp14>SHALL</bcp14> be used in order to
+          preserve the WebRTC security model.</li>
+          <li>Transport Layer Security (TLS): See <xref target="RFC8446"/> and
+          <xref target="RFC9147"/>.</li>
+          <li>HTTP security: See <xref section="11" sectionFormat="of"
+          target="RFC9112"/> and <xref section="17" sectionFormat="of"
+          target="RFC9110"/>.</li>
+          <li>URI security: See <xref section="7" sectionFormat="of" target="RFC3986"/>.</li>
+      </ul>
+      <t>On top of that, WHIP exposes a thin new attack surface
+      specific to the REST API methods used within it:</t>
+
+      <ul spacing="normal">
+          <li>HTTP POST flooding and resource exhaustion: It would be possible
+          for an attacker in possession of authentication credentials valid
+          for ingesting a WHIP stream to make multiple HTTP POST requests to the WHIP
+          endpoint.  This will force the WHIP endpoint to process the incoming
+          SDP and allocate resources for being able to set up the DTLS/ICE
+          connection.  While the malicious client does not need to initiate
+          the DTLS/ICE connection at all, the WHIP session will have to wait
+          for the DTLS/ICE connection timeout in order to release the
+          associated resources.  If the connection rate is high enough, this
+          could lead to resource exhaustion on the servers handling the
+          requests, and they will not be able to process legitimate incoming
+          ingests.  In order to prevent this scenario, WHIP endpoints
+          <bcp14>SHOULD</bcp14> implement a rate limit and avalanche control
+          mechanism for incoming initial HTTP POST requests.</li>
+
+
+<li>Insecure Direct Object References (IDORs) for WHIP session URLs:
+     If the URLs returned by the WHIP endpoint for the location of WHIP
+     sessions are easy to guess, it would be possible for an
+     attacker to send multiple HTTP DELETE requests and terminate all
+     the WHIP sessions currently running.
+	  In order to prevent this scenario,
+          WHIP endpoints <bcp14>SHOULD</bcp14> generate URLs with enough
+          randomness, using a cryptographically secure pseudorandom number
+          generator following the best practices in "Randomness Requirements
+          for Security" <xref target="RFC4086"/>, and implement a rate limit and avalanche control
+          mechanism for HTTP DELETE requests.  The security considerations for
+          Universally Unique IDentifiers (UUIDs) in <xref section="8"
+          sectionFormat="of" target="RFC9562"/> are applicable for generating the
+          WHIP session URLs.</li>
+
+          <li>HTTP PATCH flooding: Similar to the HTTP POST flooding, a
+          malicious client could also create resource exhaustion by sending
+          multiple HTTP PATCH requests to the WHIP session, although the WHIP
+          sessions can limit the impact by not allocating new ICE candidates
+          and reusing the existing ICE candidates when doing ICE restarts.  In
+          order to prevent this scenario, WHIP endpoints <bcp14>SHOULD</bcp14>
+          implement a rate limit and avalanche control mechanism for incoming
+          HTTP PATCH requests.</li>
+      </ul>
+    </section>
+    <section anchor="iana-considerations">
+
+      <name>IANA Considerations</name>
+
+      <t>Per this specification, IANA has added a new link relation type and
+   a new URN sub-namespace for WHIP. IANA has also created registries
+   to manage entries within the "urn:ietf:params:whip" and
+   "urn:ietf:params:whip:ext" namespaces.
+      </t>
+
+      <section anchor="link-relation-type-ice-server">
+        <name>Link Relation Type: ice-server</name>
+        <t>The link relation type below has been registered by IANA in the
+        "Link Relation Types" registry per <xref section="4.2"
+        sectionFormat="of" target="RFC8288"/>:</t>
+
+	<dl newline="false" spacing="normal">
+        <dt>Relation Name:</dt><dd>ice-server</dd>
+        <dt>Description:</dt><dd>Conveys the STUN and TURN servers that can be used by
+        an ICE agent to establish a connection with a peer.</dd>
+        <dt>Reference:</dt><dd>RFC 9725</dd>
+	</dl>
+      </section>
+
+      <section anchor="urn-whip-subspace">
+        <name>URN Sub-namespace for WHIP (urn:ietf:params:whip)</name>
+
+<t> IANA has added a new entry in the "IETF URN Sub-namespace for Registered
+Protocol Parameter Identifiers" registry, following the template in <xref
+target="RFC3553"/>:</t>
+
+<dl newline="false"> 
+ <dt>Registry name:</dt><dd>whip</dd>
+ <dt>Specification:</dt><dd>RFC 9725</dd>
+ <dt>Repository:</dt><dd>&lt;https://www.iana.org/assignments/whip&gt;</dd>
+ <dt>Index value:</dt><dd>An IANA-assigned positive integer that identifies
+ the registration.  The first entry added to this registry uses the value 1,
+ and this value is incremented for each subsequent entry added to the
+ registry.</dd>
+</dl>
+
+<t>To manage this sub-namespace, IANA has created two registries within
+a new registry group called "WebRTC-HTTP Ingestion Protocol (WHIP)":</t>
+
+<ul>
+<li>"WebRTC-HTTP Ingestion Protocol (WHIP) URNs" registry (<xref target="urn-whip-registry"/>)</li>
+<li>"WebRTC-HTTP Ingestion Protocol (WHIP) Extension URNs" registry (<xref target="urn-whip-ext-registry"/>)</li>
+</ul>
+      </section>
+      
+
+        <section anchor="urn-whip-registry">
+          <name>WebRTC-HTTP Ingestion Protocol (WHIP) URNs Registry</name>
+          <t>The "WebRTC-HTTP Ingestion Protocol (WHIP) URNs" registry is used
+          to manage entries within the "urn:ietf:params:whip" namespace. The
+          registration procedure is "Specification Required" <xref target="RFC8126"/>.  The registry contains the following fields:
+	  URN, Name, Reference, IANA Registry Reference, and Change Controller. This document is listed as the reference.</t>
+
+
+          <t>The registry contains a single initial entry:</t>
+          <dl spacing="normal">
+              <dt>URN:</dt><dd>urn:ietf:params:whip:ext</dd>
+              <dt>Name:</dt><dd>WebRTC-HTTP Ingestion Protocol (WHIP) extension URNs</dd>
+              <dt>Reference:</dt><dd><xref target="urn-whip-ext-registry"/> of RFC 9725</dd>
+              <dt>IANA Registry Reference:</dt><dd>See "WebRTC-HTTP Ingestion Protocol (WHIP) Extension URNs" on &lt;https://www.iana.org/assignments/whip&gt;</dd>
+	      <dt>Change Controller:</dt><dd>IETF</dd>
+
+          </dl>
+        </section>
+
+        <section anchor="urn-whip-ext-registry">
+          <name>WebRTC-HTTP Ingestion Protocol (WHIP) Extension URNs Registry</name>
+          <t>The "WebRTC-HTTP Ingestion Protocol (WHIP) Extension URNs" registry is
+          used to manage entries within the "urn:ietf:params:whip:ext"
+          namespace.  The registration procedure is "Specification Required"
+          <xref target="RFC8126"/>.
+          The registry contains the following fields:
+	  URN, Name, Reference, IANA Registry Reference, and Change Controller. This document is listed as the reference.
+          </t>
+        <t>A WHIP extension URN is used as a value in the "rel" attribute of the Link header as defined in <xref target="protocol-extensions"/> for the purpose of signaling the WHIP extensions supported by the WHIP endpoint. WHIP extension URNs have an "ext" type.</t>
+
+        </section>
+
+      <section anchor="registering-whip-protocol-extensions-urns">
+        <name>Registering WHIP URNs and WHIP Extension URNs</name>
+        <t>This section defines the process for registering new URNs in the
+        "WebRTC-HTTP Ingestion Protocol (WHIP) URNs" registry (<xref
+        target="urn-whip-registry"/>) and the "WebRTC-HTTP Ingestion Protocol
+        (WHIP) Extension URNs" registry (<xref target="urn-whip-ext-registry"/>).
+	</t>
+        <section anchor="registration-procedure">
+          <name>Registration Procedure</name>
+          <t>The IETF has created a mailing list, &lt;wish@ietf.org&gt;, which can
+          be used for public discussion of proposals
+          prior to registration.  Use of the mailing list is strongly
+          encouraged. A designated expert (DE) <xref
+          target="RFC8126"/>, appointed by the IESG,  will monitor the &lt;wish@ietf.org&gt; mailing list
+          and review registrations.</t>
+          <t>Registration of new entries in the WHIP registries defined in this document
+          <bcp14>MUST</bcp14> be documented in a permanent and readily
+          available public specification, in sufficient detail so that
+          interoperability between independent implementations is possible, and
+          reviewed by the DE as per <xref section="4.6"
+          sectionFormat="of" target="RFC8126"/>.  A Standards Track RFC is
+          <bcp14>REQUIRED</bcp14> for the registration of new value data types
+          that modify existing properties.  A Standards Track RFC is also
+          <bcp14>REQUIRED</bcp14> for registration of WHIP extension
+          URNs that modify WHIP extensions previously documented in
+          an existing RFC.</t>
+
+	  
+          <t>The registration procedure begins when a completed registration template, defined in <xref target="whip-protocol-extension-registration-template"/>, is sent to &lt;iana@iana.org&gt;.
+   Decisions made by the DE can be appealed to an Applications and Real-Time (ART) Area Director, then to the IESG.
+   The normal appeals procedure described in RFC 2026 <xref target="BCP9"/> is to be followed.</t>
+          <t>Once the registration procedure concludes successfully, IANA will create
+   or modify the corresponding record in the "WebRTC-HTTP Ingestion Protocol (WHIP) URNs Registry" or "WebRTC-HTTP Ingestion Protocol (WHIP) Extension URNs" registry.</t>
+          <t>An RFC specifying one or more new WHIP extension URNs <bcp14>MUST</bcp14> include the
+   completed registration template(s), which <bcp14>MAY</bcp14> be expanded with
+   additional information. These completed template(s) are intended to go
+   in the body of the document, not in the IANA Considerations section.
+   The RFC <bcp14>MUST</bcp14> include the syntax and semantics of any extension-specific attributes that may be provided in a Link header
+   field advertising the extension.</t>
+        </section>
+        <section anchor="guidance-for-designated-experts">
+          <name>Guidance for the Designated Expert</name>
+          <t>The DE is expected to do the following:</t>
+<ul>
+	  <li>Ascertain the existence of suitable documentation (a
+	  specification) as described in <xref target="RFC8126"/> and verify
+	  that the document is permanently and publicly
+	  available. Specifications should be documented in an
+	  Internet-Draft.</li>
+          <li>Check the clarity of purpose and use of the requested
+          registration.</li> <li>Verify that any request for one of these
+          registrations has been made available for review and comments by
+          posting the request to the &lt;wish@ietf.org&gt; mailing list.</li>
+          <li>Ensure that any other request for a code point does not conflict with work that is active or already published by the IETF.</li>
+</ul>
+	
+        </section>
+        <section anchor="whip-protocol-extension-registration-template">
+          <name>Registration Template</name>
+          <t>A WHIP extension URN is defined by completing the following template:</t>
+          <dl spacing="normal">
+              <dt>URN:</dt><dd>A unique URN (e.g., "urn:ietf:params:whip:ext:example:server-sent-events")</dd>
+              <dt>Name:</dt><dd>A descriptive name (e.g., "Sender Side events")</dd>
+              <dt>Reference:</dt><dd>A formal reference to the publicly available specification</dd>
+              <dt>IANA Registry Reference:</dt><dd>The registry related to the new URN
+	    </dd>
+              <dt>Change Controller:</dt><dd>For Standards Track documents, this is "IETF".
+       Otherwise, this is the name of the person or body
+       that has change control over the specification.</dd>
+          </dl>
+        </section>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+
+
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+
+        <reference anchor="FETCH" target="https://fetch.spec.whatwg.org">
+          <front>
+            <title>Fetch</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+          </front>
+          <refcontent>WHATWG Living Standard</refcontent>
+          <annotation>Commit snapshot: <eref
+          target="https://fetch.spec.whatwg.org/commit-snapshots/edfa8d100cf1ecfde385f65c172e0e8d018fcd98/"
+          brackets="angle"/>.</annotation>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9429.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3264.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7675.xml"/>
+
+
+        <reference anchor="W3C.REC-ldp-20150226" target="https://www.w3.org/TR/2015/REC-ldp-20150226/">
+          <front>
+            <title>Linked Data Platform 1.0</title>
+            <author fullname="John Arwe" role="editor"/>
+            <author fullname="Steve Speicher" role="editor"/>
+            <author fullname="Ashok Malhotra" role="editor"/>
+            <date day="26" month="February" year="2015"/>
+          </front>
+          <refcontent>W3C Recommendation</refcontent>
+          <annotation>Latest version available at: <eref target="https://www.w3.org/TR/ldp/" brackets="angle"/>.</annotation>
+        </reference>
+
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8445.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8838.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5789.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8840.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6585.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8839.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9143.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8858.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8830.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8842.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8288.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7064.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7065.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8489.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6750.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8725.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8853.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8826.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9147.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9112.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4086.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9562.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3553.xml"/>
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3261.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6120.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7826.xml"/>
+        <referencegroup anchor="BCP56" target="https://www.rfc-editor.org/info/bcp56">
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9205.xml"/>
+        </referencegroup>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9457.xml"/>
+
+
+        <reference anchor="HTML" target="https://html.spec.whatwg.org/">
+          <front>
+            <title>HTML</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+          </front>
+          <refcontent>WHATWG Living Standard</refcontent>
+          <annotation>Commit snapshot: <eref target="https://html.spec.whatwg.org/commit-snapshots/09db56ba9343c597340b2c7715f43ff9b10826f6/" brackets="angle"/>.</annotation>
+        </reference>
+
+        <reference anchor="W3C.REC-webrtc-20250313" target="https://www.w3.org/TR/2025/REC-webrtc-20250313/">
+          <front>
+            <title>WebRTC: Real-Time Communication in Browsers</title>
+            <author fullname="Cullen Jennings" role="editor"/>
+            <author fullname="Florent Castelli" role="editor"/>
+            <author fullname="Henrik Boström" role="editor"/>
+            <author fullname="Jan-Ivar Bruaroey" role="editor"/>
+            <date day="13" month="March" year="2025"/>
+          </front>
+          <refcontent>W3C Recommendation</refcontent>
+          <annotation>Latest version available at: <eref target="https://www.w3.org/TR/webrtc/" brackets="angle"/>.</annotation>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8836.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+
+        <referencegroup anchor="BCP9" target="https://www.rfc-editor.org/info/bcp9">
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2026.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5657.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6410.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7100.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7127.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7475.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8789.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9282.xml"/>
+        </referencegroup>
+      </references>
+    </references>
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>The authors wish to thank <contact fullname="Lorenzo Miniero"/>,
+      <contact fullname="Juliusz Chroboczek"/>, <contact fullname="Adam
+      Roach"/>, <contact fullname="Nils Ohlmeier"/>, <contact
+      fullname="Christer Holmberg"/>, <contact fullname="Cameron Elliott"/>,
+      <contact fullname="Gustavo Garcia"/>, <contact fullname="Jonas Birme"/>,
+      <contact fullname="Sandro Gauci"/>, <contact fullname="Christer
+      Holmberg"/>, and everyone else in the WebRTC community that have provided
+      comments, feedback, text, and improvement proposals on the document and
+      contributed early implementations of the spec.</t>
+    </section>
+  </back>
+
+</rfc>
+
+
+

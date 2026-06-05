@@ -1,0 +1,1057 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="exp" docName="draft-ietf-lsr-isis-area-proxy-12" number="9666" consensus="true" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+ <front>
+   <title abbrev="Area Proxy for IS-IS">Area Proxy for IS-IS</title>
+    <seriesInfo name="RFC" value="9666"/>
+   <author fullname="Tony Li" initials="T." surname="Li">
+      <organization>Juniper Networks</organization>
+      <address>
+        <postal>
+          <street>1133 Innovation Way</street>
+          <city>Sunnyvale</city>
+          <region>CA</region>
+          <code>94089</code>
+          <country>United States of America</country>
+        </postal>
+        <phone/>
+        <email>tony.li@tony.li</email>
+     </address>
+    </author>
+    <author fullname="Sarah Chen" initials="S." surname="Chen">
+      <organization>Arista Networks</organization>
+      <address>
+        <postal>
+          <street>5453 Great America Parkway</street>
+          <city>Santa Clara</city>
+          <region>CA</region>
+          <code>95054</code>
+          <country>United States of America</country>
+        </postal>
+        <phone/>
+        <email>sarahchen@arista.com</email>
+     </address>
+    </author>
+    <author fullname="Vivek Ilangovan" initials="V." surname="Ilangovan">
+      <organization>Arista Networks</organization>
+      <address>
+        <postal>
+          <street>5453 Great America Parkway</street>
+          <city>Santa Clara</city>
+          <region>CA</region>
+          <code>95054</code>
+          <country>United States of America</country>
+        </postal>
+        <phone/>
+        <email>ilangovan@arista.com</email>
+     </address>
+    </author>
+    <author initials="G." surname="Mishra" fullname="Gyan S. Mishra">
+      <organization>Verizon Inc.</organization>
+      <address>
+        <postal>
+          <street>13101 Columbia Pike</street>
+          <city>Silver Spring</city>
+          <region>MD</region>
+          <code>20904</code>
+          <country>United States of America</country>
+        </postal>
+        <phone>301 502-1347</phone>
+        <email>gyan.s.mishra@verizon.com</email>
+      </address>
+    </author>
+    <date year="2024" month="October"/>
+
+   <area>RTG</area>
+    <workgroup>lsr</workgroup>
+
+   <keyword>datacenter</keyword>
+   <keyword>IGP</keyword>
+   <keyword>routing</keyword>
+   <keyword>topology</keyword>
+   <keyword>level</keyword>
+   <keyword>abstraction</keyword>
+   <keyword>IS-IS</keyword>
+   <keyword>proxy</keyword>
+
+
+   <abstract>
+      <t>
+       Link-state routing protocols have hierarchical abstraction
+       already built into them. However, when lower levels are used
+       for transit, they must expose their internal topologies to each
+       other, thereby leading to scaling issues.
+      </t>
+      <t>
+          To avoid such issues, this document discusses extensions to the
+          IS-IS routing protocol that allow Level 1 (L1) areas to provide transit
+          but only inject an abstraction of the Level 1 topology into Level 2 (L2).
+          Each Level 1 area is represented as a single Level 2 node, thereby
+          enabling a greater scale.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+       The IS-IS routing protocol <xref target="ISO10589" format="default"></xref>
+       supports a two-level hierarchy of abstraction. The
+       fundamental unit of abstraction is the "area", which is a
+       (hopefully) connected set of systems running IS-IS at the same
+       level. Level 1, the lowest level, is abstracted by routers that
+       participate in both Level 1 and Level 2, and they inject area
+       information into Level 2.  Level 2 systems seeking to access
+       Level 1 use this abstraction to compute the shortest path to
+       the Level 1 area. 
+
+   The full topology database of Level 1 is not injected into Level 2, rather,
+   only a summary of the address space contained within the area is injected.
+   Therefore, the scalability of the Level 2 Link State Database (LSDB) is
+   protected.
+      </t>
+      <t>
+       This works well if the Level 1 area is tangential to the Level
+       2 area. This also works well if there are several routers in
+       both Levels 1 and 2 and they are adjacent to one another,
+       so Level 2 traffic will never need to transit Level 1 only
+       routers.  Level 1 will not contain any Level 2 topology and
+       Level 2 will only contain area abstractions for Level 1.
+      </t>
+      <t>
+       Unfortunately, this scheme does not work so well if the Level 1
+       only area needs to provide transit for Level 2 traffic. For
+       Level 2 Shortest Path First (SPF) computations to work
+       correctly, the transit topology must also appear in the Level 2
+       LSDB.  This implies that all routers that could provide
+       transit plus any links that might also provide Level 2 transit
+       must also become part of the Level 2 topology. If this is a
+       relatively tiny portion of the Level 1 area, this is not
+       overly painful.
+      </t>
+      <t>
+       However, with today's data center topologies, this is problematic. A
+       common application is to use a Layer 3 Leaf-Spine (L3LS) topology,
+       which is a folded 3-stage Clos fabric <xref target="Clos" format="default"></xref>. It can also be thought of as a complete bipartite graph.  In
+       such a topology, the desire is to use Level 1 to contain the routing
+       dynamics of the entire L3LS topology and then use Level 2 for the
+       remainder of the network.  Leaves in the L3LS topology are appropriate
+       for connection outside of the data center itself, so they would provide
+       connectivity for Level 2. If there are multiple connections to Level 2
+       for redundancy or other areas, these would also be made to the leaves
+       in the topology. This creates a difficulty because there are now
+       multiple Level 2 leaves in the topology, with connectivity between the
+       leaves provided by the spines.
+      </t>
+      <t>
+       Following the current rules of IS-IS, all spine routers would
+       necessarily be part of the Level 2 topology plus all links
+       between a Level 2 leaf and the spines.  In the limit, where all
+       leaves need to support Level 2, it implies that the entire L3LS
+       topology becomes part of Level 2. This is seriously problematic,
+       as it more than doubles the LSDB held in the
+       L3LS topology and eliminates any benefits of the hierarchy.
+      </t>
+      <t>
+       This document discusses the handling of IP traffic. Supporting
+       MPLS-based traffic is a subject for future work.
+      </t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Area Proxy</name>
+      <t> In this specification, we completely abstract away the details of
+      the Level 1 area topology within Level 2, making the entire area look
+      like a single proxy system directly connected to all of the area's Level
+      2 neighbors. By only providing an abstraction of the topology, Level
+      2's requirement for connectivity can be satisfied without the full
+      overhead of the area's internal topology. It then becomes the
+      responsibility of the Level 1 area to provide the forwarding
+      connectivity that's advertised.
+      </t>
+      <t>
+       For this discussion, we'll consider a single Level 1 IS-IS area to be
+       the Inside Area and the remainder of the Level 2 area to be the Outside
+       Area. All routers within the Inside Area speak Level 1 and Level 2
+       IS-IS on all of the links within the topology. We propose to implement
+       Area Proxy by having a Level 2 Proxy Link State PDU (LSP) that
+       represents the entire Inside Area. We will refer to this as the Proxy
+       LSP.  This is the only LSP from the area that will be flooded into the
+       overall Level 2 LSDB.
+      </t>
+      <t>
+       There are four classes of routers that we need to be concerned
+       with in this discussion:
+      </t>
+      <dl newline="false" spacing="normal">
+        <dt>Inside Router:</dt>
+        <dd>
+           A router within the Inside Area that runs Level 1 and Level 2
+           IS-IS. A router is recognized as an Inside Router by the
+           existence of its LSP in the Level 1 LSDB.
+         </dd>
+        <dt>Area Leader:</dt>
+        <dd>
+           The Area Leader is an Inside Router that is
+           elected to represent the Level 1 area by injecting the
+           Proxy LSP into the Level 2 LSDB. There may be
+           multiple candidates for Area Leader, but only one is
+           elected at a given time. Any Inside Router can be the Area
+	   Leader.
+         </dd>
+        <dt>Inside Edge Router:</dt>
+        <dd>
+           An Inside Edge Router is an Inside Area Router that has at
+           least one Level 2 interface outside of the Inside Area.  An
+           interface on an Inside Edge Router that is connected to an
+           Outside Edge Router is an Area Proxy Boundary.
+         </dd>
+        <dt>Outside Edge Router:</dt>
+        <dd>
+           An Outside Edge Router is a Level 2 router that is outside
+           of the Inside Area that has an adjacency with an Inside
+           Edge Router.
+         </dd>
+      </dl>
+      <figure>
+        <name>An Example of Router Classes</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+                            Inside Area
+
+               +--------+                 +--------+
+               | Inside |-----------------| Inside |
+               | Router |                 |  Edge  |
+               +--------+    +------------| Router |
+                   |        /             +--------+
+                   |       /                   |
+               +--------+ /       =============|======
+               | Area   |/        ||           |
+               | Leader |         ||      +---------+
+               +--------+         ||      | Outside |
+                                  ||      |  Edge   |
+                                  ||      | Router  |
+                                  ||      +---------+
+
+                                          Outside Area
+]]></artwork>
+      </figure>
+      <t>
+       All Inside Edge Routers learn the Area Proxy System Identifier
+       from the Area Proxy TLV advertised by the Area Leader and use
+       that as the system identifier in their Level 2 IS-IS Hello (IIH) PDUs
+       on all Outside interfaces. Outside Edge Routers will
+       then advertise an adjacency to the Area Proxy System
+       Identifier. This allows all Outside Routers to use the Proxy
+       LSP in their SPF computations without seeing the full topology
+       of the Inside Area.
+      </t>
+      <t>
+       Area Proxy functionality assumes that all circuits on Inside
+       Routers are either Level 1-2 circuits within the Inside Area,
+       or Level 2 circuits between Outside Edge Routers and Inside
+       Edge Routers.
+      </t>
+      <t>
+       Area Proxy Boundary multi-access circuits (i.e., Ethernets in LAN mode)
+       with multiple Inside Edge Routers on them are not supported. The Inside
+       Edge Router on any boundary LAN <bcp14>MUST NOT</bcp14> flood Inside
+       Router LSPs on this link. Boundary LANs <bcp14>SHOULD NOT</bcp14> be
+       enabled for Level 1. An Inside Edge Router may be elected as the
+       Designated Intermediate System (DIS) for a Boundary LAN. In this case,
+       using the Area Proxy System ID as the basis for the LAN pseudonode
+       identifier could create a collision, so the Insider Edge Router
+       <bcp14>SHOULD</bcp14> compose the pseudonode identifier using its
+       originally configured system identifier. This choice of pseudonode identifier may
+       confuse neighbors with an extremely strict implementation. In this
+       case, the Inside Edge Router may be configured with priority 0, causing
+       an Outside Router to be elected as the DIS.
+      </t>
+      <section numbered="true" toc="default">
+        <name>Segment Routing</name>
+        <t>
+         If the Inside Area supports Segment Routing (SR) <xref target="RFC8402"
+         format="default"/>, then all Inside Nodes <bcp14>MUST</bcp14>
+         advertise a Segment Routing Global Block (SRGB). The first value of
+         the SRGB advertised by all Inside Nodes <bcp14>MUST</bcp14> start at
+         the same value. If the Area Leader detects SRGBs that do not start
+         with the same value, it <bcp14>MUST</bcp14> log an error and not
+         advertise an SRGB in the Proxy LSP. The range advertised for the area
+         will be the minimum of that advertised by all Inside Nodes.
+        </t>
+        <t>
+To support SR, the Area Leader will take the SRGB information
+found in the L1 LSDB and convey that to L2 through the Proxy LSP.
+Prefixes with Segment Identifier (SID) assignments will be copied to the Proxy
+LSP.  Adjacency SIDs for Outside Edge Nodes will be copied to the Proxy LSP.
+        </t>
+        <t>
+         To further extend SR, it is helpful to
+         have a segment that refers to the entire Inside Area. This
+         allows a path to refer to an area and have any node within
+         that area accept and forward the packet. In effect, this
+         becomes an anycast SID that is accepted by all Inside Edge
+         Nodes. The information about this SID is distributed in the
+         Area SID sub-TLV as part of the Area Leader's Area
+         Proxy TLV (<xref target="AreaSIDsubTLV" format="default"/>). The Inside Edge
+         Nodes <bcp14>MUST</bcp14> establish forwarding based on this SID. The Area
+         Leader <bcp14>SHALL</bcp14> also include the Area SID in the Proxy LSP so
+         that the remainder of L2 can use it for path construction.
+         (<xref target="AreaSIDBinding" format="default"/>).
+        </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Inside Router Functions</name>
+      <t>
+       All Inside Routers run Level 1-2 IS-IS and must be explicitly
+       instructed to enable the Area Proxy functionality. To signal
+       their readiness to participate in Area Proxy functionality,
+       they will advertise the Area Proxy TLV in their L2 LSP.
+      </t>
+      <section numbered="true" toc="default">
+        <name>The Area Proxy TLV</name>
+        <t>
+         The Area Proxy TLV serves multiple functions:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>
+             The presence of the Area Proxy TLV in a node's LSP
+             indicates that the node is enabled for Area Proxy.
+            </t>
+          </li>
+          <li>
+            <t>
+             An LSP containing the Area Proxy TLV is also an Inside
+             Node. All Inside Nodes, including pseudonodes, <bcp14>MUST</bcp14>
+             advertise the Area Proxy TLV.
+            </t>
+          </li>
+          <li>
+            <t>
+             It is a container for sub-TLVs with Area Proxy information.  
+            </t>
+          </li>
+        </ul>
+        <t>
+         A node advertises the Area Proxy TLV in fragment 0 of its L2
+         LSP.  Nodes <bcp14>MUST NOT</bcp14> advertise the Area Proxy TLV in an L1
+         LSP. Nodes <bcp14>MUST</bcp14> ignore the Area Proxy TLV if it is found in an
+         L1 LSP.  The Area Proxy TLV is not used in the Proxy LSP. The
+         format of the Area Proxy TLV is:
+        </t>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| TLV Type      | TLV Length    |  Sub-TLVs ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+<dl>
+<dt>TLV Type:</dt>
+<dd>20</dd>
+<dt>TLV Length:</dt>
+<dd>Length of the sub-TLVs.</dd>
+</dl>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Level 2 SPF Computation</name>
+        <t>
+         When Outside Routers perform a Level 2 SPF computation, they
+         will use the Proxy LSP for computing a path transiting
+         the Inside Area. Because the topology has been abstracted
+         away, the cost for transiting the Inside Area will be zero.
+        </t>
+        <t>
+         When Inside Routers perform a Level 2 SPF computation, they
+         <bcp14>MUST</bcp14> ignore the Proxy LSP. Because these systems 
+         see the Inside Area topology, the link metrics internal to
+         the area are visible. This could lead to different and
+         possibly inconsistent SPF results, potentially leading to
+         forwarding loops.
+        </t>
+        <t>
+         To prevent this, the Inside Routers <bcp14>MUST</bcp14> consider the metrics
+         of links outside of the Inside Area (inter-area metrics)
+         separately from the metrics of the Inside Area links
+         (intra-area metrics). Intra-area metrics <bcp14>MUST</bcp14> be treated as
+         less than any inter-area metric.  Thus, if two paths have
+         different total inter-area metrics, the path with the lower
+         inter-area metric would be preferred regardless of any
+         intra-area metrics involved. However, if two paths have equal
+         inter-area metrics, then the intra-area metrics would be used
+         to compare the paths.
+        </t>
+        <t>
+         Point-to-point links between two Inside Routers are
+         considered to be Inside Area links. LAN links that have a
+         pseudonode LSP in the Level 1 LSDB are considered to be
+         Inside Area links.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Responsibilities Concerning the Proxy LSP</name>
+        <t>The Area Leader will generate a Proxy LSP that will be flooded across the Inside Area. Inside Routers <bcp14>MUST</bcp14> flood the Proxy LSP and <bcp14>MUST</bcp14> ignore its contents.
+The Proxy LSP uses the Area Proxy System Identifier as its Source ID.
+        </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Area Leader Functions</name>
+      <t>
+       The Area Leader has several responsibilities.  First, it <bcp14>MUST</bcp14>
+       inject the Area Proxy System Identifier into the Level 2
+       LSDB. Second, the Area Leader <bcp14>MUST</bcp14> generate the Proxy LSP for
+       the Inside Area.
+      </t>
+      <section numbered="true" toc="default">
+        <name>Area Leader Election</name>
+        <t>
+         The Area Leader is selected using the election mechanisms and
+         TLVs described in "Dynamic Flooding on Dense Graphs" <xref target="RFC9667"/>.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Redundancy</name>
+        <t>
+         If the Area Leader fails, another candidate may become Area
+         Leader and <bcp14>MUST</bcp14> regenerate the Proxy LSP.  The
+         failure of the Area Leader is not visible outside of the area
+         and appears to simply be an update of the Proxy
+         LSP.
+        </t>
+        <t>
+         For consistency, all Area Leader candidates <bcp14>SHOULD</bcp14> be
+         configured with the same Proxy System ID, Proxy Hostname, and
+         any other information that may be inserted into the Proxy LSP.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Distributing Area Proxy Information</name>
+        <t>
+	 The Area Leader is responsible for distributing information
+	 about the area to all Inside Nodes. In particular, the Area
+	 Leader distributes the Proxy System ID and the Area SID.
+	 This is done using two sub-TLVs of the Area Proxy TLV.
+        </t>
+        <section numbered="true" toc="default">
+          <name>The Area Proxy System Identifier Sub-TLV</name>
+          <t>
+           The Area Proxy System Identifier sub-TLV <bcp14>MUST</bcp14> be used by the Area
+           Leader to distribute the Area Proxy System ID. This is an
+           additional system identifier that is used by Inside Nodes
+           as an indication that Area Proxy is active.  The format of
+           this sub-TLV is:
+          </t>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      Type     |     Length    |                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+    Proxy System Identifier    |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+<dl>
+<dt>Type:</dt><dd>1</dd>
+<dt>Length:</dt><dd>Length of a system ID (6).</dd>
+<dt>Proxy System Identifier:</dt><dd>The Area Proxy System Identifier.</dd>
+</dl>
+          <t>
+           The Area Leader <bcp14>MUST</bcp14> advertise the Area Proxy System
+           Identifier sub-TLV when it observes that all Inside Routers
+           are advertising the Area Proxy TLV. Their advertisements
+           indicate that they are individually ready to perform Area
+           Proxy functionality.  The Area Leader then advertises the
+           Area Proxy System Identifier TLV to indicate that the
+           Inside Area <bcp14>MUST</bcp14> enable Area Proxy functionality.
+          </t>
+<t>
+           Other candidates for Area Leader <bcp14>MAY</bcp14> also advertise
+           the Area Proxy System Identifier when they observe that all Inside
+           Routers are advertising the Area Proxy TLV.  All candidates
+           advertising the Area Proxy System Identifier TLV
+           <bcp14>SHOULD</bcp14> be advertising the same system
+           identifier. Multiple proxy system identifiers in a single area is a
+           misconfiguration and each unique occurrence <bcp14>SHOULD</bcp14>
+           be logged. Systems should use the Proxy System ID advertised by the
+           Area Leader.
+          </t>
+          <t>
+           The Area Leader and other candidates for Area Leader
+           <bcp14>MAY</bcp14> withdraw the Area Proxy System Identifier when
+           one or more Inside Routers are not advertising the Area Proxy
+           TLV. This will disable Area Proxy functionality.  However, before
+           withdrawing the Area Proxy System Identifier, an implementation
+           <bcp14>SHOULD</bcp14> protect against unnecessary churn from
+           transients by delaying the withdrawal. The amount of delay is
+           implementation dependent.
+          </t>
+        </section>
+        <section anchor="AreaSIDsubTLV" numbered="true" toc="default">
+          <name>The Area SID Sub-TLV</name>
+          <t>
+           The Area SID sub-TLV allows the Area Leader to advertise a
+           prefix and SID that represent the entirety of the Inside
+           Area to the Outside Area.  This sub-TLV is learned by all
+           of the Inside Edge Nodes who should consume this SID at
+           forwarding time.  The Area SID sub-TLV has the following format:
+          </t>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|     Type      |     Length    |     Flags     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                  SID/Index/Label (variable)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Prefix Length |    Prefix (variable)                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+          <t>
+           where:</t>
+<dl>
+<dt>Type:</dt><dd>2</dd>
+<dt>Length:</dt><dd>Variable (1 + SID length)</dd>
+<dt>Flags:</dt><dd><t>1 octet, defined as follows.</t>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+      0 1 2 3 4 5 6 7
+      +-+-+-+-+-+-+-+-+
+      |F|V|L|         |
+      +-+-+-+-+-+-+-+-+
+]]></artwork>
+          <dl indent="4">
+               <dt>F:</dt><dd>Address-Family Flag.  If this flag is not set,
+               then this proxy SID is used when forwarding IPv4-encapsulated
+               traffic. If set, then this proxy SID is used when forwarding
+               IPv6-encapsulated traffic.</dd>
+               <dt>V:</dt><dd>Value Flag.  If set, then the proxy SID carries
+               a value, as defined in <xref target="RFC8667"
+               sectionFormat="comma" section="2.1.1.1"/>.</dd>
+               <dt>L:</dt><dd>Local Flag.  If set, then the value/index
+               carried by the proxy SID has local significance, as defined in
+               <xref target="RFC8667" sectionFormat="comma"
+               section="2.1.1.1"/>.
+              </dd>
+              <dt>Other bits:</dt><dd><bcp14>MUST</bcp14> be zero when
+              originated and ignored when received.</dd></dl></dd>
+
+<dt>SID/Index/Label:</dt><dd>As defined in <xref target="RFC8667" sectionFormat="comma" section="2.1.1.1"/>.</dd>
+<dt>Prefix Length:</dt><dd>1 octet</dd>
+<dt>Prefix:</dt><dd>0-16 octets</dd>
+</dl>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Proxy LSP Generation</name>
+        <t>
+         Each Inside Router generates a Level 2 LSP and the Level 2
+         LSPs for the Inside Edge Routers will include adjacencies to
+         Outside Edge Routers.  Unlike normal Level 2 operations,
+         these LSPs are not advertised outside of the Inside Area and
+         <bcp14>MUST</bcp14> be filtered by all Inside Edge Routers to not be flooded
+         to Outside Routers. Only the Proxy LSP is injected into
+         the overall Level 2 LSDB.
+        </t>
+        <t>
+         The Area Leader uses the Level 2 LSPs generated by the Inside
+         Edge Routers to generate the Proxy LSP.  This LSP is
+         originated using the Area Proxy System Identifier.  The Area
+         Leader can also insert the following additional TLVs into the
+         Proxy LSP for additional information for the Outside
+         Area. LSPs generated by unreachable nodes <bcp14>MUST NOT</bcp14> be
+         considered.
+        </t>
+        <section numbered="true" toc="default">
+          <name>The Protocols Supported TLV</name>
+          <t>
+           The Area Leader <bcp14>SHOULD</bcp14> insert a Protocols Supported TLV (129)
+           <xref target="RFC1195" format="default"/> into the Proxy LSP. The
+           values included in the TLV <bcp14>SHOULD</bcp14> be the protocols
+           supported by the Inside Area.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The Area Address TLV</name>
+          <t>
+           The Area Leader <bcp14>SHOULD</bcp14> insert an Area Addresses TLV (1)
+           <xref target="ISO10589" format="default"/> into the Proxy LSP.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The Dynamic Hostname TLV</name>
+          <t>
+           It is <bcp14>RECOMMENDED</bcp14> that the Area Leader insert the Dynamic
+           Hostname TLV (137) <xref target="RFC5301" format="default"/> into the Proxy
+           LSP. The contents of the hostname may be specified by
+           configuration. The presence of the hostname helps to
+           simplify network debugging.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The IS Neighbors TLV</name>
+          <t>
+           The Area Leader can insert the IS Neighbors TLV (2) <xref target="ISO10589" format="default"/> into the Proxy LSP for Outside
+           Edge Routers. The Area Leader learns of the Outside Edge
+           Routers by examining the LSPs generated by the Inside Edge
+           Routers copying any IS Neighbors TLVs referring to Outside
+           Edge Routers into the Proxy LSP.  Since the Outside Edge
+           Routers advertise an adjacency to the Area Proxy System
+           Identifier, this will result in a bidirectional adjacency.
+          </t>
+          <t>
+           An entry for a neighbor in both the IS Neighbors TLV and
+           the Extended IS Neighbors TLV would be functionally redundant,
+           so the Area Leader <bcp14>SHOULD NOT</bcp14> do this. The Area Leader <bcp14>MAY</bcp14>
+           omit either the IS Neighbors TLV or the Extended IS
+           Neighbors TLV, but it <bcp14>MUST</bcp14> include at least one of them.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The Extended IS Neighbors TLV</name>
+          <t>
+           The Area Leader can insert the Extended IS Reachability TLV
+           (22) <xref target="RFC5305" format="default"/> into the Proxy LSP. The
+           Area Leader <bcp14>SHOULD</bcp14> copy each Extended IS Reachability TLV
+           advertised by an Inside Edge Router about an Outside Edge
+           Router into the Proxy LSP.
+          </t>
+          <t>
+           If the Inside Area supports Segment Routing, and Segment
+           Routing selects a SID where the L-Flag is not set, then the
+           Area Lead <bcp14>SHOULD</bcp14> include an Adjacency Segment Identifier
+           sub-TLV (31) <xref target="RFC8667" format="default"/> using the selected
+           SID.
+          </t>
+          <t>
+           If the inside area supports SRv6, the Area Leader <bcp14>SHOULD</bcp14>
+           copy the "SRv6 End.X SID" and "SRv6 LAN End.X SID" sub-TLVs
+           of the Extended IS Reachability TLVs advertised by Inside
+           Edge Routers about Outside Edge Routers.
+          </t>
+          <t>
+           If the inside area supports Traffic Engineering (TE), the
+           Area Leader <bcp14>SHOULD</bcp14> copy TE-related sub-TLVs
+           (<xref target="RFC5305" sectionFormat="comma" section="3"/>) to each Extended IS
+           Reachability TLV in the Proxy LSP.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The MT Intermediate Systems TLV</name>
+          <t>
+           If the Inside Area supports Multi-Topology (MT), then the Area
+           Leader <bcp14>SHOULD</bcp14> copy each Outside Edge Router advertisement
+           that is advertised by an Inside Edge Router in an MT
+           Intermediate Systems TLV into the Proxy LSP.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Reachability TLVs</name>
+          <t>
+           The Area Leader <bcp14>SHOULD</bcp14> insert additional TLVs describing
+           any routing prefixes that should be advertised on behalf of
+           the area. These prefixes may be learned from the Level 1
+           LSDB, Level 2 LSDB, or redistributed from another routing
+           protocol.  This applies to all of the various types of TLVs
+           used for prefix advertisement:
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>
+               IP Internal Reachability Information TLV (128) <xref target="RFC1195" format="default"/>
+              </t>
+            </li>
+            <li>
+              <t>
+               IP External Reachability Information TLV (130) <xref target="RFC1195" format="default"/>
+              </t>
+            </li>
+            <li>
+              <t>
+               Extended IP Reachability TLV (135) <xref target="RFC5305" format="default"/>
+              </t>
+            </li>
+            <li>
+              <t>
+               IPv6 Reachability TLV (236) <xref target="RFC5308" format="default"/>
+              </t>
+            </li>
+            <li>
+              <t>
+               Multi-Topology Reachable IPv4 Prefixes TLV (235) <xref target="RFC5120" format="default"/>
+              </t>
+            </li>
+            <li>
+              <t>
+               Multi-Topology Reachable IPv6 Prefixes TLV (237) <xref target="RFC5120" format="default"/>
+              </t>
+            </li>
+          </ul>
+<t>
+           For TLVs in the Level 1 LSDB, for a given TLV type and
+           prefix, the Area Leader <bcp14>SHOULD</bcp14> select the TLV with the
+           lowest metric and copy that TLV into the Proxy LSP.
+          </t>
+          <t>
+           When examining the Level 2 LSDB for this function, the Area Leader
+           <bcp14>SHOULD</bcp14> only consider TLVs advertised by Inside
+           Routers. Further, for prefixes that represent Boundary links, the
+           Area Leader <bcp14>SHOULD</bcp14> copy all TLVs that have unique
+           sub-TLV contents.
+          </t>
+          <t>
+           If the Inside Area supports SR and the
+           selected TLV includes a Prefix Segment Identifier sub-TLV
+           (3) <xref target="RFC8667" format="default"/>, then the sub-TLV <bcp14>SHOULD</bcp14> be
+           copied as well. The P-Flag <bcp14>SHOULD</bcp14> be set in the copy of the
+           sub-TLV to indicate that penultimate hop popping should not
+           be performed for this prefix. The E-Flag <bcp14>SHOULD</bcp14> be reset in
+           the copy of the sub-TLV to indicate that an explicit NULL
+           is not required. The R-Flag <bcp14>SHOULD</bcp14> simply be copied.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The Router Capability TLV</name>
+          <t>
+           The Area Leader <bcp14>MAY</bcp14> insert the Router Capability TLV (242)
+           <xref target="RFC7981" format="default"/> into the Proxy LSP. If
+           SR is supported by the inside area, as
+           indicated by the presence of an SRGB being advertised by
+           all Inside Nodes, then the Area Leader <bcp14>SHOULD</bcp14> advertise an
+           SR-Capabilities sub-TLV (2) <xref target="RFC8667" format="default"/> with
+           an SRGB. The first value of the SRGB is the same as
+           the first value advertised by all Inside Nodes. The range
+           advertised for the area will be the minimum of all ranges
+           advertised by Inside Nodes. The Area Leader <bcp14>SHOULD</bcp14> use its
+           Router ID in the Router Capability TLV.
+          </t>
+          <t>
+           If SRv6 Capability sub-TLV <xref target="RFC7981" format="default"/> is
+           advertised by all Inside Routers, the Area Leader should
+           insert an SRv6 Capability sub-TLV in the Router Capability
+           TLV. Each flag in the SRv6 Capability sub-TLV should be set
+           if the flag is set by all Inside Routers.
+          </t>
+          <t>
+           If the Node Maximum SID Depth (MSD) sub-TLV <xref target="RFC8491" format="default"/> is advertised by all Inside Routers, the
+           Area Leader should advertise the intersection of the
+           advertised MSD types and the smallest supported MSD values
+           for each type.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The Multi-Topology TLV</name>
+          <t>
+           If the Inside Area supports multi-topology, then the Area
+           Leader <bcp14>SHOULD</bcp14> insert the Multi-Topology TLV (229) <xref target="RFC5120" format="default"/>, including the topologies supported by
+           the Inside Nodes.
+          </t>
+          <t>
+           If any Inside Node is advertising the O (Overload) bit
+           for a given topology, then the Area Leader <bcp14>MUST</bcp14> advertise
+           the O bit for that topology. If any Inside Node is
+           advertising the A (Attach) bit for a given topology, then
+           the Area Leader <bcp14>MUST</bcp14> advertise the A bit for that
+           topology.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The SID/Label Binding and the Multi-Topology SID/Label Binding TLV</name>
+          <t>
+           If an Inside Node advertises the SID/Label Binding or
+           Multi-Topology SID/Label Binding TLV <xref target="RFC8667" format="default"/>, then the Area Leader <bcp14>MAY</bcp14> copy the TLV
+           to the Proxy LSP.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>The SRv6 Locator TLV</name>
+          <t>
+           If the inside area supports SRv6, the Area Leader <bcp14>SHOULD</bcp14>
+           copy all SRv6 locator TLVs <xref target="RFC9352" format="default"/>
+           advertised by Inside Routers to the Proxy LSP.
+          </t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Traffic Engineering Information</name>
+          <t>
+           If the inside area supports TE, the Area Leader <bcp14>SHOULD</bcp14>
+           advertise a TE Router ID TLV (134) <xref target="RFC5305" format="default"/>
+           in the Proxy LSP. It <bcp14>SHOULD</bcp14> copy the Shared Risk
+           Link Group (SRLS) TLVs (138) <xref target="RFC5307" format="default"/>
+           advertised by Inside Edge Routers about links to Outside
+           Edge Routers.
+          </t>
+          <t>
+           If the inside area supports IPv6 TE, the Area Leader <bcp14>SHOULD</bcp14>
+           advertise an IPv6 TE Router ID TLV (140)
+           <xref target="RFC6119" format="default"/> in the Proxy LSP. It <bcp14>SHOULD</bcp14> also
+           copy the IPv6 SRLG TLVs (139)  <xref target="RFC6119" format="default"/>
+           advertised by Inside Edge Routers about links to Outside
+           Edge Routers.
+          </t>
+        </section>
+        <section anchor="AreaSIDBinding" numbered="true" toc="default">
+          <name>The Area SID</name>
+          <t>
+	   When SR is enabled, it may be useful to advertise an Area
+	   SID that will direct traffic to any of the Inside
+	   Edge Routers. The information for the Area SID is
+	   distributed to all Inside Edge Routers using the Area SID
+	   sub-TLV (<xref target="AreaSIDsubTLV" format="default"/>) by the Area Leader.
+          </t>
+          <t>
+           The Area Leader <bcp14>SHOULD</bcp14> advertise the Area SID information
+           in the Proxy LSP as a Node SID as defined in <xref target="RFC8667" sectionFormat="comma" section="2.1"/>. The advertisement in the
+           Proxy LSP informs the Outside Area that packets directed to
+           the SID will be forwarded to one of the Inside Edge Nodes
+           and the Area SID will be consumed.
+          </t>
+          <t>
+	   Other uses of the Area SID and Area SID prefix are outside
+	   the scope of this document. Documents that define other
+	   use cases for the Area SID <bcp14>MUST</bcp14> specify whether the SID
+	   value should be the same or different from that used in
+	   support of Area Proxy.
+          </t>
+        </section>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Inside Edge Router Functions</name>
+      <t>
+       The Inside Edge Router has two additional and important
+       functions. First, it <bcp14>MUST</bcp14> generate IIHs that appear to have
+       come from the Area Proxy System Identifier. Second, it <bcp14>MUST</bcp14>
+       filter the L2 LSPs, Partial Sequence Number PDUs (PSNPs), and
+       Complete Sequence Number PDUs (CSNPs) that are being advertised
+       to Outside Routers.
+      </t>
+      <section numbered="true" toc="default">
+        <name>Generating L2 IIHs to Outside Routers</name>
+        <t>
+         The Inside Edge Router has one or more Level 2 interfaces to
+         the Outside Routers.  These may be identified by explicit
+         configuration or by the fact that they are not also Level 1
+         circuits. On these Level 2 interfaces, the Inside Edge Router
+         <bcp14>MUST NOT</bcp14> send an IIH until it has learned the Area Proxy
+         System ID from the Area Leader. Then, once it has learned the
+         Area Proxy System ID, it <bcp14>MUST</bcp14> generate its IIHs on the
+         circuit using the Proxy System ID as the source of the IIH.
+        </t>
+        <t>
+         Using the Proxy System ID causes the Outside Router to
+         advertise an adjacency to the Proxy System ID, not to the
+         Inside Edge Router, which supports the proxy function. The
+         normal system ID of the Inside Edge Router <bcp14>MUST NOT</bcp14> be used
+         as it will cause unnecessary adjacencies to form.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Filtering LSP Information</name>
+        <t>
+         For the area proxy abstraction to be effective the L2 LSPs
+         generated by the Inside Routers <bcp14>MUST</bcp14> be restricted to the
+         Inside Area. The Inside Routers know which system IDs are
+         members of the Inside Area based on the advertisement of the
+         Area Proxy TLV. To prevent unwanted LSP information from
+         escaping the Inside Area, the Inside Edge Router <bcp14>MUST</bcp14> perform
+         filtering of LSP flooding, CSNPs, and PSNPs. Specifically:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>
+             A Level 2 LSP with a source system identifier that is
+             found in the Level 1 LSDB <bcp14>MUST NOT</bcp14> be flooded to an
+             Outside Router.
+            </t>
+          </li>
+          <li>
+            <t>
+             A Level 2 LSP that contains the Area Proxy TLV <bcp14>MUST NOT</bcp14>
+             be flooded to an Outside Router.
+            </t>
+          </li>
+          <li>
+            <t>
+             A Level 2 CSNP sent to an Outside Router <bcp14>MUST NOT</bcp14> contain
+             any information about an LSP with a system identifier
+             found in the Level 1 LSDB. If an Inside Edge Router
+             filters a CSNP and there is no remaining content, then
+             the CSNP <bcp14>MUST NOT</bcp14> be sent. The source address of the CSNP
+             <bcp14>MUST</bcp14> be the Area Proxy System ID.
+            </t>
+          </li>
+          <li>
+            <t>
+             A Level 2 PSNP sent to an Outside Router <bcp14>MUST NOT</bcp14> contain
+             any information about an LSP with a system identifier
+             found in the Level 1 LSDB. If an Inside Edge Router
+             filters a PSNP and there is no remaining content, then
+             the PSNP <bcp14>MUST NOT</bcp14> be sent. The source address of the PSNP
+             <bcp14>MUST</bcp14> be the Area Proxy System ID.
+            </t>
+          </li>
+        </ul>
+      </section>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>
+       IANA has assigned code point 20
+       from the "IS-IS TLV Codepoints" registry for the Area Proxy TLV.
+       The registry fields are IIH:n, LSP:y, SNP:n, and Purge:n.
+      </t>
+      <t>
+       In association with this, IANA has created a "IS-IS Sub-TLVs for the Area Proxy TLV" registry. Temporary registrations may
+           be made via early allocation <xref target="RFC7120" format="default"/>.</t>
+
+           <t>The registration procedure is Expert Review <xref target="RFC8126"/>. The values are from 0-255, and the fields are Value, Name, and Reference. The initial assignments are as follows.</t>
+
+      <table align="center">
+        <thead>
+          <tr>
+            <th align="center">Value</th>
+            <th align="center">Name</th>
+            <th align="center">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="center">1</td>
+            <td align="center">Area Proxy System Identifier</td>
+            <td align="center">RFC 9666</td>
+          </tr>
+          <tr>
+            <td align="center">2</td>
+            <td align="center">Area SID</td>
+            <td align="center">RFC 9666</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+       This document introduces no new security issues. Security of routing
+       within a domain is already addressed as part of the routing protocols
+       themselves. This document proposes no changes to those security
+       architectures. Security for IS-IS is provided by "IS-IS Cryptographic
+       Authentication" <xref target="RFC5304"/> and "IS-IS Generic
+       Cryptographic Authentication" <xref target="RFC5310"/>.
+      </t>
+    </section>
+  </middle>
+
+ <back>
+   <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<reference anchor="RFC9667" target="https://www.rfc-editor.org/info/rfc9667">
+<front>
+<title>Dynamic Flooding on Dense Graphs</title>
+<author initials="T." surname="Li" fullname="Tony Li" role="editor">
+<organization>Juniper Networks</organization>
+</author>
+<author initials="P." surname="Psenak" fullname="Peter Psenak" role="editor">
+<organization>Cisco Systems, Inc.</organization>
+</author>
+<author initials="H." surname="Chen" fullname="Huaimo Chen">
+<organization>Futurewei</organization>
+</author>
+<author initials="L." surname="Jalil" fullname="Luay Jalil">
+<organization>Verizon</organization>
+</author>
+<author initials="S." surname="Dontula" fullname="Srinath Dontula">
+<organization>AT&amp;T</organization>
+</author>
+<date month="October" year="2024"/>
+</front>
+<seriesInfo name="RFC" value="9667"/>
+<seriesInfo name="DOI" value="10.17487/RFC9667"/>
+</reference>
+
+        <reference anchor="ISO10589">
+          <front>
+            <title>Information technology - Telecommunications and information      
+exchange between systems - Intermediate System to Intermediate System intra-domain 
+routeing information exchange protocol for use in conjunction with the protocol     
+for providing the connectionless-mode network service (ISO 8473)</title>
+            <author>
+              <organization abbrev="ISO">International Organization for             
+            Standardization</organization>
+            </author>
+            <date month="11" year="2002"/>
+          </front>
+          <seriesInfo name="ISO/IEC" value="10589:2002"/>
+              <refcontent>Second Edition</refcontent>
+        </reference>
+
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1195.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5120.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5301.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5304.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5305.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5307.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5308.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5310.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7981.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8402.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8667.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8491.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9352.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+
+        <reference anchor="Clos">
+          <front>
+            <title>A study of non-blocking switching networks</title>
+            <author fullname="Charles Clos" initials="C." surname="Clos"/>
+            <date month="March" year="1953"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1002/j.1538-7305.1953.tb01433.x"/>
+          <refcontent>The Bell System Technical Journal, Volume 32, Issue 2, pp.    
+406-424</refcontent>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7120.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>      <t>                                                                                                
+       The authors would like to thank <contact fullname="Bruno Decraene"/>
+       and <contact fullname="Gunter Van De Velde"/> for their many helpful
+       comments. The authors would also like to thank a small group that
+       wishes to remain anonymous for their valuable contributions.
+      </t>
+    </section>
+</back> 
+</rfc>

@@ -1,0 +1,765 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-cbor-file-magic-12" number="9277" category="std" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+  <!-- xml2rfc v2v3 conversion 3.12.3 -->
+  <front>
+
+    <title abbrev="cbor-file-magic">On Stable Storage for Items in Concise Binary Object Representation (CBOR)</title>
+    <seriesInfo name="RFC" value="9277"/>
+    <author initials="M." surname="Richardson" fullname="Michael Richardson">
+      <organization>Sandelman Software Works</organization>
+      <address>
+        <email>mcr+ietf@sandelman.ca</email>
+      </address>
+    </author>
+    <author initials="C." surname="Bormann" fullname="Carsten Bormann">
+      <organization>Universität Bremen TZI</organization>
+      <address>
+        <postal>
+          <street>Postfach 330440</street>
+          <city>D-28359 Bremen</city>
+          <country>Germany</country>
+        </postal>
+        <phone>+49-421-218-63921</phone>
+        <email>cabo@tzi.org</email>
+      </address>
+    </author>
+    <date year="2022" month="August"/>
+    <area>art</area>
+    <workgroup>cbor</workgroup>
+
+<keyword>magic number</keyword>
+<keyword>file identification</keyword>
+
+
+    <abstract>
+
+      <t>This document defines a stored ("file") format for Concise Binary
+   Object Representation (CBOR) data items
+that is friendly to common systems that recognize file types, such 
+as the Unix file(1) command.</t>
+    </abstract>
+
+  </front>
+  <middle>
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>Since very early in computing, operating systems have sought ways to mark which files could be processed by which programs.
+In Unix, everything is a stream of bytes; identifying the contents of a stream of bytes became a heuristic activity.</t>
+      <t>For instance, the Unix file(1) command, which has existed since 1973 <xref target="FILE"/>, has been able to identify many file formats based upon the contents of the file for decades.</t>
+      <t>Many systems (Linux, macOS, Windows) will select the correct application based upon the file contents if the system cannot determine it by other means.
+For instance, in classical Mac OS, a resource fork was maintained
+separately from the file data that included file type information;
+this way, the OS ideally never needed to know anything about the file
+data contents to determine the media type.</t>
+      <t>Many other systems do this by using file extensions.
+Many common Web servers derive the media-type information from file extensions.</t>
+      <t>Having a media type associated with the file contents can avoid some
+of the brittleness of this approach.
+When files become disconnected from their type information, such as when attempting to do forensics on a damaged system, being able to identify the type of information stored in a file can become very important.</t>
+      <t>  A common way to identify the type of a file from its contents is to
+  place a "magic number" at the start of the file contents <xref target="MAGIC"/>.  In
+  the media type registration template <xref target="RFC6838"/>, a
+  magic number is asked for, if available, as is a file extension.
+</t>
+
+      <t>A challenge for the file(1) command is often that it can be confused
+by recognizing the overall encoding but not the content being encoded.  For instance, an Android Package Kit APK (as used to transfer and store an application) may be identified as a ZIP file.  Additionally, both OpenOffice and MSOffice files are ZIP files
+of XML files; the identification may stop at identifying them as ZIP files.
+</t>
+      <t>As CBOR becomes a more and more common encoding for a wide variety of artifacts, identifying them as just "CBOR" is probably not sufficient.
+This document provides a way to encode a magic number into the beginning of a CBOR format file.
+As a CBOR format may use a single CBOR data item or a CBOR sequence of
+data items <xref target="RFC8742"/>,
+two possible methods of enveloping data are presented; a CBOR Protocol designer will specify one.
+(A CBOR Protocol is a specification that uses CBOR as its encoding.)</t>
+      <t>This document also gives advice to designers of CBOR Protocols on
+choosing one of these mechanisms for identifying their contents.
+This advice is informative.</t>
+
+      <t>A third method is also proposed by which a CBOR format tag is prepended to identify non-CBOR files.
+Further information on this method appears in <xref target="headers"/> because it is not
+about identifying media types containing CBOR-encoded data items.
+This includes a simple way to derive a magic number for 
+content-formats as defined in <xref target="RFC7252"/>, even if the file is
+not in CBOR form.
+</t>
+      <t>Examples of CBOR Protocols currently under development include Concise
+Software Identification Tags <xref target="I-D.ietf-sacm-coswid"/> and
+Entity Attestation Tokens <xref target="I-D.ietf-rats-eat"/>.
+CBOR Object Signing and Encryption (COSE) itself <xref target="RFC8152"/> is considered infrastructure.
+The encoding of public keys in CBOR as <em>C509</em> as described in <xref target="I-D.ietf-cose-cbor-encoded-cert"/> would benefit from being an identified CBOR Protocol.</t>
+
+      <t>A major inspiration for this document is observing the disarray in
+certain ASN.1-based systems where most files are Privacy-Enhanced Mail (PEM) encoded; 
+these files are all identified by the 
+extension "pem", which confounds public keys, private keys, 
+certificate requests, and S/MIME content.</t>
+      <t>While the envelopes defined in this specification add information to how data conforming to CBOR Protocols are stored in files, there is no requirement that either type of envelope be transferred on the wire.
+However, there are some protocols that may benefit from having such a magic number on the wire if they are presently using a different (legacy) encoding scheme.
+The presence of the identifiable magic sequence can be used to signal
+that a CBOR Protocol is being used as opposed to a legacy scheme.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <t>Byte is a synonym for octet.
+The term "byte string" refers to the data item defined in <xref target="RFC8949"/>.</t>
+        <t>The term "file" is understood to stand in a general way for a stored
+representation that is somewhat detached from the original context of
+usage of that representation; its usage in this document encompasses
+similar units of storage that may have different identification
+schemes such as partitions or media blocks.</t>
+        <t>The term "diagnostic notation" refers to the human-readable notation
+for CBOR data items defined in <xref target="RFC8949" section="8" sectionFormat="of"/> and <xref section="G" sectionFormat="of" target="RFC8610"/>.</t>
+        <t>The term "CDDL" (Concise Data Definition Language) refers to the
+language defined in <xref target="RFC8610"/>.</t>
+        <t>The function TN(ct) is defined in <xref target="ct-tags"/>.</t>
+      </section>
+      <section anchor="requirements-for-a-magic-number">
+        <name>Requirements for a Magic Number</name>
+        <t>Ideally, a magic number is a fingerprint that is unique to a specific CBOR Protocol, is present in the first few (small multiple of 4) bytes of the file and does not change when the contents change, and does not depend upon the length of the file.</t>
+        <t>Less ideal solutions have a pattern that needs to be matched, but in which some bytes need to be ignored.
+While the Unix file(1) command can be told to ignore certain bytes, this can lead to ambiguities.</t>
+      </section>
+    </section>
+    <section anchor="protocol">
+      <name>Protocol</name>
+      <t>This section presents two enveloping methods.
+Both use CBOR tags in a way that results in a deterministic first 8 to 12 bytes.
+The Protocol designer determines which one to use; see <xref target="advice"/> for
+some guidance.</t>
+
+      <section anchor="spectag">
+        <name>The CBOR-Protocol-Specific Tag</name>
+        <t>In both enveloping methods,
+CBOR Protocol designers need to obtain a CBOR tag for each kind of object that they might store in files.
+As there are more than 4 billion available 4-byte tags, there should be little issue in allocating a few to each available CBOR Protocol.</t>
+        <t>The IANA policy for 4-byte CBOR tags is First Come First Served <xref target="RFC8126" format="default"/> so only a simple interaction (e.g., via Web or email) with IANA is required.  The interaction includes filling in the small template provided in <xref target="RFC8949" section="9.2" sectionFormat="of"/>.
+In the template, a reference to this
+specification (RFC 9277) alongside the Description of
+semantics is suggested.</t>
+        <t>Allocation of the CBOR tag needs to be initiated by the designer of the CBOR
+Protocol, who can provide a proposed tag number.
+In order to be in the 4-byte range, and so that there are no
+leading zero bytes in the 4-byte encoding of the tag number, the
+value needs to be in the range 0x01000000 (decimal
+16777216) to 0xFFFFFFFF (decimal 4294967295) inclusive.
+It is further suggested to avoid values that have an embedded zero byte in
+the 4 bytes of their binary representation (such as 0x12003456), as
+these may confuse implementations that treat the magic number as a C string.</t>
+
+        <t>The use of a sequence of four ASCII <xref target="RFC0020"/> codes which are mnemonic to the
+protocol is encouraged, but not required (there may be reasons to
+encode other information into the tag; see <xref target="ct-tags"/> for an example).
+For instance, <xref target="openswan"/> uses "OPSN", which translates to the tag
+number 1330664270 registered for it.</t>
+
+        <t>In <xref target="IANA.CORE-PARAMETERS"/>, the Constrained Application Protocol (CoAP) defines the "CoAP Content-Formats" registry to assign Content-Format Numbers (<xref              
+section="12.3" sectionFormat="of" target="RFC7252"/>) to Content Types in a specific Content Coding.
+For CBOR data items that form a representation that is already described by such a Content-Format 
+Number, a tag number has proactively been allocated
+in <xref target="iana-ct-tags"/> (see <xref target="ct-tags"/> for details and examples).
+</t>
+      </section>
+
+      <section anchor="wrapped">
+        <name>Enveloping Method: CBOR Tag Wrapped</name>
+        <t>The CBOR Tag Wrapped method is appropriate for use with CBOR Protocols that encode a single CBOR data item.
+This data item is enveloped into two nested tags:</t>
+
+        <t>The outer tag is a self-described CBOR tag, 55799, as
+described in <xref target="RFC8949" sectionFormat="of" section="3.4.6"/>.</t>
+        <t>The tag content of the outer tag is a second CBOR tag whose tag number has
+been allocated to describe the specific Protocol involved, as
+discussed in <xref target="spectag"/>.
+The tag content of this inner tag is the single CBOR data item.</t>
+        <t>This method wraps the CBOR data item as CBOR tags usually do.
+Applications that need to send the stored CBOR data item across a
+constrained network may wish to remove the two tags if the type is
+understood from the protocol context, e.g., from a CoAP Content-Format
+Option (<xref section="5.10.3" sectionFormat="of" target="RFC7252"/>).
+Therefore, a CBOR Protocol specification may pick the specific cases
+where the CBOR Tag Wrapped enveloping method is to be used.
+For instance, it might specify its use for storing the representation
+in a local file or for Web access, but not within protocol messages that
+already provide the necessary context.</t>
+        <section anchor="tag-wrap-example">
+          <name>Example</name>
+          <t>To construct an example without registering a new tag, we use 
+the Content-Format ID assigned for <tt>application/senml+cbor</tt> (112) <xref target="RFC8428"/>
+of the "CoAP Content-Formats" registry <xref target="IANA.CORE-PARAMETERS"/>).</t>
+          <t>Using the technique described in <xref target="ct-tags"/>, this translates into the
+tag TN(112) = 1668546929.</t>
+          <t>With this tag, the SenML-CBOR pack <tt>[{0: "current", 6: 3, 2: 1.5}]</tt> would be enveloped as follows (in diagnostic notation):</t>
+          <sourcecode type="cbor-diag"><![CDATA[
+55799(1668546929([{0: "current", 6: 3, 2: 1.5}]))
+]]></sourcecode>
+          <t>Or in hex:</t>
+          <sourcecode type="cbor-pretty"><![CDATA[
+d9 d9f7                       # tag(55799)
+   da 63740171                # tag(1668546929)
+      81                      # array(1)
+         a3                   # map(3)
+            00                # unsigned(0)
+            67                # text(7)
+               63757272656e74 # "current"
+            06                # unsigned(6)
+            03                # unsigned(3)
+            02                # unsigned(2)
+            f9 3e00           # primitive(15872)
+]]></sourcecode>
+
+          <t>At the representation level, the unique fingerprint for <tt>application/senml+cbor</tt> is composed of the 8 bytes d9d9f7da63740171 hex, after which the unadorned CBOR data (81... for the SenML data) is appended.</t>
+        </section>
+      </section>
+      <section anchor="sequences">
+        <name>Enveloping Method: Labeled CBOR Sequence</name>
+        <t>The Labeled CBOR Sequence method is appropriate for use with CBOR Sequences as described in <xref target="RFC8742"/>.</t>
+        <t>This method prepends a newly constructed, separate data item to the
+CBOR Sequence, the <em>label</em>.</t>
+        <t>The label is a nesting of two tags, similar to but distinct from the
+CBOR Tag Wrapped methods, with an inner tag content of a constant byte
+string.
+The total length of the label is 12 bytes.</t>
+        <ol spacing="normal" type="1"><li>The outer tag is the self-described CBOR Sequence tag, 55800.</li>
+          <li>The inner tag is a CBOR tag from the First Come First Served space that uniquely identifies the CBOR Protocol.
+As with the CBOR Tag Wrapped method, the use of a 4-byte tag that encodes without zero bytes is encouraged.</li>
+          <li>The tag content is a 3-byte CBOR byte string containing
+0x42_4f_52 ('BOR' in diagnostic notation).</li>
+        </ol>
+        <t>The outer tag in the label identifies the file as being a CBOR Sequence and does so with all
+the desirable properties explained in <xref target="RFC8949" section="3.4.6" sectionFormat="of"/>.
+Specifically, it does not appear to conflict with any known file types, and it is not valid Unicode in any Unicode encoding.</t>
+        <t>The inner tag in the label identifies which CBOR Protocol is used, as described above.</t>
+        <t>The inner tag content is a constant byte string that is represented as
+0x43_42_4f_52, the ASCII characters "CBOR",
+which is the CBOR-encoded data item for the 3-byte string
+0x42_4f_52 ('BOR' in diagnostic notation).</t>
+
+        <t>The actual CBOR Protocol data then follows as the next data item(s) in the CBOR Sequence, without a need for any further specific tag.
+The use of a CBOR Sequence allows the application to trivially remove the first item with the two tags.</t>
+        <t>Should this file be reviewed by a human (directly in an
+editor or in a hexdump display), it will include the ASCII characters "CBOR" prominently.
+This value is also included simply because the inner nested tag needs to tag something.</t>
+        <section anchor="tag-seq-example">
+          <name>Example</name>
+          <t>To construct an example without registering a new tag, we use 
+ID 272 as assigned for <tt>application/missing-blocks+cbor-seq</tt> of the "CoAP Content-Formats" registry <xref target="RFC9177"/>.</t>
+          <t>Using the technique described in <xref target="ct-tags"/>, this translates into the
+tag TN(272) = 1668547090.</t>
+          <t>This is a somewhat contrived example, as this is not a media type that
+is likely to be committed to storage.
+Nonetheless, with this tag, missing blocks list <tt>0, 8, 15</tt> would be
+enveloped as (in diagnostic notation):</t>
+          <sourcecode type="cbor-diag"><![CDATA[
+55800(1668547090('BOR')),
+0,
+8,
+15
+]]></sourcecode>
+          <t>Or in hex:</t>
+          <sourcecode type="cbor-pretty"><![CDATA[
+# CBOR sequence with 4 elements
+d9 d9f8         # tag(55800)
+   da 63740212  # tag(1668547090)
+      43        # bytes(3)
+         424f52 # "BOR"
+00 # unsigned(0)
+08 # unsigned(8)
+0f # unsigned(15)
+]]></sourcecode>
+          <t>At the representation level, the unique fingerprint for
+<tt>application/missing-blocks+cbor-seq</tt> is composed of the 8 bytes
+d9d9f8da63740212 hex, after which the unadorned CBOR sequence
+(00... for the missing block list given) is appended.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document provides a way to identify CBOR Protocol objects.
+Clearly identifying CBOR contents in files may have a variety of impacts.</t>
+      <t>The most obvious is that it may allow malware to identify interesting
+stored objects, and then exfiltrate or corrupt them.</t>
+      <t>Protective applications (that check data) cannot rely on the
+applications they try to protect (that use the data) to make
+exactly the same decisions in recognizing file formats.
+(This is an instance of a check versus use issue.)
+For example, end-point assessment technologies should not solely rely
+on the labeling approaches described in this document to decide
+whether to inspect a given file.
+Similarly, depending on operating system configurations and related
+properties of the execution environment, the labeling might influence
+the default application used to process a file in a way that may not
+be predicted by a protective application.
+</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>These IANA considerations are entirely about CBOR tags in the
+"Concise Binary Object Representation (CBOR) Tags" registry <xref target="IANA.CBOR-TAGS"/>.</t>
+      <t><xref target="cbor-sequence-tag"/> documents the allocation for a
+CBOR tag to be used in a CBOR sequence to identify the sequence (an
+example for using this tag is found in <xref target="openswan"/>).  <xref target="cbor-labeled-non-cbor-data-tag"/> documents the allocation for a CBOR tag to be used in the CBOR-Labeled Non-CBOR Data Enveloping Method (<xref target="headers"/>, which also shows examples).  
+<xref target="iana-ct-tags"/> allocates a CBOR tag for each actual or
+potential CoAP Content-Format number (examples are in <xref target="ct-tags"/>).</t>
+      <section anchor="cbor-sequence-tag">
+        <name>Labeled CBOR Sequence Tag</name>
+        <t>IANA has allocated tag 55800 for the Labeled CBOR Sequence
+Enveloping Method from the "CBOR Tags" registry.
+IANA has updated this tag registration to point to this document.</t>
+        <t>This tag is from the First Come First Served area.</t>
+        <t>The value has been picked to have properties similar to the 55799 tag (<xref target="RFC8949" sectionFormat="of" section="3.4.6"/>).</t>
+        <t>The hexadecimal representation of the encoded tag head is 0xd9_d9_f8.</t>
+        <t>This is not valid UTF-8: the first 0xd9 introduces a 3-byte sequence in UTF-8, but the 0xd9 as the second value is not a valid second byte for UTF-8.</t>
+
+        <t>This is not valid UTF-16: the byte sequence 0xd9d9 (in either endian order) puts this value into the UTF-16 high-half zone, which would signal that this is a 32-bit Unicode value.  However, the following 16-bit big-endian value 0xf8_xx is not a valid second sequence according to <xref target="RFC2781"/>.
+On a little-endian system, it would be necessary to examine the fourth byte to determine if it is valid.  That next byte is determined by the subsequent encoding, and <xref target="RFC8949" section="3.4.6" sectionFormat="of"/> has already determined that no valid CBOR encodings result in valid UTF-16.</t>
+        <dl newline="true">
+          <dt>Data Item:</dt>
+          <dd>
+            <t>tagged byte string
+            </t>
+          </dd>
+          <dt>Semantics:</dt>
+          <dd>
+            <t>indicates that the file contains CBOR Sequences</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="cbor-labeled-non-cbor-data-tag">
+        <name>CBOR-Labeled Non-CBOR Data Tag</name>
+        <t>IANA has allocated tag 55801 for the CBOR-Labeled Non-CBOR Data
+Enveloping Method (<xref target="headers"/>) from the "CBOR Tags" registry.
+IANA updated this tag registration to point to this document.</t>
+        <t>This tag is from the First Come First Served area.</t>
+        <t>The value has been picked to have properties similar to the 55799 tag (<xref target="RFC8949" section="3.4.6" sectionFormat="of"/>).</t>
+        <t>The hexadecimal representation of the encoded tag head is 0xd9_d9_f9.</t>
+        <t>This is not valid UTF-8: the first 0xd9 introduces a 3-byte sequence in UTF-8, but the 0xd9 as the second value is not a valid second byte for UTF-8.</t>
+        <t>This is not valid UTF-16: the byte sequence 0xd9d9 (in either endian order) puts this value into the UTF-16 high-half zone, which would signal that this is a 32-bit Unicode value.  However, the following 16-bit big-endian value 0xf9_xx is not a valid second sequence according to <xref target="RFC2781"/>.
+On a little-endian system, it would be necessary to examine the fourth byte to determine if it is valid.  That next byte is determined by the subsequent encoding, and <xref target="RFC8949" sectionFormat="of" section="3.4.6"/> has already determined that no valid CBOR encodings result in valid UTF-16.</t>
+        <dl newline="true">
+          <dt>Data Item:</dt>
+          <dd>
+            <t>tagged byte string
+            </t>
+          </dd>
+          <dt>Semantics:</dt>
+          <dd>
+            <t>indicates that the file starts with a CBOR-Labeled Non-CBOR Data label.</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="iana-ct-tags">
+        <name>CBOR Tags for CoAP Content-Format Numbers</name>
+
+        <t>IANA allocated the tag numbers 1668546817 (0x63740101) to
+1668612095 (0x6374ffff) as follows:</t>
+        <dl newline="true">
+          <dt>Data Item:</dt>
+          <dd>
+            <t>byte string or any CBOR data item (see <xref target="ct-tags"/>)</t>
+          </dd>
+          <dt>Semantics:</dt>
+          <dd>
+            <t>the representation of content-format ct &lt; 65025 is indicated by
+tag number <br/>
+TN(ct) = 0x63740101 + (ct / 255) * 256 + ct % 255</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9277</t>
+          </dd>
+        </dl>
+        <t>The "CoAP Content-Formats" registry <xref target="IANA.CORE-PARAMETERS"/> is defined in <xref section="12.3" sectionFormat="of" target="RFC7252"/>.</t>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+
+<displayreference target="I-D.ietf-cose-cbor-encoded-cert" to="C509-CERT"/>
+<displayreference target="I-D.ietf-rats-eat" to="EAT"/>
+<displayreference target="I-D.ietf-sacm-coswid" to="CoSWID"/>
+<displayreference target="RFC0020" to="RFC20"/>
+<displayreference target="RFC8949" to="STD94"/>
+
+<references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8742.xml"/>
+
+<reference anchor='RFC8949' target='https://www.rfc-editor.org/info/std94'>
+<front>
+<title>Concise Binary Object Representation (CBOR)</title>
+<author initials='C.' surname='Bormann' fullname='C. Bormann'><organization /></author>
+<author initials='P.' surname='Hoffman' fullname='P. Hoffman'><organization /></author>
+<date year='2020' month='December' />
+</front>
+<seriesInfo name='STD' value='94'/>
+<seriesInfo name='RFC' value='8949'/>
+<seriesInfo name='DOI' value='10.17487/RFC8949'/>
+</reference>
+
+
+<reference anchor="C" target="https://www.iso.org/standard/74528.html">
+          <front>
+            <title>Information technology -- Programming languages -- C</title>
+            <author>
+              <organization>International Organization for Standardization</organization>
+            </author>
+            <date year="2018" month="June"/>
+          </front>
+          <seriesInfo name="ISO/IEC" value="9899:2018, Fourth Edition"/>
+        </reference>
+      </references>
+
+      <references>
+        <name>Informative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.0020.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2781.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6838.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7252.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8017.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8152.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8428.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8610.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9177.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+
+	<reference anchor="FILE" target="https://en.wikipedia.org/w/index.php?title=File_(command)&amp;oldid=1096086462">
+          <front>
+            <title>file (command)</title>
+            <author>
+              <organization>Wikipedia</organization>
+            </author>
+	    <date year="2022" month="July" day="2"/>
+          </front>
+        </reference>
+
+        <reference anchor="IANA.CORE-PARAMETERS" target="https://www.iana.org/assignments/core-parameters">
+          <front>
+            <title>Constrained RESTful Environments (CoRE) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="IANA.CBOR-TAGS" target="https://www.iana.org/assignments/cbor-tags">
+          <front>
+            <title>Concise Binary Object Representation (CBOR) Tags</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+<reference anchor="X.690" target="https://www.itu.int/rec/T-REC-X.690">
+          <front>
+            <title>Information technology - ASN.1 encoding rules: Specification of Basic Encoding Rules (BER), Canonical Encoding Rules (CER) and Distinguished Encoding Rules (DER)</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2021" month="February"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="X.690"/>
+          <seriesInfo name="ISO/IEC" value="8825-1"/>
+        </reference>
+
+        <reference anchor="MAGIC" target="https://www.bell-labs.com/usr/dmr/www/man51.pdf#page=4">
+          <front>
+            <title>archive (library) file format</title>
+            <author>
+              <organization>Bell Labs</organization>
+            </author>
+            <date year="1971" month="November" day="3"/>
+          </front>
+	  <refcontent>Unix Programmer's Manual, First Edition: File Formats</refcontent>
+        </reference>
+
+<!--I-D exists as of 6/28/22-->
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-sacm-coswid.xml"/>
+
+<!--I-D exists as of 6/28/22-->
+<xi:include                                                                    href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-rats-eat.xml"/>
+
+<!--I-D exists as of 6/28/22-->
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.draft-ietf-cose-cbor-encoded-cert.xml"/>
+
+</references>
+
+
+</references>
+    <section anchor="advice">
+      <name>Advice to Protocol Designer</name>
+      <t>This document introduces a choice between wrapping a single CBOR data item into a pair of identifying CBOR tags or prepending an identifying encoded CBOR data item (which, in turn, contains a pair of identifying CBOR tags) to a CBOR Sequence (which might be a single data item).</t>
+      <t>Which should a protocol designer use?</t>
+      <t>In this discussion, one assumes that there is an object stored in a file, perhaps specified by a system operator in a configuration file.</t>
+      <t>For example: a private key used in COSE operations, a public key/certificate in C509 <xref target="I-D.ietf-cose-cbor-encoded-cert"/> or CBOR format, a recorded sensor reading stored for later transmission, or a COVID-19 vaccination certificate that needs to be displayed in QR code form.</t>
+      <t>Both the Labeled CBOR Sequence and the wrapped tag can be trivially removed by an application before sending the CBOR content out on the wire.</t>
+
+      <t>The Labeled CBOR Sequence can be slightly easier to remove as, in most cases, CBOR parsers will return it as a unit and then return the actual CBOR item, which could be anything at all and could include CBOR tags that <em>do</em> need to be sent on the wire.</t>
+      <t>On the other hand, having the Labeled CBOR Sequence in the file requires that all programs that expect to examine that file be able to skip what appears to be a CBOR item with two tags nested around a 3-byte byte string.
+The 3-byte entry is not of the format the program would normally have processed, so it may be a surprise.
+On the other hand, CBOR parsers are generally tolerant of tags that appear: many of them will process extra tags, making unknown tags available as meta information.
+A program that is not expecting those tags may just ignore them.</t>
+
+      <t>As an example of where there was a problem with previous security systems, "PEM" format certificate files grew to be able to contain multiple certificates by simple concatenation.
+<!-- Note that PKCS1 is not an abbreviation any more in standard usage. -->
+The PKCS1 format <xref target="RFC8017"/> could also contain a private key object followed by one or more certificate objects, but only when in PEM format.
+Annoyingly, when in binary DER format (<xref target="X.690"/>, which like CBOR is self-delimiting), concatenation of certificates was not compatible with most programs as they did not expect to read more than one item in the file.</t>
+
+      <t>The use of CBOR Tag Wrapped format is easier to retrofit to an existing format with existing and unchangeable stored format for a single CBOR data item.
+This new sequence of tags is expected to be trivially ignored by many
+existing programs when reading CBOR from files or similar units of storage, even if the program only
+supports decoding a single data item (and not a CBOR sequence).
+But, a naive program might also then transmit the additional tags across the network.
+Removing the CBOR Tag Wrapped format requires knowledge of the two tags involved.
+Other tags present might be needed.</t>
+      <t>For a representation matching a specific media-type that is carried in
+a CBOR byte string, the byte string head will already have to be
+removed for use as such a representation, so it should be easy to
+remove the enclosing tag heads as well.
+This is of particular interest with the predefined tags provided in
+<xref target="ct-tags"/> for media types with CoAP Content-Format numbers.</t>
+      <t>Some considerations in the form of survey questions follow.</t>
+      <section anchor="is-the-on-wire-format-new">
+        <name>Is the on-wire format new?</name>
+        <t>If the on-wire format is new, then it could be specified with the CBOR Tag Wrapped format if the extra 8 bytes are not a problem.
+The stored format is then identical to the on-wire format.</t>
+        <t>If the 8 bytes are a problem on the wire (and they often are if CBOR is being considered), then the Labeled CBOR Sequence format should be adopted for the stored format.</t>
+      </section>
+      <section anchor="can-many-items-be-trivially-concatenated">
+        <name>Can many items be trivially concatenated?</name>
+        <t>If the programs that read the contents of the file already expect to process all of the CBOR data items in the file (not just the first), then the Labeled CBOR Sequence format may be easily retrofitted.</t>
+        <t>The programs involved may throw errors or warnings on the Labeled CBOR
+Sequence if they have not yet been updated, but this may not be a problem.</t>
+        <t>There are situations where multiple objects may be concatenated into a single file.
+If each object is preceded by a Labeled CBOR Sequence label, then there may be
+multiple such labels in the file.</t>
+        <t>A protocol based on CBOR Sequences may specify that Labeled CBOR
+Sequence labels can occur within a CBOR Sequence, possibly even to
+switch to data items following in the sequence that are of a different type.</t>
+        <t>If the CBOR-Sequence-based protocol does not define the semantics for
+or at least tolerate embedded labels, care must be taken when
+concatenating Labeled CBOR Sequences to remove the label from all but
+the first part.</t>
+<aside>
+          <t>As an example from legacy PEM-encoded PKIX certificates, many programs accept a series of PKIX certificates in a single file in order to set up a certificate chain.
+The file would contain not just the End-Entity (EE) certificate, but also any subordinate certification authorities (CAs) needed to validate the EE.
+This mechanism actually only works for PEM-encoded certificates, and not DER-encoded certificates.
+One of the reasons for this specification is to make sure that CBOR-encoded certificates do not suffer from this problem.</t>
+          <t>As an example of mixing of types, some TLS server programs also can accept both their PEM-encoded private key and their PEM-encoded certificate in the same file.</t>
+</aside>
+        <t>If only one item is ever expected in the file, the use of the Labeled CBOR Sequence may present an implementation hurdle to programs that previously just read a single data item and used it.</t>
+      </section>
+      <section anchor="are-there-tags-at-the-start">
+        <name>Are there tags at the start?</name>
+        <t>If the Protocol expects to use other tags at its top level, then the
+use of the CBOR Tag Wrapped format may be easy to explain at the same
+place in the protocol description.</t>
+      </section>
+    </section>
+    <section anchor="ct-tags">
+      <name>CBOR Tags for CoAP Content Formats</name>
+      <t><xref section="5.10.3" sectionFormat="of" target="RFC7252"/> defines the concept of a Content-Format,
+which is a short, 16-bit unsigned integer that identifies a specific
+content type (media type plus (optionally) parameters), optionally
+together with a content coding (see <xref target="RFC9110" section="8.4.1" sectionFormat="of"/>).
+</t>
+      <t>Outside of a transfer protocol that indicates the Content-Format for a representation, it may be necessary to identify the Content-Format of the representation when it is stored in a file, in firmware, or when debugging.</t>
+      <t>This specification allocates CBOR tag numbers 1668546817 (0x63740101) to
+1668612095 (0x6374FFFF) for the tagging of representations of specific
+content formats.</t>
+      <t>Using tags from this range, a byte string that is to be interpreted as
+a representation of Content-Format number <tt>ct</tt>, with ct &lt; 65025
+(255*255), can be identified by enclosing it in a tag with tag number
+<tt>TN(ct)</tt> where:</t>
+      <ul empty="true">
+        <li>
+          <t>TN(ct) = 0x63740101 + (ct / 255) * 256 + ct % 255.</t>
+        </li>
+      </ul>
+      <t>(where <tt>+</tt>, <tt>*</tt>, <tt>/</tt> and <tt>%</tt> stand for integer addition,
+multiplication, division, and remainder as in the programming language C <xref target="C"/>.)</t>
+<aside>
+        <t>This formula avoids the use of zero bytes in the representation of
+the tag number.</t>
+        <t>Note that no tag numbers are assigned for Content-Format numbers in
+the following range:</t>
+<artwork>65025 ≤ ct ≤ 65535</artwork>
+<t>(This range is in the range reserved for Experimental Use <xref target="RFC8126" format="default"/> by <xref section="12.3" sectionFormat="of" target="RFC7252"/>.
+The overlap of 25 code points between this experimental range with the
+range this appendix defines tag numbers for can be used for
+experiments that want to employ a tag number.)</t>
+</aside>
+      <t>Exceptionally, when used immediately as tag content of one of the tags
+55799, 55800, or 55801, the tag content is as follows:</t>
+      <dl>
+        <dt>Tag 55799 (<xref target="wrapped"/>):</dt>
+        <dd>
+          <t>One of:
+</t>
+          <ol spacing="normal" type="1"><li>The CBOR data item within the representation (without byte-string
+wrapping).  This only works for Content-Formats that are represented
+by a single CBOR data item in identity content-coding.</li>
+            <li>The data items in the CBOR sequence within the representation, without byte string
+wrapping, but wrapped in a CBOR array.
+This works for Content-Formats that are represented
+by a CBOR sequence in identity content-coding.</li>
+          </ol>
+        </dd>
+        <dt>Tags 55800 (<xref target="sequences"/>) or 55801 (<xref target="headers"/>):</dt>
+        <dd>
+          <t>the byte string 'BOR', signifying that the representation of the
+given content-format follows in the file, in the way defined for these tags.</t>
+        </dd>
+      </dl>
+      <section anchor="ct-examples">
+        <name>Content-Format Tag Examples</name>
+        <t>The "CoAP Content-Formats" registry <xref target="IANA.CORE-PARAMETERS"/> defines content formats that can be used as examples:</t>
+        <ul spacing="normal">
+          <li>
+            <t>As discussed in <xref target="tag-wrap-example"/>, Content-Format ID 112 represents the application/senml+cbor media type (no parameters).
+The corresponding tag number is TN(112) = 1668546929.  </t>
+            <t>
+The following CDDL snippet can be used to identify
+application/senml+cbor representations:  </t>
+            <sourcecode type="cddl"><![CDATA[
+senml-cbor = #6.1668546929(bstr)
+]]></sourcecode>
+            <t>
+Note that a byte string is used as the type of the tag content because a
+media type representation in general can be any byte string.</t>
+          </li>
+          <li>
+            <t>Content-Format ID 272 represents the 
+application/missing-blocks+cbor-seq media type, which is a CBOR sequence
+<xref target="RFC9177"/>.  </t>
+            <t>
+The corresponding tag number is TN(272) = 1668547090.  </t>
+            <t>
+The following CDDL snippet can be used to identify
+application/missing-blocks+cbor-seq representations as embedded in a
+CBOR byte string:  </t>
+            <sourcecode type="cddl"><![CDATA[
+missing-blocks = #6.1668547090(bstr)
+]]></sourcecode>
+          </li>
+        </ul>
+      </section>
+    </section>
+    <section anchor="openswan">
+      <name>Example from Openswan</name>
+      <t>The Openswan IPsec project has a daemon ("pluto") and two control programs ("addconn" and "whack"). They communicate via a Unix-domain socket, over which a C-structure containing pointers to strings is serialized using a bespoke mechanism.
+This is normally not a problem as the structure is compiled by the same compiler; but when there are upgrades, it is possible for the daemon and the control programs to get out of sync by the bespoke serialization.
+As a result, there are extra compensations to deal with shutting the daemon down.
+During testing, it is sometimes the case that upgrades are backed out.</t>
+      <t>In addition, when doing unit testing, the easiest way to load policy is to use the
+normal policy-reading process, but that is not normally loaded in the daemon.
+Instead, the IPC that is normally sent across the wire is compiled, serialized, and placed in a file.
+The above magic number is included in the file and on the IPC in order to distinguish the "shutdown" command CBOR operation.</t>
+      <t>In order to reduce the problems due to serialization, the serialization is being changed to CBOR. Additionally, this change allows the IPC to be described by CDDL and any implementation language to be used that can encode CBOR.
+</t>
+      <t>IANA has allocated the tag 1330664270 or 0x4f_50_53_4e for this purpose.
+As a result, each file and each IPC is prefixed with a CBOR Sequence tag.</t>
+      <t>In diagnostic notation:</t>
+      <sourcecode type="cbor-diag"><![CDATA[
+55800(1330664270(h'424F52'))
+]]></sourcecode>
+      <t>Or in hex:</t>
+      <sourcecode type="cbor-pretty"><![CDATA[
+d9 d9f8         # tag(55800)
+   da 4f50534e  # tag(1330664270)
+      43        # bytes(3)
+         424f52 # "BOR"
+]]></sourcecode>
+    </section>
+    <section anchor="headers">
+      <name>Using CBOR Labels for Non-CBOR Data</name>
+      <t>The CBOR-Labeled Non-CBOR data method is appropriate for adding a magic number to a
+Non-CBOR data format, particularly one that can be described by a
+Content-Format tag (<xref target="ct-tags"/>).</t>
+      <t>This method prepends a CBOR data item to the Non-CBOR data; this data
+item is called the "header" and, similar to the Labeled
+CBOR-Sequence label, consists of two nested tags around a constant
+byte string for a total of 12 bytes.</t>
+      <ol spacing="normal" type="1"><li>The outer tag is the CBOR-Labeled Non-CBOR Data tag, 55801.</li>
+        <li>The inner tag is a CBOR tag from the First Come First Served space that uniquely identifies the CBOR Protocol.
+As with CBOR Tag Wrapped, the use of a 4-byte tag is encouraged that encodes without zero bytes.</li>
+        <li>The tag content is a 3-byte CBOR byte string containing
+0x42_4F_52 ('BOR' in diagnostic notation).</li>
+      </ol>
+      <t>The outer tag in the label identifies the file as being prefixed by a Non-CBOR
+data label and does so with all
+the desirable properties explained in <xref target="RFC8949" section="3.4.6" sectionFormat="of"/>.
+Specifically, it does not appear to conflict with any known file types, and it is not valid Unicode in any Unicode encoding.</t>
+      <t>The inner tag in the label identifies which Non-CBOR Protocol is used.</t>
+      <t>The inner tag content is a constant byte string that is represented as
+0x43_42_4f_52, the ASCII characters "CBOR",
+which is the CBOR-encoded data item for the 3-byte string
+0x42_4f_52 ('BOR' in diagnostic notation).</t>
+      <t>The actual Non-CBOR Protocol data then follow directly appended to the
+CBOR representation of the header.
+This allows the application to trivially remove the header item with
+the two nested tags and the byte string.</t>
+      <t>As with the Labeled CBOR Sequence {#sequences}, this choice of the tag
+content places the ASCII characters "CBOR" prominently into the
+header.</t>
+      <section anchor="header-ct-examples">
+        <name>Content-Format Tag Examples</name>
+        <t>The "CoAP Content-Formats" registry <xref target="IANA.CORE-PARAMETERS"/> defines content formats that can be used as examples:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Content-Format ID 432 represents the application/td+json media type (no
+parameters).</t>
+<t>The corresponding tag number is TN(432) = 1668547250.  </t>
+            <t>
+The following CDDL snippet can be used to identify a CBOR-Labeled Non-CBOR data for application/td+json representations:  </t>
+            <sourcecode type="cddl"><![CDATA[
+td-json-header = #6.55801(#6.1668547250('BOR'))
+]]></sourcecode>
+          </li>
+          <li>
+            <t>Content-Format 11050 represents the application/json media type in
+deflate content-coding.  </t>
+            <t>
+The corresponding tag number is TN(11050) = 1668557910.  </t>
+            <t>
+The following CDDL snippet can be used to identify a CBOR-Labeled Non-CBOR data for application/json representations compressed in deflate content-coding:  </t>
+            <sourcecode type="cddl"><![CDATA[
+json-deflate-header = #6.55801(#6.1668557910('BOR'))
+]]></sourcecode>
+          </li>
+        </ul>
+      </section>
+    </section>
+       <section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t>The CBOR WG brainstormed this protocol on January 20, 2021 via a number of productive email exchanges on the mailing list.</t>
+      <!--  LocalWords:  prepending COVID exfiltrate
+ -->
+
+</section>
+    <section anchor="contributors" numbered="false" toc="include" removeInRFC="false">
+      <name>Contributors</name>
+      <contact initials="J. 'Jeff'" surname="Sipek" fullname="Josef 'Jeff' Sipek">
+        <organization/>
+        <address>
+          <email>jeffpc@josefsipek.net</email>
+        </address>
+      </contact>
+    </section>
+  </back>
+
+</rfc>

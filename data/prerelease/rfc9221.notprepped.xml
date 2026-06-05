@@ -1,0 +1,383 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-quic-datagram-10" category="std" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" sortRefs="true" symRefs="true" version="3" consensus="true" number="9221">
+
+  <!-- xml2rfc v2v3 conversion 3.11.1 -->
+
+  <front>
+    <title abbrev="QUIC Datagrams">An Unreliable Datagram Extension to QUIC</title>
+    <seriesInfo name="RFC" value="9221"/>
+    <author initials="T." surname="Pauly" fullname="Tommy Pauly">
+      <organization>Apple Inc.</organization>
+      <address>
+        <postal>
+          <street>One Apple Park Way</street>
+          <city>Cupertino</city>
+	  <region>CA</region>
+	  <code>95014</code>
+          <country>United States of America</country>
+        </postal>
+        <email>tpauly@apple.com</email>
+      </address>
+    </author>
+    <author initials="E." surname="Kinnear" fullname="Eric Kinnear">
+      <organization>Apple Inc.</organization>
+      <address>
+        <postal>
+          <street>One Apple Park Way</street>
+          <city>Cupertino</city>
+	  <region>CA</region>
+	  <code>95014</code>
+          <country>United States of America</country>
+        </postal>
+        <email>ekinnear@apple.com</email>
+      </address>
+    </author>
+    <author initials="D." surname="Schinazi" fullname="David Schinazi">
+      <organization>Google LLC</organization>
+      <address>
+        <postal>
+          <street>1600 Amphitheatre Parkway</street>
+          <city>Mountain View</city>
+	  <region>CA</region>
+	  <code>94043</code>
+          <country>United States of America</country>
+        </postal>
+        <email>dschinazi.ietf@gmail.com</email>
+      </address>
+    </author>
+    <date year="2022" month="March"/>
+    <workgroup>QUIC</workgroup>
+
+    <keyword>quic</keyword>
+    <keyword>datagram</keyword>
+    <abstract>
+      <t>This document defines an extension to the QUIC transport protocol to add support
+for sending and receiving unreliable datagrams over a QUIC connection.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>The QUIC transport protocol <xref target="RFC9000" format="default"/> provides a secure, multiplexed
+connection for transmitting reliable streams of application data. QUIC uses
+various frame types to transmit data within packets, and each frame type
+defines whether the data it contains will be retransmitted. Streams of reliable
+application data are sent using STREAM frames.</t>
+      <t>Some applications, particularly those that need to transmit real-time data,
+prefer to transmit data unreliably. In the past, these applications have built
+directly upon UDP <xref target="RFC0768" format="default"/> as a transport and have often added security
+with DTLS <xref target="RFC6347" format="default"/>. Extending QUIC to support transmitting unreliable
+application data provides another option for secure datagrams with the added
+benefit of sharing the cryptographic and authentication context used for
+reliable streams.</t>
+      <t>This document defines two new DATAGRAM QUIC frame types that carry application
+data without requiring retransmissions.</t>
+      <section anchor="specification-of-requirements" numbered="true" toc="default">
+        <name>Specification of Requirements</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>
+    </section>
+    <section anchor="motivation" numbered="true" toc="default">
+      <name>Motivation</name>
+      <t>Transmitting unreliable data over QUIC provides benefits over existing solutions:</t>
+      <ul spacing="normal">
+        <li>Applications that want to use both a reliable stream and an unreliable flow to
+the same peer can benefit by sharing a single handshake and authentication
+context between a reliable QUIC stream and a flow of unreliable QUIC
+datagrams. This can reduce the latency required for handshakes compared to
+opening both a TLS connection and a DTLS connection.</li>
+        <li>QUIC uses a more nuanced loss recovery mechanism than the DTLS handshake. This
+can allow loss recovery to occur more quickly for QUIC data.</li>
+        <li>QUIC datagrams are subject to QUIC congestion control. Providing a single
+congestion control for both reliable and unreliable data can be more effective
+and efficient.</li>
+      </ul>
+      <t>These features can be useful for optimizing audio/video streaming applications,
+gaming applications, and other real-time network applications.</t>
+      <t>Unreliable QUIC datagrams can also be used to implement an IP packet tunnel over
+      QUIC, such as for a Virtual Private Network (VPN). Internet-layer tunneling
+protocols generally require a reliable and authenticated handshake followed by
+unreliable secure transmission of IP packets. This can, for example, require a
+TLS connection for the control data and DTLS for tunneling IP packets. A single
+QUIC connection could support both parts with the use of unreliable datagrams
+      in addition to reliable streams.</t>
+    </section>
+    <section anchor="transport-parameter" numbered="true" toc="default">
+      <name>Transport Parameter</name>
+      <t>Support for receiving the DATAGRAM frame types is advertised by means of a QUIC
+transport parameter (name=max_datagram_frame_size, value=0x20). The
+max_datagram_frame_size transport parameter is an integer value (represented as
+a variable-length integer) that represents the maximum size of a DATAGRAM frame
+(including the frame type, length, and payload) the endpoint is willing to
+receive, in bytes.</t>
+      <t>The default for this parameter is 0, which indicates that the endpoint does not
+support DATAGRAM frames. A value greater than 0 indicates that the endpoint
+supports the DATAGRAM frame types and is willing to receive such frames on this
+connection.</t>
+      <t>An endpoint <bcp14>MUST NOT</bcp14> send DATAGRAM frames until it has received the
+max_datagram_frame_size transport parameter with a non-zero value during the
+handshake (or during a previous handshake if 0-RTT is used). An endpoint <bcp14>MUST
+NOT</bcp14> send DATAGRAM frames that are larger than the max_datagram_frame_size value
+it has received from its peer. An endpoint that receives a DATAGRAM frame when
+it has not indicated support via the transport parameter <bcp14>MUST</bcp14> terminate the
+connection with an error of type PROTOCOL_VIOLATION. Similarly, an endpoint that
+receives a DATAGRAM frame that is larger than the value it sent in its
+max_datagram_frame_size transport parameter <bcp14>MUST</bcp14> terminate the connection with
+an error of type PROTOCOL_VIOLATION.</t>
+      <t>For most uses of DATAGRAM frames, it is <bcp14>RECOMMENDED</bcp14> to send a value of 65535 in
+the max_datagram_frame_size transport parameter to indicate that this endpoint
+will accept any DATAGRAM frame that fits inside a QUIC packet.</t>
+      <t>The max_datagram_frame_size transport parameter is a unidirectional limit and
+indication of support of DATAGRAM frames. Application protocols that use
+DATAGRAM frames <bcp14>MAY</bcp14> choose to only negotiate and use them in a single direction.</t>
+      <t>When clients use 0-RTT, they <bcp14>MAY</bcp14> store the value of the server's
+max_datagram_frame_size transport parameter. Doing so allows the client to send
+DATAGRAM frames in 0-RTT packets. When servers decide to accept 0-RTT data,
+they <bcp14>MUST</bcp14> send a max_datagram_frame_size transport parameter greater than or
+equal to the value they sent to the client in the connection where they sent
+them the NewSessionTicket message. If a client stores the value of the
+max_datagram_frame_size transport parameter with their 0-RTT state, they <bcp14>MUST</bcp14>
+validate that the new value of the max_datagram_frame_size transport parameter
+sent by the server in the handshake is greater than or equal to the stored
+value; if not, the client <bcp14>MUST</bcp14> terminate the connection with error
+PROTOCOL_VIOLATION.</t>
+      <t>Application protocols that use datagrams <bcp14>MUST</bcp14> define how they react to the
+absence of the max_datagram_frame_size transport parameter. If datagram support
+is integral to the application, the application protocol can fail the handshake
+if the max_datagram_frame_size transport parameter is not present.</t>
+    </section>
+ 
+    <section anchor="datagram-frame-types" numbered="true" toc="default">
+      <name>Datagram Frame Types</name>
+      <t>DATAGRAM frames are used to transmit application data in an unreliable manner.
+The Type field in the DATAGRAM frame takes the form 0b0011000X (or the values
+0x30 and 0x31). The least significant bit of the Type field in the DATAGRAM
+frame is the LEN bit (0x01), which indicates whether there is a Length field
+present: if this bit is set to 0, the Length field is absent and the Datagram
+Data field extends to the end of the packet; if this bit is set to 1, the
+Length field is present.</t>
+      <t>DATAGRAM frames are structured as follows:</t>
+      <figure anchor="datagram-format">
+        <name>DATAGRAM Frame Format</name>
+
+<artwork name="" type="" align="left">
+DATAGRAM Frame {
+  Type (i) = 0x30..0x31,
+  [Length (i)],
+  Datagram Data (..),
+}
+</artwork>
+      </figure>
+      <t>DATAGRAM frames contain the following fields:</t>
+      <dl>
+        <dt>
+Length:  </dt>
+        <dd>
+          <t>A variable-length integer specifying the length of the Datagram Data field in
+bytes. This field is present only when the LEN bit is set to 1. When the LEN bit
+is set to 0, the Datagram Data field extends to the end of the QUIC packet. Note
+that empty (i.e., zero-length) datagrams are allowed.</t>
+        </dd>
+        <dt>
+Datagram Data:  </dt>
+        <dd>
+          <t>The bytes of the datagram to be delivered.</t>
+        </dd>
+      </dl>
+    </section>
+    <section anchor="behavior-and-usage" numbered="true" toc="default">
+      <name>Behavior and Usage</name>
+      <t>When an application sends a datagram over a QUIC connection, QUIC will generate
+a new DATAGRAM frame and send it in the first available packet. This frame
+<bcp14>SHOULD</bcp14> be sent as soon as possible (as determined by factors like congestion
+control, described below) and <bcp14>MAY</bcp14> be coalesced with other frames.</t>
+      <t>When a QUIC endpoint receives a valid DATAGRAM frame, it <bcp14>SHOULD</bcp14> deliver the data
+to the application immediately, as long as it is able to process the frame and
+can store the contents in memory.</t>
+      <t>Like STREAM frames, DATAGRAM frames contain application data and <bcp14>MUST</bcp14> be
+protected with either 0-RTT or 1-RTT keys.</t>
+      <t>Note that while the max_datagram_frame_size transport parameter places a limit
+on the maximum size of DATAGRAM frames, that limit can be further reduced by the
+max_udp_payload_size transport parameter and the Maximum Transmission Unit
+(MTU) of the path between endpoints. DATAGRAM frames cannot be fragmented;
+therefore, application protocols need to handle cases where the maximum
+datagram size is limited by other factors.</t>
+      <section anchor="multiplexing-datagrams" numbered="true" toc="default">
+        <name>Multiplexing Datagrams</name>
+        <t>DATAGRAM frames belong to a QUIC connection as a whole and are not associated
+with any stream ID at the QUIC layer. However, it is expected that applications
+will want to differentiate between specific DATAGRAM frames by using
+identifiers, such as for logical flows of datagrams or to distinguish between
+different kinds of datagrams.</t>
+        <t>Defining the identifiers used to multiplex different kinds of datagrams or flows of datagrams is the responsibility of the application protocol running over QUIC. The application defines the semantics of the Datagram Data field and
+how it is parsed.</t>
+        <t>If the application needs to support the coexistence of multiple flows of
+datagrams, one recommended pattern is to use a variable-length integer at the
+beginning of the Datagram Data field. This is a simple approach that allows a
+large number of flows to be encoded using minimal space.</t>
+        <t>QUIC implementations <bcp14>SHOULD</bcp14> present an API to applications to assign relative
+priorities to DATAGRAM frames with respect to each other and to QUIC streams.</t>
+      </section>
+      <section anchor="acknowledgement-handling" numbered="true" toc="default">
+        <name>Acknowledgement Handling</name>
+        <t>Although DATAGRAM frames are not retransmitted upon loss detection, they are
+ack-eliciting (<xref target="RFC9002" format="default"/>). Receivers <bcp14>SHOULD</bcp14> support delaying ACK frames
+(within the limits specified by max_ack_delay) in response to receiving packets
+that only contain DATAGRAM frames, since the sender takes no action if these
+packets are temporarily unacknowledged. Receivers will continue to send ACK
+frames when conditions indicate a packet might be lost, since the packet's
+payload is unknown to the receiver, and when dictated by max_ack_delay or other
+protocol components.</t>
+        <t>As with any ack-eliciting frame, when a sender suspects that a packet containing
+only DATAGRAM frames has been lost, it sends probe packets to elicit a faster
+acknowledgement as described in <xref section="6.2.4" sectionFormat="of" target="RFC9002" format="default"/>.</t>
+        <t>If a sender detects that a packet containing a specific DATAGRAM frame might
+have been lost, the implementation <bcp14>MAY</bcp14> notify the application that it believes
+the datagram was lost.</t>
+        <t>Similarly, if a packet containing a DATAGRAM frame is acknowledged, the
+implementation <bcp14>MAY</bcp14> notify the sender application that the datagram was
+successfully transmitted and received. Due to reordering, this can include a
+DATAGRAM frame that was thought to be lost but, at a later point, was
+received and acknowledged. It is important to note that acknowledgement of a
+DATAGRAM frame only indicates that the transport-layer handling on the receiver
+processed the frame and does not guarantee that the application on the receiver
+successfully processed the data. Thus, this signal cannot replace
+application-layer signals that indicate successful processing.</t>
+      </section>
+      <section anchor="flow-control" numbered="true" toc="default">
+        <name>Flow Control</name>
+        <t>DATAGRAM frames do not provide any explicit flow control signaling and do not
+contribute to any per-flow or connection-wide data limit.</t>
+        <t>The risk associated with not providing flow control for DATAGRAM frames is that
+a receiver might not be able to commit the necessary resources to process the
+frames. For example, it might not be able to store the frame contents in memory.
+However, since DATAGRAM frames are inherently unreliable, they <bcp14>MAY</bcp14> be dropped by
+the receiver if the receiver cannot process them.</t>
+      </section>
+      <section anchor="congestion-control" numbered="true" toc="default">
+        <name>Congestion Control</name>
+        <t>DATAGRAM frames employ the QUIC connection's congestion controller. As a result,
+a connection might be unable to send a DATAGRAM frame generated by the
+application until the congestion controller allows it <xref target="RFC9002" format="default"/>. The sender
+<bcp14>MUST</bcp14> either delay sending the frame until the controller allows it or drop the
+frame without sending it (at which point it <bcp14>MAY</bcp14> notify the application).
+Implementations that use packet pacing (<xref section="7.7" sectionFormat="of" target="RFC9002" format="default"/>) can also
+	delay the sending of DATAGRAM frames to maintain consistent packet pacing.</t>
+        <t>Implementations can optionally support allowing the application to specify a
+sending expiration time beyond which a congestion-controlled DATAGRAM frame
+ought to be dropped without transmission.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The DATAGRAM frame shares the same security properties as the rest of the data
+transmitted within a QUIC connection, and the security considerations of
+<xref target="RFC9000" format="default"/> apply accordingly. All application data transmitted with the
+DATAGRAM frame, like the STREAM frame, <bcp14>MUST</bcp14> be protected either by 0-RTT or
+1-RTT keys.</t>
+      <t>Application protocols that allow DATAGRAM frames to be sent in 0-RTT require a
+profile that defines acceptable use of 0-RTT; see <xref section="5.6" sectionFormat="of" target="RFC9001" format="default"/>.</t>
+      <t>The use of DATAGRAM frames might be detectable by an adversary on path that is
+capable of dropping packets. Since DATAGRAM frames do not use transport-level
+retransmission, connections that use DATAGRAM frames might be distinguished from
+other connections due to their different response to packet loss.</t>
+    </section>
+    <section anchor="iana-considerations" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section anchor="quic-transport-parameter" numbered="true" toc="default">
+        <name>QUIC Transport Parameter</name>
+        <t>This document registers a new value in the "QUIC Transport Parameters" registry
+maintained at
+<eref target="https://www.iana.org/assignments/quic" brackets="angle"/>.</t>
+        <dl spacing="compact">
+          <dt>
+Value:  </dt>
+          <dd>
+            0x20
+          </dd>
+          <dt>
+Parameter Name:  </dt>
+          <dd>
+            max_datagram_frame_size
+          </dd>
+          <dt>
+Status:  </dt>
+          <dd>
+            permanent
+          </dd>
+          <dt>
+Specification:  </dt>
+          <dd>
+           RFC 9221
+          </dd>
+        </dl>
+      </section>
+      <section anchor="quic-frame-types" numbered="true" toc="default">
+        <name>QUIC Frame Types</name>
+        <t>This document registers two new values in the "QUIC Frame Types" registry
+maintained at
+<eref target="https://www.iana.org/assignments/quic" brackets="angle"/>.</t>
+        <dl spacing="compact">
+          <dt>
+Value:  </dt>
+          <dd>
+            0x30-0x31
+          </dd>
+          <dt>
+Frame Name:  </dt>
+          <dd>
+           DATAGRAM
+          </dd>
+          <dt>
+Status:  </dt>
+          <dd>
+            permanent
+          </dd>
+          <dt>
+Specification:  </dt>
+          <dd>
+            RFC 9221
+          </dd>
+        </dl>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9001.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9000.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9002.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.0768.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6347.xml"/>
+      </references>
+    </references>
+    <section anchor="acknowledgments" numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>The original proposal for this work came from <contact fullname="Ian Swett"/>.</t>
+      <t>This document had reviews and input from many contributors in the IETF QUIC
+Working Group, with substantive input from <contact fullname="Nick Banks"/>, <contact fullname="Lucas Pardue"/>, <contact fullname="Rui Paulo"/>,
+<contact fullname="Martin Thomson"/>, <contact fullname="Victor Vasiliev"/>, and <contact fullname="Chris Wood"/>.</t>
+    </section>
+  </back>
+</rfc>

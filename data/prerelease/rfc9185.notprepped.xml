@@ -1,0 +1,801 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]> 
+
+<!-- name="GENERATOR" content="github.com/mmarkdown/mmark Mmark Markdown Processor - mmark.miek.nl" -->
+
+<rfc version="3" ipr="trust200902" docName="draft-ietf-perc-dtls-tunnel-12" number="9185" submissionType="IETF" category="info" consensus="true" updates="" obsoletes="" xml:lang="en"
+xmlns:xi="http://www.w3.org/2001/XInclude" tocInclude="true" symRefs="true" sortRefs="true">
+
+<front>
+  <title abbrev="DTLS Tunnel for PERC">DTLS Tunnel between a Media Distributor and Key
+  Distributor to Facilitate Key Exchange</title>
+  <seriesInfo name="RFC" value="9185"/>
+
+<author initials="P." surname="Jones" fullname="Paul E. Jones">
+  <organization abbrev="Cisco Systems">Cisco Systems, Inc.</organization>
+  <address>
+    <postal>
+    <street>7025 Kit Creek Rd.</street>
+    <city>Research Triangle Park</city>
+    <code>27709</code>
+    <country>United States of America</country>
+    <region>North Carolina</region>
+  </postal>
+  <phone>+1 919 476 2048</phone>
+  <email>paulej@packetizer.com</email>
+  </address>
+</author>
+
+<author initials="P." surname="Ellenbogen" fullname="Paul M. Ellenbogen">
+  <organization>Princeton University</organization>
+  <address>
+    <postal>
+      <street></street>
+    </postal>
+    <phone>+1 206 851 2069</phone>
+    <email>pe5@cs.princeton.edu</email>
+  </address>
+</author>
+
+<author initials="N." surname="Ohlmeier" fullname="Nils H. Ohlmeier">
+  <organization>8x8, Inc.</organization>
+  <address>
+    <postal>
+      <street></street>
+    </postal>
+    <phone>+1 408 659 6457</phone>
+    <email>nils@ohlmeier.org</email>
+  </address>
+</author>
+
+<date year="2022" month="April"/>
+
+<area>Applications and Real-Time Area</area>
+<workgroup>Privacy Enhanced RTP Conferencing</workgroup>
+<keyword>PERC</keyword>
+<keyword>SRTP</keyword>
+<keyword>RTP</keyword>
+<keyword>DTLS</keyword>
+<keyword>DTLS-SRTP</keyword>
+<keyword>DTLS tunnel</keyword>
+<keyword>conferencing</keyword>
+<keyword>security</keyword>
+
+<abstract>
+<t>This document defines a protocol for tunneling DTLS traffic in multimedia
+conferences that enables a Media Distributor to facilitate key
+exchange between an endpoint in a conference and the Key Distributor.
+The protocol is designed to ensure that the keying material used for
+hop-by-hop encryption and authentication is accessible to the Media
+Distributor, while the keying material used for end-to-end encryption
+and authentication is inaccessible to the Media Distributor.</t>
+</abstract>
+
+</front>
+
+<middle>
+
+  <section anchor="introduction">
+    <name>Introduction</name>
+<t>An objective of Privacy-Enhanced RTP Conferencing (PERC) <xref target="RFC8871"></xref> is to
+ensure that endpoints in a multimedia conference have access to the
+end-to-end (E2E) and hop-by-hop (HBH) keying material used to encrypt
+and authenticate Real-time Transport Protocol (RTP) 
+packets <xref target="RFC3550"></xref>, while the Media Distributor has access only to the HBH
+keying material for encryption and authentication.</t>
+<t>This specification defines a tunneling protocol that enables the Media
+Distributor to tunnel DTLS messages <xref target="RFC9147"></xref> between an endpoint
+and a Key Distributor, thus allowing an endpoint to use DTLS for the Secure Real-time Transport Protocol (DTLS-SRTP)
+<xref target="RFC5764"></xref> for establishing encryption and authentication keys with
+the Key Distributor.</t>
+<t>The tunnel established between the Media Distributor and Key
+Distributor is a TLS connection <xref target="RFC8446"></xref> that is established before any
+messages are forwarded by the Media Distributor on behalf of
+endpoints.  DTLS packets received from an endpoint are encapsulated by
+the Media Distributor inside this tunnel as data to be sent to the Key
+Distributor.  Likewise, when the Media Distributor receives data from
+the Key Distributor over the tunnel, it extracts the DTLS message
+inside and forwards the DTLS message to the endpoint.  In this way,
+the DTLS association for the DTLS-SRTP procedures is established
+between an endpoint and the Key Distributor, with the Media
+Distributor forwarding DTLS messages between the two entities via the
+established tunnel to the Key Distributor and having no visibility into
+the confidential information exchanged.</t>
+<t>Following the existing DTLS-SRTP procedures, the endpoint and Key
+Distributor will arrive at a selected cipher and keying material,
+which are used for HBH encryption and authentication by both the
+endpoint and the Media Distributor.  However, since the Media
+Distributor would not have direct access to this information, the Key
+Distributor explicitly shares the HBH key information with the Media
+Distributor via the tunneling protocol defined in this document.
+Additionally, the endpoint and Key Distributor will agree on a cipher
+for E2E encryption and authentication.  The Key Distributor will
+transmit keying material to the endpoint for E2E operations but will
+not share that information with the Media Distributor.</t>
+<t>By establishing this TLS tunnel between the Media Distributor and Key
+Distributor and implementing the protocol defined in this document, it
+is possible for the Media Distributor to facilitate the establishment
+of a secure DTLS association between an endpoint and the Key
+Distributor in order for the endpoint to generate E2E and HBH keying
+material.  At the same time, the Key Distributor can securely provide
+the HBH keying material to the Media Distributor.</t>
+</section>
+
+<section anchor="conventions-used-in-this-document">
+  <name>Conventions Used in This Document</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+<t>This document uses the terms &quot;endpoint&quot;, &quot;Media Distributor&quot;, and
+&quot;Key Distributor&quot; defined in <xref target="RFC8871"></xref>.</t>
+</section>
+
+<section anchor="tunneling-concept">
+  <name>Tunneling Concept</name>
+  <t>A TLS connection (tunnel) is established between the Media Distributor
+  and the Key Distributor.  This tunnel is used to relay DTLS messages
+  between the endpoint and Key Distributor, as depicted in
+  <xref target="fig-tunnel"></xref>:</t>
+<figure anchor="fig-tunnel" align="center">
+  <name>TLS Tunnel to Key Distributor</name>
+<artwork name="" type="ascii-art" align="center" alt=""><![CDATA[
+                         +-------------+
+                         |     Key     |
+                         | Distributor |
+                         +-------------+
+                             # ^ ^ #
+                             # | | # <-- TLS Tunnel
+                             # | | #
++----------+             +-------------+             +----------+
+|          |     DTLS    |             |    DTLS     |          |
+| Endpoint |<------------|    Media    |------------>| Endpoint |
+|          |    to Key   | Distributor |   to Key    |          |
+|          | Distributor |             | Distributor |          |
++----------+             +-------------+             +----------+
+]]></artwork>
+</figure>
+<t>The three entities involved in this communication flow are the
+endpoint, the Media Distributor, and the Key Distributor.  The
+behavior of each entity is described in <xref target="tunneling-procedures"></xref>.</t>
+<t> The Key Distributor is a logical function that might be co-resident
+ with a key management server operated by an enterprise, might
+ reside in one of the endpoints participating in the conference, or
+ might reside at some other location that is trusted with E2E keying
+ material.
+</t>
+</section>
+
+<section anchor="example-message-flows">
+  <name>Example Message Flows</name>
+<t>This section provides an example message flow to help clarify the
+procedures described later in this document.  It is necessary that the
+Key Distributor and Media Distributor establish a mutually
+authenticated TLS connection for the purpose of sending tunneled
+messages, though the complete TLS handshake for the tunnel is not
+shown in <xref target="fig-message-flow"></xref> because there is nothing new this document
+introduces with regard to those procedures.</t>
+<t>Once the tunnel is established, it is possible for the Media
+Distributor to relay the DTLS messages between the endpoint and the
+Key Distributor.  <xref target="fig-message-flow"></xref> shows a message flow wherein the
+endpoint uses DTLS-SRTP to establish an association with the Key
+Distributor.  In the process, the Media Distributor shares its
+supported SRTP protection profile information (see <xref target="RFC5764"></xref>), and
+the Key Distributor shares the HBH keying material and selected cipher
+with the Media Distributor.</t>
+<figure anchor="fig-message-flow" align="center">
+  <name>Sample DTLS-SRTP Exchange via the Tunnel</name>
+<artwork name="" type="ascii-art" align="center" alt=""><![CDATA[
+Endpoint              Media Distributor          Key Distributor
+    |                         |                         |
+    |                         |<=======================>|
+    |                         |    TLS Connection Made  |
+    |                         |                         |
+    |                         |========================>|
+    |                         | SupportedProfiles       |
+    |                         |                         |
+    |------------------------>|========================>|
+    | DTLS handshake message  | TunneledDtls            |
+    |                         |                         |
+         .... may be multiple handshake messages ...
+    |                         |                         |
+    |<------------------------|<========================|
+    | DTLS handshake message  |            TunneledDtls |
+    |                         |                         |
+    |                         |                         |
+    |                         |<========================|
+    |                         |               MediaKeys |
+]]></artwork>
+</figure>
+<t>After the initial TLS connection has been established, each of the
+messages on the right-hand side of <xref target="fig-message-flow"></xref> is a tunneling
+protocol message, as defined in <xref target="tunneling-protocol"></xref>.</t>
+<t>SRTP protection profiles supported by the Media Distributor will be
+sent in a <tt>SupportedProfiles</tt> message when the TLS tunnel is initially
+established.  The Key Distributor will use that information to select
+a common profile supported by both the endpoint and the Media
+Distributor to ensure that HBH operations can be successfully
+performed.</t>
+<t>As DTLS messages are received from the endpoint by the Media
+Distributor, they are forwarded to the Key Distributor encapsulated
+inside a <tt>TunneledDtls</tt> message.  Likewise, as <tt>TunneledDtls</tt>
+messages are received by the Media Distributor from the Key
+Distributor, the encapsulated DTLS packet is forwarded to the
+endpoint.</t>
+<t>The Key Distributor will provide the SRTP keying material
+<xref target="RFC3711"></xref> to the Media Distributor for HBH operations via the <tt>MediaKeys</tt>
+message.  The Media Distributor will extract this keying material from
+the <tt>MediaKeys</tt> message when received and use it for HBH
+encryption and authentication.</t>
+</section>
+
+<section anchor="tunneling-procedures">
+  <name>Tunneling Procedures</name>
+<t>The following subsections explain in detail the expected behavior of
+the endpoint, the Media Distributor, and the Key Distributor.</t>
+<t>It is important to note that the tunneling protocol described in this
+document is not an extension to TLS or DTLS.  Rather, it is a protocol that
+transports DTLS messages generated by an endpoint or Key Distributor as data
+inside of the TLS connection established between the Media Distributor and
+Key Distributor.</t>
+
+<section anchor="endpoint-procedures">
+  <name>Endpoint Procedures</name>
+<t>The endpoint follows the procedures outlined for DTLS-SRTP <xref target="RFC5764"></xref>
+in order to establish the cipher and keys used for encryption and
+authentication, with the endpoint acting as the client and the Key
+Distributor acting as the server.  The endpoint does not need to be
+aware of the fact that DTLS messages it transmits toward the Media
+Distributor are being tunneled to the Key Distributor.</t>
+<t>The endpoint <bcp14>MUST</bcp14> include a unique identifier in the <tt>tls-id</tt>
+Session Description Protocol (SDP) attribute <xref target="RFC8866"></xref> in all offer and answer messages <xref target="RFC3264"></xref>
+that it generates, as per <xref target="RFC8842"></xref>. Further, the
+endpoint <bcp14>MUST</bcp14> include this same unique identifier in the
+<tt>external_session_id</tt> extension <xref target="RFC8844"></xref> in the
+<tt>ClientHello</tt> message when establishing a DTLS association.</t>
+<t>When receiving an <tt>external_session_id</tt> value from the Key Distributor, the
+client <bcp14>MUST</bcp14> check to ensure that value matches the <tt>tls-id</tt> value
+received in SDP.  If the values do not match, the endpoint <bcp14>MUST</bcp14>
+consider any received keying material to be invalid and terminate the
+DTLS association.</t>
+</section>
+
+<section anchor="tunnel-establishment-procedures">
+  <name>Tunnel Establishment Procedures</name>
+<t>Either the Media Distributor or Key Distributor initiates the
+establishment of a TLS tunnel.  Which entity acts as the TLS client
+when establishing the tunnel and what event triggers the establishment
+of the tunnel are outside the scope of this document.  Further, how
+the trust relationships are established between the Key Distributor
+and Media Distributor are also outside the scope of this document.</t>
+<t>A tunnel <bcp14>MUST</bcp14> be a mutually authenticated TLS connection.</t>
+<t>The Media Distributor or Key Distributor <bcp14>MUST</bcp14> establish a tunnel
+prior to forwarding tunneled DTLS messages.  Given the time-sensitive
+nature of DTLS-SRTP procedures, a tunnel <bcp14>SHOULD</bcp14> be established
+prior to the Media Distributor receiving a DTLS message from an
+endpoint.</t>
+<t>A single tunnel <bcp14>MAY</bcp14> be used to relay DTLS messages between any
+number of endpoints and the Key Distributor.</t>
+<t>A Media Distributor <bcp14>MAY</bcp14> have more than one tunnel established
+between itself and one or more Key Distributors.  When multiple
+tunnels are established, which tunnel or tunnels to use to send
+messages for a given conference is outside the scope of this document.</t>
+</section>
+
+<section anchor="media-distributor-tunneling-procedures">
+  <name>Media Distributor Tunneling Procedures</name>
+<t>The first message transmitted over the tunnel is the
+<tt>SupportedProfiles</tt> message (see <xref target="tunneling-protocol"></xref>).  This message informs
+the Key Distributor about which DTLS-SRTP profiles the Media
+Distributor supports.  This message <bcp14>MUST</bcp14> be sent each time a new
+tunnel connection is established or, in the case of connection loss,
+when a connection is re-established.  The Media Distributor <bcp14>MUST</bcp14>
+support the same list of protection profiles for the duration of any
+endpoint-initiated DTLS association and tunnel connection.</t>
+<t>The Media Distributor <bcp14>MUST</bcp14> assign a unique association identifier
+for each endpoint-initiated DTLS association and include it in all
+messages forwarded to the Key Distributor.  The Key Distributor will
+subsequently include this identifier in all messages it sends so that
+the Media Distributor can map messages received via a tunnel and
+forward those messages to the correct endpoint.  The association
+identifier <bcp14>MUST</bcp14> be a version 4 Universally Unique Identifier (UUID), as described in 
+<xref target="RFC4122" section="4.4" sectionFormat="of" />.</t>
+<t>When a DTLS message is received by the Media Distributor from an
+endpoint, it forwards the UDP payload portion of that message to the
+Key Distributor encapsulated in a <tt>TunneledDtls</tt> message.
+The Media Distributor is not required to forward all messages received
+from an endpoint for a given DTLS association through the same tunnel
+if more than one tunnel has been established between it and a Key
+Distributor.</t>
+<t>When a <tt>MediaKeys</tt> message is received, the Media Distributor <bcp14>MUST</bcp14>
+extract the cipher and keying material conveyed in order to
+subsequently perform HBH encryption and authentication operations for
+RTP and RTP Control Protocol (RTCP) packets sent between it and an endpoint.  Since the HBH
+keying material will be different for each endpoint, the Media
+Distributor uses the association identifier included by the Key
+Distributor to ensure that the HBH keying material is used with the
+correct endpoint.</t>
+<t>The Media Distributor <bcp14>MUST</bcp14> forward all DTLS messages received from
+either the endpoint or the Key Distributor (via the <tt>TunneledDtls</tt>
+message) to ensure proper communication between those two entities.</t>
+<t>When the Media Distributor detects an endpoint has disconnected or
+when it receives conference control messages indicating the endpoint
+is to be disconnected, the Media Distributor <bcp14>MUST</bcp14> send an
+<tt>EndpointDisconnect</tt> message with the association identifier assigned
+to the endpoint to the Key Distributor.  The Media Distributor
+<bcp14>SHOULD</bcp14> take a loss of all RTP and RTCP packets as an indicator
+that the endpoint has disconnected.  The particulars of how RTP and
+RTCP are to be used to detect an endpoint disconnect, such as timeout
+period, are not specified.  The Media Distributor <bcp14>MAY</bcp14> use
+additional indicators to determine when an endpoint has disconnected.</t>
+</section>
+
+<section anchor="key-distributor-tunneling-procedures">
+  <name>Key Distributor Tunneling Procedures</name>
+<t>Each TLS tunnel established between the Media Distributor and the
+Key Distributor <bcp14>MUST</bcp14> be mutually authenticated.</t>
+<t>When the Media Distributor relays a DTLS message from an endpoint, the
+Media Distributor will include an association identifier that is
+unique per endpoint-originated DTLS association.  The association
+identifier remains constant for the life of the DTLS association.  The
+Key Distributor identifies each distinct endpoint-originated DTLS
+association by the association identifier.</t>
+<t>When processing an incoming endpoint association, the Key Distributor
+<bcp14>MUST</bcp14> extract the <tt>external_session_id</tt> value transmitted in the
+<tt>ClientHello</tt> message and match that against the <tt>tls-id</tt> value the endpoint
+transmitted via SDP.  If the values in SDP and the <tt>ClientHello</tt> message do not match,
+the DTLS association <bcp14>MUST</bcp14> be rejected.</t>
+<t>The process through which the <tt>tls-id</tt> value in SDP is conveyed to
+the Key Distributor is outside the scope of this document.</t>
+<t>The Key Distributor <bcp14>MUST</bcp14> match the fingerprint of the certificate and
+<tt>external_session_id</tt> <xref target="RFC8844"></xref> received from the endpoint via DTLS with the
+expected fingerprint <xref target="RFC8122"></xref> and <tt>tls-id</tt> <xref target="RFC8842"></xref> values received via
+SDP.  It is through this process that the Key Distributor can be sure to
+deliver the correct conference key to the endpoint.</t>
+<t>The Key Distributor <bcp14>MUST</bcp14> report its own unique identifier in the
+<tt>external_session_id</tt> extension.  This extension is sent in the
+<tt>EncryptedExtensions</tt> message in DTLS 1.3 and the <tt>ServerHello</tt> message in
+previous DTLS versions.  This value <bcp14>MUST</bcp14> also be conveyed back to
+the client via SDP as a <tt>tls-id</tt> attribute.</t>
+<t>The Key Distributor <bcp14>MUST</bcp14> encapsulate any DTLS message it sends to
+an endpoint inside a <tt>TunneledDtls</tt> message (see
+<xref target="tunneling-protocol"></xref>).  The Key Distributor is not required to transmit
+all messages for a given DTLS association through the same tunnel if more
+than one tunnel has been established between it and the Media Distributor.</t>
+<t>The Key Distributor <bcp14>MUST</bcp14> use the same association identifier in
+messages sent to an endpoint as was received in messages from that
+endpoint.  This ensures the Media Distributor can forward the messages
+to the correct endpoint.</t>
+<t>The Key Distributor extracts tunneled DTLS messages from an endpoint
+and acts on those messages as if that endpoint had established the
+DTLS association directly with the Key Distributor.  The Key
+Distributor is acting as the DTLS server, and the endpoint is acting as
+the DTLS client.  The handling of the messages and certificates is
+exactly the same as normal DTLS-SRTP procedures between endpoints.</t>
+<t>The Key Distributor <bcp14>MUST</bcp14> send a <tt>MediaKeys</tt> message to the Media
+Distributor immediately after the DTLS handshake completes.  The <tt>MediaKeys</tt>
+message includes the selected cipher (i.e., protection profile), Master Key Identifier (MKI)
+value <xref target="RFC3711"></xref> (if any), HBH SRTP master keys, and SRTP master salt
+values.  The Key Distributor <bcp14>MUST</bcp14> use the same association
+identifier in the <tt>MediaKeys</tt> message as is used in the <tt>TunneledDtls</tt>
+messages for the given endpoint.</t>
+<t>There are presently two SRTP protection profiles defined for PERC,
+namely <tt>DOUBLE_AEAD_AES_128_GCM_AEAD_AES_128_GCM</tt> and
+<tt>DOUBLE_AEAD_AES_256_GCM_AEAD_AES_256_GCM</tt> <xref target="RFC8723"></xref>.  As explained in <xref target="RFC8723" section="5.2" sectionFormat="of"/>, the Media Distributor is only given the SRTP
+master key for HBH operations.  As such, the SRTP master key
+length advertised in the <tt>MediaKeys</tt> message is half the length of the key
+normally associated with the selected &quot;double&quot; protection profile.</t>
+<t>The Key Distributor uses the certificate fingerprint of the endpoint
+along with the unique identifier received in the <tt>external_session_id</tt>
+extension to determine with which conference a given DTLS association is
+associated.</t>
+<t>The Key Distributor <bcp14>MUST</bcp14> select a cipher that is supported by itself, the endpoint, and the Media Distributor to ensure proper HBH
+operations.</t>
+<t>When the DTLS association between the endpoint and the Key Distributor
+is terminated, regardless of which entity initiated the termination,
+the Key Distributor <bcp14>MUST</bcp14> send an <tt>EndpointDisconnect</tt> message
+with the association identifier assigned to the endpoint to the Media
+Distributor.</t>
+</section>
+
+<section anchor="versioning-considerations">
+  <name>Versioning Considerations</name>
+<t>Since the Media Distributor sends the first message over the tunnel,
+it effectively establishes the version of the protocol to be used.  If
+that version is not supported by the Key Distributor, the Key
+Distributor <bcp14>MUST</bcp14> transmit an <tt>UnsupportedVersion</tt> message containing
+the highest version number supported and close the TLS connection.</t>
+<t>The Media Distributor <bcp14>MUST</bcp14> take note of the version received in an
+<tt>UnsupportedVersion</tt> message and use that version when attempting to
+re-establish a failed tunnel connection.  Note that it is not
+necessary for the Media Distributor to understand the newer version of
+the protocol to understand that the first message received is an 
+<tt>UnsupportedVersion</tt> message.  The Media Distributor can determine from the
+first four octets received what the version number is and that the
+message is an <tt>UnsupportedVersion</tt> message.  The rest of the data received, if
+any, would be discarded and the connection closed (if not already
+closed).</t>
+</section>
+</section>
+
+<section anchor="tunneling-protocol">
+  <name>Tunneling Protocol</name>
+<t>Tunneled messages are transported via the TLS tunnel as application
+data between the Media Distributor and the Key Distributor.  Tunnel
+messages are specified using the format described in <xref target="RFC8446" section="3" sectionFormat="comma" />.  As in <xref target="RFC8446"></xref>, all values are stored in network byte
+(big endian) order; the uint32 represented by the hex bytes 01 02 03
+04 is equivalent to the decimal value 16909060.</t>
+<t>This protocol defines several different messages, each of which
+contains the following information:</t>
+
+<ul>
+  <li>message type identifier</li>
+  <li>message body length</li>
+  <li>the message body</li>
+</ul>
+<t>Each of the tunnel messages is a <tt>TunnelMessage</tt> structure with the
+message type indicating the actual content of the message body.</t>
+
+<section anchor="tunnelmessage-structure">
+  <name>TunnelMessage Structure</name>
+  <t><tt>TunnelMessage</tt> defines the structure of all messages sent via the tunnel
+  protocol.  That structure includes a field called <tt>msg_type</tt> that identifies the
+  specific type of message contained within <tt>TunnelMessage</tt>.</t>
+
+<sourcecode type="tls-presentation"><![CDATA[
+enum {
+    supported_profiles(1),
+    unsupported_version(2),
+    media_keys(3),
+    tunneled_dtls(4),
+    endpoint_disconnect(5),
+    (255)
+} MsgType;
+
+opaque uuid[16];
+
+struct {
+    MsgType msg_type;
+    uint16 length;
+    select (MsgType) {
+        case supported_profiles:  SupportedProfiles;
+        case unsupported_version: UnsupportedVersion;
+        case media_keys:          MediaKeys;
+        case tunneled_dtls:       TunneledDtls;
+        case endpoint_disconnect: EndpointDisconnect;
+  } body;
+} TunnelMessage;
+]]></sourcecode>
+
+<t>The elements of <tt>TunnelMessage</tt> include:</t>
+
+<dl newline="false" spacing="normal">
+  <dt><tt>msg_type</tt>:</dt>
+  <dd>the type of message contained within the structure <tt>body</tt>.</dd>
+  <dt><tt>length</tt>:</dt>
+  <dd>the length in octets of the following <tt>body</tt> of the message.</dd>
+  <dt><tt>body</tt>:</dt>
+  <dd>the actual message being conveyed within this <tt>TunnelMessage</tt> structure.</dd>
+</dl>
+</section>
+
+<section anchor="supportedprofiles-message">
+  <name>SupportedProfiles Message</name>
+  <t>The <tt>SupportedProfiles</tt> message is defined as:</t>
+<sourcecode type="tls-presentation"><![CDATA[
+uint8 SRTPProtectionProfile[2]; /* from RFC 5764 */
+
+struct {
+    uint8 version;
+    SRTPProtectionProfile protection_profiles<2..2^16-1>;
+} SupportedProfiles;
+]]></sourcecode>
+<t>The elements of <tt>SupportedProfiles</tt> include:</t>
+
+<dl newline="false" spacing="normal">
+  <dt><tt>version</tt>:</dt>
+  <dd>this document specifies version 0x00.</dd>
+  <dt><tt>protection_profiles</tt>:</dt>
+  <dd>the list of two-octet SRTP protection profile
+  values, as per <xref target="RFC5764"></xref>, supported by the Media Distributor.</dd>
+</dl>
+</section>
+
+<section anchor="unsupportedversion-message">
+  <name>UnsupportedVersion Message</name>
+  <t>The <tt>UnsupportedVersion</tt> message is defined as:</t>
+
+<sourcecode type="tls-presentation"><![CDATA[
+struct {
+    uint8 highest_version;
+} UnsupportedVersion;
+]]></sourcecode>
+<t><tt>UnsupportedVersion</tt> contains this single element:</t>
+
+<dl>
+  <dt><tt>highest_version</tt>:</dt>
+  <dd>indicates the highest version of the protocol supported
+  by the Key Distributor.</dd>
+</dl>
+</section>
+
+<section anchor="mediakeys-message">
+  <name>MediaKeys Message</name>
+  <t>The <tt>MediaKeys</tt> message is defined as:</t>
+
+<sourcecode type="tls-presentation"><![CDATA[
+struct {
+    uuid association_id;
+    SRTPProtectionProfile protection_profile;
+    opaque mki<0..255>;
+    opaque client_write_SRTP_master_key<1..255>;
+    opaque server_write_SRTP_master_key<1..255>;
+    opaque client_write_SRTP_master_salt<1..255>;
+    opaque server_write_SRTP_master_salt<1..255>;
+} MediaKeys;
+]]></sourcecode>
+<t>The fields are described as follows:</t>
+
+<dl newline="false" spacing="normal">
+  <dt><tt>association_id</tt>:</dt>
+  <dd>a value that identifies a distinct DTLS association
+  between an endpoint and the Key Distributor.</dd>
+  <dt><tt>protection_profiles</tt>:</dt>
+  <dd>the value of the two-octet SRTP protection
+  profile value, as per <xref target="RFC5764"></xref>, used for this DTLS association.</dd>
+  <dt><tt>mki</tt>:</dt>
+  <dd>master key identifier <xref target="RFC3711"></xref>; a zero-length field indicates
+  that no MKI value is present.</dd>
+  <dt><tt>client_write_SRTP_master_key</tt>:</dt>
+  <dd>the value of the SRTP master key used by the client (endpoint).</dd>
+  <dt><tt>server_write_SRTP_master_key</tt>:</dt>
+  <dd>the value of the SRTP master key used by the server (Media Distributor).</dd>
+  <dt><tt>client_write_SRTP_master_salt</tt>:</dt>
+  <dd>the value of the SRTP master salt used by the client (endpoint).</dd>
+  <dt><tt>server_write_SRTP_master_salt</tt>:</dt>
+  <dd>the value of the SRTP master salt used by the server (Media Distributor).</dd>
+</dl>
+</section>
+
+<section anchor="tunneleddtls-message">
+  <name>TunneledDtls Message</name>
+  <t>The <tt>TunneledDtls</tt> message is defined as:</t>
+
+<sourcecode type="tls-presentation"><![CDATA[
+struct {
+    uuid association_id;
+    opaque dtls_message<1..2^16-1>;
+} TunneledDtls;
+]]></sourcecode>
+<t>The fields are described as follows:</t>
+
+<dl newline="false" spacing="normal">
+  <dt><tt>association_id</tt>:</dt>
+  <dd>a value that identifies a distinct DTLS association
+  between an endpoint and the Key Distributor.</dd>
+  <dt><tt>dtls_message</tt>:</dt>
+  <dd>the content of the DTLS message received by the
+  endpoint or to be sent to the endpoint, including one or more complete
+  DTLS records.</dd>
+</dl>
+</section>
+
+<section anchor="endpointdisconnect-message">
+  <name>EndpointDisconnect Message</name>
+  <t>The <tt>EndpointDisconnect</tt> message is defined as:</t>
+
+<sourcecode type="tls-presentation"><![CDATA[
+struct {
+    uuid association_id;
+} EndpointDisconnect;
+]]></sourcecode>
+<t>The field is described as follows:</t>
+
+<dl newline="false" spacing="normal">
+  <dt><tt>association_id</tt>:</dt>
+  <dd>a value that identifies a distinct DTLS association
+  between an endpoint and the Key Distributor.</dd>
+</dl>
+</section>
+</section>
+
+<section anchor="example-binary-encoding">
+  <name>Example Binary Encoding</name>
+  <t>The <tt>TunnelMessage</tt> is encoded in binary, following the procedures
+  specified in <xref target="RFC8446"></xref>.  This section provides an example of what
+  the bits on the wire would look like for the <tt>SupportedProfiles</tt>
+  message that advertises support for both
+  <tt>DOUBLE_AEAD_AES_128_GCM_AEAD_AES_128_GCM</tt> and
+  <tt>DOUBLE_AEAD_AES_256_GCM_AEAD_AES_256_GCM</tt> <xref target="RFC8723"></xref>.</t>
+
+<sourcecode type=""><![CDATA[
+TunnelMessage:
+         message_type: 0x01
+               length: 0x0007
+    SupportedProfiles:
+                   version:  0x00
+       protection_profiles:  0x0004 (length)
+                             0x0009000A (value)
+]]></sourcecode>
+<t>Thus, the encoding on the wire, presented here in network byte order,
+would be this stream of octets:</t>
+
+<sourcecode type=""><![CDATA[
+0x0100070000040009000A
+]]></sourcecode>
+</section>
+
+<section anchor="iana-considerations">
+  <name>IANA Considerations</name>
+  <t>This document establishes the "Datagram Transport Layer Security (DTLS) Tunnel Protocol Message Types for Privacy Enhanced Conferencing" registry to contain message type
+  values used in the DTLS tunnel protocol.  These message type values are a
+  single octet in length.  This document defines the values shown in
+  <xref target="message_types"></xref> below, leaving the balance of possible values
+  reserved for future specifications:</t>
+<table anchor="message_types">
+  <name>Message Type Values for the DTLS Tunnel Protocol</name>
+  <thead>
+    <tr>
+      <th align="center">MsgType</th>
+      <th align="left">Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td align="center">0x01</td>
+      <td align="left">Supported SRTP Protection Profiles</td>
+    </tr>
+    <tr>
+      <td align="center">0x02</td>
+      <td align="left">Unsupported Version</td>
+    </tr>
+    <tr>
+      <td align="center">0x03</td>
+      <td align="left">Media Keys</td>
+    </tr>
+    <tr>
+      <td align="center">0x04</td>
+      <td align="left">Tunneled DTLS</td>
+    </tr>
+    <tr>
+      <td align="center">0x05</td>
+      <td align="left">Endpoint Disconnect</td>
+    </tr>
+  </tbody>
+</table>
+<t>The value 0x00 is reserved, and all values in the range 0x06 to 0xFF are
+available for allocation.  The procedures for updating this table are those
+defined as &quot;IETF Review&quot; in <xref target="RFC8126" section="4.8" sectionFormat="of" />.</t>
+</section>
+
+<section anchor="security-considerations">
+<name>Security Considerations</name>
+<t>Since the procedures in this document rely on TLS <xref target="RFC8446"></xref> for transport
+security, the security considerations for TLS should be reviewed when
+implementing the protocol defined in this document.</t>
+<t>While the tunneling protocol defined in this document does not use
+DTLS-SRTP <xref target="RFC5764"></xref> directly, it does convey and negotiate some of the
+same information (e.g., protection profile data).  As such, a review of the
+security considerations found in that document may be useful.</t>
+<t>This document describes a means of securely exchanging keying material and
+cryptographic transforms for both E2E and HBH encryption and authentication of
+media between an endpoint and a Key Distributor via a Media Distributor.
+Additionally, the procedures result in delivering HBH information to the
+intermediary Media Distributor.  The Key Distributor and endpoint are the only
+two entities with access to both the E2E and HBH keys, while the Media
+Distributor has access to only HBH information.  <xref target="RFC8871" section="8.2" sectionFormat="of" />
+enumerates various attacks against which one must guard when implementing a
+Media Distributor; these scenarios are important to note.</t>
+<t>A requirement in this document is that a TLS connection between the Media
+Distributor and the Key Distributor be mutually authenticated.  The reason
+for this requirement is to ensure that only an authorized Media Distributor
+receives the HBH keying material.  If an unauthorized Media Distributor gains
+access to the HBH keying material, it can easily cause service degradation or
+denial by transmitting HBH-valid packets that ultimately fail E2E
+authentication or replay protection checks (see <xref target="RFC3711" section="3.3.2" sectionFormat="of" />).
+Even if service does not appear degraded in any way, transmitting and
+processing bogus packets are a waste of both computational and network
+resources.</t>
+<t>The procedures defined in this document assume that the Media Distributor
+will properly convey DTLS messages between the endpoint and Key Distributor.
+Should it fail in that responsibility by forwarding DTLS messages from
+endpoint A advertised as being from endpoint B, this will result in
+a failure at the DTLS layer of those DTLS sessions.  This could be an additional
+attack vector that Key Distributor implementations should consider.</t>
+<t>While E2E keying material passes through the Media Distributor via the protocol
+defined in this document, the Media Distributor has no means of gaining access
+to that information and therefore cannot affect the E2E media processing
+function in the endpoint except to present it with invalid or replayed data.
+That said, any entity along the path that interferes with the DTLS exchange
+between the endpoint and the Key Distributor, including a malicious Media
+Distributor that is not properly authorized, could prevent an endpoint from
+properly communicating with the Key Distributor and therefore prevent
+successful conference participation.</t>
+<t>It is worth noting that a compromised Media Distributor can convey
+information to an adversary, such as participant IP addresses,
+negotiated protection profiles, or other metadata.
+  While <xref target="RFC8871"></xref> explains that
+a malicious or compromised Media Distributor can disrupt communications,
+an additional attack vector introduced by this protocol is the potential
+disruption of DTLS negotiation or premature removal of a participant from
+a conference by sending an <tt>EndpointDisconnect</tt> message to the
+Key Distributor.</t>
+<t>The Key Distributor should be aware of the possibility that a malicious
+Media Distributor might transmit an <tt>EndpointDisconnect</tt> message to the Key
+Distributor  when the endpoint is in fact still connected.</t>
+<t>While the Security Considerations section of <xref target="RFC8871"></xref> describes various
+attacks one needs to consider with respect to the Key Distributor and
+denial of service, use of this protocol introduces another possible
+attack vector.  Consider the case where a malicious endpoint sends unsolicited
+DTLS-SRTP messages to a Media Distributor.  The Media Distributor will normally
+forward those messages to the Key Distributor and, if found invalid, such
+messages only serve to consume resources on both the Media Distributor and
+Key Distributor.</t>
+</section>
+
+</middle>
+
+<back>
+  <references>
+    <name>References</name>
+  <references>
+    <name>Normative References</name>
+
+<reference anchor='RFC9147' target="https://www.rfc-editor.org/info/rfc9147">
+<front>
+<title>The Datagram Transport Layer Security (DTLS) Protocol Version 1.3</title>
+<author initials='E' surname='Rescorla' fullname='Eric Rescorla'>
+<organization />
+</author>
+<author initials='H' surname='Tschofenig' fullname='Hannes Tschofenig'>
+<organization />
+</author>
+<author initials='N' surname='Modadugu' fullname='Nagendra Modadugu'>
+<organization />
+</author>
+<date year='2022' month='April' />
+</front>
+<seriesInfo name="RFC" value="9147"/>
+<seriesInfo name="DOI" value="10.17487/RFC9147"/>
+</reference>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3711.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4122.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5764.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8122.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8723.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8842.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8844.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8871.xml"/>
+</references>
+<references>
+  <name>Informative References</name>
+  <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3264.xml"/>
+  <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3550.xml"/>
+  <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+  <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8866.xml"/>
+</references>
+  </references>
+
+<section anchor="acknowledgements" numbered="false">
+  <name>Acknowledgements</name>
+  <t>The authors would like to thank <contact fullname="David Benham"/> and <contact
+  fullname="Cullen Jennings"/> for reviewing this document and providing constructive
+  comments.</t>
+</section>
+</back>
+
+</rfc>

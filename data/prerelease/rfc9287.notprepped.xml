@@ -1,0 +1,237 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-quic-bit-grease-04" number="9287" submissionType="IETF" category="std" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" xml:lang="en" updates="" obsoletes="" version="3">
+
+
+  <front>
+    <title>Greasing the QUIC Bit</title>
+    <seriesInfo name="RFC" value="9287"/>
+    <author initials="M." surname="Thomson" fullname="Martin Thomson">
+      <organization>Mozilla</organization>
+      <address>
+        <email>mt@lowentropy.net</email>
+      </address>
+    </author>
+    <date year="2022" month="August"/>
+    <area>tsv</area>
+    <workgroup>quic</workgroup>
+
+
+    <keyword>Header</keyword>
+    <keyword>Path signal</keyword>
+
+    <abstract>
+      <t>This document describes a method for negotiating the ability to send an
+arbitrary value for the second-most significant bit in QUIC packets.</t>
+    </abstract>
+
+  </front>
+  <middle>
+    <section anchor="introduction">
+      <name>Introduction</name>
+
+
+<t>The version-independent definition of QUIC <xref target="RFC8999"/>
+intentionally describes a very narrow set of fields that are visible
+to entities other than endpoints.  Beyond those characteristics that
+are invariant, very little about the "wire image" <xref target="RFC8546"/> of QUIC
+is visible.</t>
+
+      
+     
+      <t>The second-most significant bit of the first byte in every QUIC packet is
+      defined as having a fixed value in QUIC version 1 <xref target="RFC9000"/>.
+
+
+ The purpose of having a fixed value is to allow endpoints to efficiently distinguish QUIC from other protocols; see  <xref target="I-D.ietf-avtcore-rfc7983bis"/> for a description of a
+system that might use this property.  As this bit can identify a packet as QUIC,
+it is sometimes referred to as the "QUIC Bit".</t>
+      <t>Where endpoints and the intermediaries that support them do not depend on the
+QUIC Bit having a fixed value, sending the same value in every packet is more of a 
+liability than an asset.  If systems come to depend on a fixed value, then it
+might become infeasible to define a version of QUIC that attributes semantics to
+this bit.</t>
+      <t>In order to safeguard future use of this bit, this document defines a QUIC
+transport parameter that indicates that an endpoint is willing to receive QUIC
+packets containing any value for this bit.  By sending different values for this
+bit, the hope is that the value will remain available for future use
+<xref target="RFC9170"/>.</t>
+    </section>
+    <section anchor="conventions-and-definitions">
+      <name>Conventions and Definitions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <t>This document uses terms and notational conventions from <xref target="RFC9000"/>.</t>
+    </section>
+    <section anchor="the-grease-quic-bit-transport-parameter">
+      <name>The Grease QUIC Bit Transport Parameter</name>
+
+      <t>The grease_quic_bit transport parameter (0x2ab2) is defined for QUIC
+version 1 <xref target="RFC9000"/>.  This transport parameter can be sent by both client and
+server.  The transport parameter is sent with an empty value; an endpoint that
+understands this transport parameter <bcp14>MUST</bcp14> treat receipt of a non-empty value of
+the transport parameter as a connection error of type TRANSPORT_PARAMETER_ERROR.</t>
+      <t>An endpoint that advertises the grease_quic_bit transport parameter <bcp14>MUST</bcp14> accept
+packets with the QUIC Bit set to a value of 0.  The QUIC Bit is defined as the
+second-most significant bit of the first byte of QUIC packets (that is, the
+value 0x40).</t>
+      <section anchor="clearing-the-quic-bit">
+        <name>Clearing the QUIC Bit</name>
+        <t>Endpoints that receive the grease_quic_bit transport parameter from a peer
+<bcp14>SHOULD</bcp14> set the QUIC Bit to an unpredictable value unless another extension
+assigns specific meaning to the value of the bit.</t>
+        <t>Endpoints can set the QUIC Bit to 0 on all packets that are sent after receiving
+and processing transport parameters. This could include Initial, Handshake, and
+Retry packets.</t>
+        <t>A client <bcp14>MAY</bcp14> also set the QUIC Bit to 0 in Initial, Handshake, or 0-RTT packets
+that are sent prior to receiving transport parameters from the server.  However,
+a client <bcp14>MUST NOT</bcp14> set the QUIC Bit to 0 unless the Initial packets it sends
+include a token provided by the server in a NEW_TOKEN frame (<xref section="19.7" sectionFormat="of" target="RFC9000"/>), received less than 604800 seconds (7 days) prior on a connection where
+the server also included the grease_quic_bit transport parameter.</t>
+        <aside>
+          <t>This 7-day limit allows for changes in server configuration.  If server
+configuration changes and a client does not set the QUIC Bit, then it is
+possible that a server will drop packets, resulting in connection failures.</t>
+        </aside>
+        <t>A server <bcp14>MUST</bcp14> set the QUIC Bit to 0 only after processing transport parameters
+from a client.  A server <bcp14>MUST NOT</bcp14> remember that a client negotiated the
+extension in a previous connection and set the QUIC Bit to 0 based on that
+information.</t>
+        <t>An endpoint <bcp14>MUST NOT</bcp14> set the QUIC Bit to 0 without knowing whether the peer
+supports the extension.  As Stateless Reset packets (<xref section="10.3" sectionFormat="of" target="RFC9000"/>)
+are only used after a loss of connection state, endpoints are unlikely to be
+able to set the QUIC Bit to 0 on Stateless Reset packets.</t>
+      </section>
+      <section anchor="using-the-quic-bit">
+        <name>Using the QUIC Bit</name>
+        <t>The purpose of this extension is to allow for the use of the QUIC Bit by later
+extensions.</t>
+        <t>Extensions to QUIC that define semantics for the QUIC Bit can be negotiated at
+the same time as the grease_quic_bit transport parameter.  In this case, a
+recipient needs to be able to distinguish a randomized value from a value
+carrying information according to the extension.  Extensions that use the QUIC
+Bit <bcp14>MUST</bcp14> negotiate their use prior to acting on any semantic.</t>
+        <t>For example, an extension might define a transport parameter that is sent in
+addition to the grease_quic_bit transport parameter.  Though the value of the
+QUIC Bit in packets received by a peer might be set according to rules defined
+by the extension, they might also be randomized as specified in this document.</t>
+
+
+
+
+        <t>The receipt of a transport parameter for an extension that uses the QUIC Bit could be
+used to confirm that a peer supports the semantic defined in the extension.  To
+avoid acting on a randomized signal, the extension can require that endpoints
+set the QUIC Bit according to the rules of the extension but defer acting on
+the information conveyed until the transport parameter for the extension is
+received.</t>
+        <t>Extensions that define semantics for the QUIC Bit can be negotiated without
+using the grease_quic_bit transport parameter.  However, including both
+extensions allows for the QUIC Bit to be greased even if the alternative use is
+not supported.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document introduces no new security considerations for endpoints or
+entities that can rely on endpoint cooperation.  However, this change makes the
+task of identifying QUIC more difficult without cooperation of endpoints.  This
+sometimes works counter to the security goals of network operators who rely on
+network classification to identify threats; see <xref target="I-D.ietf-quic-manageability" section="3.1" sectionFormat="of"></xref> for a more comprehensive treatment of this topic.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document registers the grease_quic_bit transport parameter in the "QUIC
+Transport Parameters" registry established in <xref section="22.3" sectionFormat="of" target="RFC9000"/>.  The
+following fields are registered:</t>
+      <dl>
+        <dt>Value:</dt>
+        <dd>
+          <t>0x2ab2</t>
+        </dd>
+        <dt>Parameter Name:</dt>
+        <dd>
+          <t>grease_quic_bit</t>
+        </dd>
+        <dt>Status:</dt>
+        <dd>
+          <t>Permanent</t>
+        </dd>
+        <dt>Specification:</dt>
+        <dd>
+          <t>RFC 9287</t>
+        </dd>
+        <dt>Date:</dt>
+        <dd>
+          <t>2022-07-13</t>
+        </dd>
+	<dt>Change Controller:</dt>
+        <dd>
+          <t>IETF (iesg@ietf.org)</t>
+        </dd>
+        <dt>Contact:</dt>
+        <dd>
+          <t>QUIC Working Group (quic@ietf.org)</t>
+        </dd>
+        <dt>Notes:</dt>
+        <dd>
+          <t>(none)</t>
+        </dd>
+      </dl>
+    </section>
+  </middle>
+  <back>
+
+    <displayreference target="RFC9000" to="QUIC"/>
+    <displayreference target="RFC8999" to="QUIC-INVARIANTS"/>
+    <displayreference target="I-D.ietf-avtcore-rfc7983bis" to="DEMUX"/>
+    <displayreference target="RFC9170" to="USE-IT"/>
+    <displayreference target="I-D.ietf-quic-manageability" to="MANAGEABILITY"/>
+    
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9000.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8999.xml"/>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8546.xml"/>
+
+
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-avtcore-rfc7983bis.xml"/>
+
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-quic-manageability.xml"/>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9170.xml"/>
+
+      </references>
+    </references>
+
+
+  </back>
+
+</rfc>

@@ -1,0 +1,1186 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!-- draft submitted in xml v3 -->
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" category="std" docName="draft-ietf-jmap-sieve-22" number="9661" obsoletes="" updates="" submissionType="IETF" consensus="true" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="JMAP Sieve">The JSON Meta Application Protocol (JMAP) for Sieve Scripts</title>
+    <seriesInfo name="RFC" value="9661"/>
+    <author initials="K." surname="Murchison" fullname="Kenneth Murchison">
+      <organization abbrev="Fastmail">Fastmail US LLC</organization>
+      <address>
+        <postal>
+          <street>1429 Walnut Street, Suite 1201</street>
+          <city>Philadelphia</city>
+          <region>PA</region>
+          <code>19102</code>
+          <country>United States of America</country>
+        </postal>
+        <email>murch@fastmailteam.com</email>
+      </address>
+    </author>
+    <date month="September" year="2024"/>
+
+    <area>ART</area>
+    <workgroup>jmap</workgroup>
+
+    <keyword>JMAP</keyword>
+    <keyword>JSON</keyword>
+    <keyword>Sieve</keyword>
+    <abstract>
+      <t>This document specifies a data model for managing Sieve
+      scripts on a server using the JSON Meta Application Protocol
+      (JMAP).
+      Clients can use this protocol to efficiently search, access,
+      organize, and validate Sieve scripts.
+      </t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t><xref target="RFC8620">The JSON Meta Application Protocol (JMAP)</xref>
+      is a generic protocol for
+      synchronizing data, such as mail, calendars, or contacts, between
+      a client and a server.
+
+      It is optimized for mobile and web environments, and it aims to
+      provide a consistent interface to different data types.
+      </t>
+
+      <t>This specification defines a data model for managing
+      <xref target="RFC5228">Sieve scripts</xref> on
+      a server using JMAP.
+
+      The data model is designed to allow a server to provide
+      consistent access to the same scripts via
+      <xref target="RFC5804">ManageSieve</xref> as well as JMAP.
+      </t>
+
+      <section numbered="true" toc="default">
+        <name>Notational Conventions</name>
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+        "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>",
+        "<bcp14>SHALL NOT</bcp14>", "<bcp14>SHOULD</bcp14>",
+        "<bcp14>SHOULD NOT</bcp14>",
+        "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+        "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+        are to be interpreted as described in BCP&nbsp;14
+        <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only
+        when, they appear in all capitals, as shown here.</t>
+        <t>Type signatures, examples, and property descriptions in
+        this document follow the conventions established in
+        <xref target="RFC8620" section="1.1"/>.
+        This document also uses data types and terminology established
+        in Sections&nbsp;<xref target="RFC8620" section="1.2"
+              sectionFormat="bare"/> through <xref target="RFC8620"
+              section="1.6" sectionFormat="bare"/> of
+        <xref target="RFC8620"/>.</t>
+
+        <t>The term "SieveScript" (with this specific capitalization) is
+        used to refer to the data type defined in <xref target="object"/>
+        and instances of this data type used throughout this document.
+        Servers <bcp14>MUST</bcp14> support all properties specified for the
+        data type defined in this document.</t>
+
+        <t>For brevity, JMAP API examples
+        (see <xref target="RFC8620" section="3"/>)
+        only show the "methodCalls" property of the "Request"
+        object and the "methodResponses" property of the "Response"
+        object.
+        All other examples are shown using the
+        <xref target="RFC9112">HTTP/1.1 protocol</xref>.</t>
+      </section>
+
+      <section numbered="true" toc="default">
+        <name>Addition to the Capabilities Object</name>
+        <t>The "capabilities" object is returned as part of the JMAP
+        Session object;
+        see <xref target="RFC8620" section="2" sectionFormat="comma"/>.
+        This document defines one additional capability URI.
+        </t>
+
+        <section anchor="capa" numbered="true" toc="default">
+          <name>urn:ietf:params:jmap:sieve</name>
+          <t>The urn:ietf:params:jmap:sieve URI represents support for
+          the SieveScript data type and associated API methods.
+          The value of this property in the JMAP Session
+          "capabilities" property is an object that <bcp14>MUST</bcp14> contain
+          the following information on server capabilities:
+          </t>
+
+          <dl spacing="normal">
+              <dt><strong>implementation</strong>:</dt><dd><t>
+                <tt>String</tt>
+              </t>
+              <t>
+                The name and version of the Sieve implementation.
+              </t>
+            </dd>
+          </dl>
+
+          <t>The value of this property in an account's
+          "accountCapabilities" property is an object that <bcp14>MUST</bcp14> contain
+          the following information on per-account server capabilities:
+          </t>
+
+          <dl spacing="normal">
+              <dt><strong>maxSizeScriptName</strong>:</dt>
+                <dd><t><tt>UnsignedInt</tt>
+              </t>
+              <t>
+                The maximum length, in octets, allowed for the
+                name of a SieveScript.
+                For compatibility with ManageSieve, this <bcp14>MUST</bcp14> be at
+                least 512 (up to 128 Unicode characters).
+              </t></dd>
+
+              <dt><strong>maxSizeScript</strong>:</dt><dd>
+                <t><tt>UnsignedInt|null</tt>
+              </t>
+              <t>
+                The maximum size (in octets) of a Sieve script the
+                server is willing to store for the user,
+                or <tt>null</tt> for no limit.
+              </t>
+            </dd>
+              <dt><strong>maxNumberScripts</strong>:</dt>
+                <dd><t><tt>UnsignedInt|null</tt>
+              </t>
+              <t>
+                The maximum number of Sieve scripts the server is
+                willing to store for the user,
+                or <tt>null</tt> for no limit.
+              </t>
+            </dd>
+              <dt><strong>maxNumberRedirects</strong>:</dt>
+                <dd><t><tt>UnsignedInt|null</tt>
+              </t>
+              <t>
+                The maximum number of Sieve "redirect" actions a
+                script can perform during a single evaluation,
+                or <tt>null</tt> for no limit.
+                Note that this is different from the total number of
+                "redirect" actions a script can contain.
+              </t>
+            </dd>
+
+              <dt><strong>sieveExtensions</strong>:</dt>
+                <dd><t><tt>String[]</tt>
+              </t>
+              <t>
+                A list of case-sensitive Sieve capability strings (as
+                listed in the Sieve "require" action; see
+                <xref target="RFC5228" section="3.2" sectionFormat="comma"/>)
+                indicating the extensions supported by the Sieve engine.
+              </t></dd>
+              <dt><strong>notificationMethods</strong>:</dt>
+                <dd><t><tt>String[]|null</tt>
+              </t>
+              <t>
+                A list of
+                <xref target="RFC3986">URI scheme parts</xref>
+                for notification methods supported by the Sieve
+                <xref target="RFC5435">"enotify" extension</xref>,
+                or <tt>null</tt> if the extension
+                is not supported by the Sieve engine.
+              </t>
+            </dd>
+              <dt><strong>externalLists</strong>:</dt>
+                <dd><t><tt>String[]|null</tt>
+              </t>
+              <t>
+                A list of
+                <xref target="RFC3986">URI scheme parts</xref>
+                for externally stored list types supported by the
+                Sieve <xref target="RFC6134">"extlists" extension</xref>,
+                or <tt>null</tt> if the extension
+                is not supported by the Sieve engine.
+              </t>
+            </dd>
+	  </dl>
+        </section>
+
+        <section anchor="session" numbered="true" toc="default">
+          <name>Example</name>
+          <t keepWithNext="true">
+            This example JMAP Session object shows a user that has access to their
+            own Sieve scripts with support for a few Sieve extensions:
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+{
+  "capabilities": {
+    "urn:ietf:params:jmap:core": {
+      ...
+    },
+    "urn:ietf:params:jmap:mail": {},
+    "urn:ietf:params:jmap:quota": {},
+    "urn:ietf:params:jmap:blob": {},
+    "urn:ietf:params:jmap:sieve": {
+      "implementation": "ACME Email Filtering"
+    },
+    "urn:ietf:params:jmap:vacationresponse": {},
+    ...
+  },
+  "accounts": {
+    "ken": {
+      "name": "ken@example.com",
+      "isPersonal": true,
+      "isReadOnly": false,
+      "accountCapabilities": {
+        "urn:ietf:params:jmap:core": {},
+        "urn:ietf:params:jmap:quota": {},
+        "urn:ietf:params:jmap:mail": {
+          ...
+        },
+        "urn:ietf:params:jmap:blob": {
+          "supportedTypeNames": [
+            "Email" 
+            "SieveScript",
+            ...
+          ],
+          ...
+        },
+        "urn:ietf:params:jmap:sieve": {
+          "maxSizeScriptName": 512,
+          "maxSizeScript": 65536,
+          "maxNumberScripts": 5,
+          "maxNumberRedirects": null,
+          "sieveExtensions": [
+            "fileinto",
+            "imap4flags",
+            "enotify",
+            ...
+          ],
+          "notificationMethods": [
+            "mailto"
+          ],
+          "externalLists": null,
+        },
+        "urn:ietf:params:jmap:vacationresponse": {},
+        ...
+      },
+      ...
+    }
+  },
+  "primaryAccounts": {
+    "urn:ietf:params:jmap:mail": "ken",
+    "urn:ietf:params:jmap:sieve": "ken",
+    "urn:ietf:params:jmap:vacationresponse": "ken",
+    ...
+  },
+  "username": "ken@example.com",
+  "apiUrl": "/jmap/",
+  "downloadUrl":
+    "/jmap/download/{accountId}/{blobId}/{name}?accept={type}",
+  "uploadUrl": "/jmap/upload/{accountId}/",
+  ...
+}
+]]></sourcecode>
+        </section>
+      </section>
+    </section>
+
+    <section anchor="object" numbered="true" toc="default">
+      <name>Sieve Scripts</name>
+      <t>A "SieveScript" object represents
+      a single <xref target="RFC5228">Sieve script</xref> for
+      filtering email messages at the time of final delivery.
+      </t>
+
+      <section anchor="props" numbered="true" toc="default">
+        <name>Sieve Script Properties</name>
+        <t>A "SieveScript" object has the
+        following properties:
+
+        </t>
+        <dl spacing="normal">
+            <dt><strong>id</strong>:</dt>
+            <dd><t><tt>Id</tt>
+            (immutable; server-set)
+            </t>
+            <t>
+              The id of the script.
+            </t>
+          </dd>
+            <dt><strong>name</strong>:</dt>
+            <dd><t><tt>String|null</tt>
+            (optional; default is server dependent)
+            </t>
+            <t>
+              User-visible name for the SieveScript.
+              If non-null, this <bcp14>MUST</bcp14> be a
+              <xref target="RFC5198">Net-Unicode string</xref>
+              of at least 1 character in length, subject to the
+              maximum size given in the "capability" object.
+            </t>
+            <t>
+              For compatibility with ManageSieve, servers <bcp14>MUST</bcp14> reject
+              names that contain any of the following Unicode characters:
+              U+0000-U+001F, U+007F-U+009F, U+2028, or U+2029.
+            </t>
+            <t>
+              Servers <bcp14>MAY</bcp14> reject names that violate server policy
+              (e.g., names containing a slash (/)).
+            </t>
+            <t>
+              The name <bcp14>MUST</bcp14> be unique among all SieveScripts within an
+              account.
+            </t>
+          </dd>
+            <dt><strong>blobId</strong>:</dt>
+            <dd><t><tt>Id</tt>
+            </t>
+            <t>
+              The id of the blob containing the raw octets of the script.
+            </t>
+          </dd>
+            <dt><strong>isActive</strong>:</dt>
+            <dd><t><tt>Boolean</tt>
+            (server-set; default: false)
+            </t>
+            <t>
+              Indicator that the SieveScript is actively filtering
+              incoming messages.
+            </t>
+            <t>
+              A user may have at most one active script.
+              The <xref target="set">SieveScript/set method</xref> is
+              used for changing the active script or disabling Sieve
+              processing.
+            </t>
+          </dd>
+        </dl>
+      </section>
+
+      <section anchor="content" numbered="true" toc="default">
+        <name>Sieve Script Content</name>
+        <t>A script <bcp14>MUST</bcp14> be <xref target="RFC3629">UTF-8 content</xref>
+          of at least 1 character in length, subject to the
+          syntax of <xref target="RFC5228">Sieve</xref>.
+          A script <bcp14>MUST NOT</bcp14> contain any "require" statement(s)
+          mentioning Sieve capability strings not present in the
+          <xref target="capa">"capability" object</xref>.
+          Note that if the Sieve <xref target="RFC5463">"ihave" capability string </xref>
+          is present in the "capability" object,
+          the script <bcp14>MAY</bcp14> mention unrecognized/unsupported extensions
+          in the "ihave" test.
+        </t>
+
+        <t>Script content is treated as a binary blob and
+          uploaded/downloaded via the mechanisms provided in  
+          Sections&nbsp;<xref target="RFC8620" section="6.1"
+                sectionFormat="bare"/> and <xref target="RFC8620"
+                section="6.2" sectionFormat="bare"/> of <xref target="RFC8620"/>,
+          respectively, and/or via the JMAP Blob management methods provided in
+          Sections&nbsp;<xref target="RFC9404" section="4.1"
+                sectionFormat="bare"/> and <xref target="RFC9404"
+                section="4.2" sectionFormat="bare"/> of <xref target="RFC9404"/>,
+          respectively.
+        </t>
+
+        <t>Downloading script content via the JMAP downloadUrl or the
+          Blob/get method provides functionality equivalent to that of the
+          GETSCRIPT command defined in <xref target="RFC5804"/>.
+        </t>
+      </section>
+
+      <section anchor="get" numbered="true" toc="default">
+        <name>SieveScript/get</name>
+        <t>This is a standard "/get" method as described in
+        <xref target="RFC8620" section="5.1" sectionFormat="comma"/>.
+        The "ids" argument may be
+        <tt>null</tt> to fetch all scripts at once. 
+        </t>
+        <t>This method provides functionality equivalent to that of the
+        LISTSCRIPTS command defined in <xref target="RFC5804"/>.
+        </t>
+
+        <section numbered="true" toc="default">
+          <name>Examples</name>
+          <t keepWithNext="true">
+            List all scripts:
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+[
+  ["SieveScript/get", {
+    "accountId": "ken"
+  }, "0"]
+]
+
+[
+  [
+    "SieveScript/get",
+    {
+      "state": "1634915373.240633104-120",
+      "list": [
+        {
+          "id": "2d647053-dded-418d-917a-63eda3ac8f7b",
+          "name": "test1",
+          "isActive": true,
+          "blobId": "S7"
+        }
+      ],
+      "notFound": [],
+      "accountId": "ken"
+    },
+    "0"
+  ]
+]
+]]></sourcecode>
+
+          <t keepWithNext="true">
+            Download the script content via
+            the JMAP downloadUrl as advertised in the example in <xref target="session"/>:
+          </t>
+<sourcecode name="" type="http-message"><![CDATA[
+GET /jmap/download/ken/S7/test1.siv?accept=application/sieve HTTP/1.1
+Host: jmap.example.com
+Authorization: Basic a2VuOnBhc3N3b3Jk
+
+HTTP/1.1 200 OK
+Date: Fri, 22 Oct 2021 15:27:38 GMT
+Content-Type: application/sieve; charset=utf-8
+Content-Disposition: attachment; filename="test1.siv"
+Content-Length: 49
+
+require ["fileinto"];
+fileinto "INBOX.target";
+]]></sourcecode>
+
+
+          <t keepWithNext="true">
+            Fetch script properties
+            and content in a single JMAP API request using the
+            <xref target="RFC9404"> JMAP Blob management extension</xref>:
+          </t>
+
+<sourcecode name="" type="json"><![CDATA[
+[
+  ["SieveScript/get", {
+    "accountId": "ken",
+    "ids": [ "2d647053-dded-418d-917a-63eda3ac8f7b" ]
+  }, "0"],
+  ["Blob/get", {
+    "accountId": "ken",
+    "#ids": {
+      "resultOf": "0",
+      "name": "SieveScript/get",
+      "path": "/list/*/blobId"
+    }
+  }, "1"]
+]
+
+[
+  [
+    "SieveScript/get",
+    {
+      "state": "1634915373.240633104-120",
+      "list": [
+        {
+          "id": "2d647053-dded-418d-917a-63eda3ac8f7b",
+          "name": "test1",
+          "isActive": true,
+          "blobId": "S7"
+        }
+      ],
+      "notFound": [],
+      "accountId": "ken"
+    },
+    "0"
+  ],
+  [
+    "Blob/get",
+    {
+      "list": [
+        {
+          "id": "S7",
+          "data:asText":
+     "require [\"fileinto\"];\\r\\nfileinto \"INBOX.target\";\\r\\n",
+          "size": 49
+        }
+      ],
+      "notFound": [],
+      "accountId": "ken"
+    },
+    "1"
+  ]
+]
+]]></sourcecode>
+        </section>
+      </section>
+
+      <section anchor="set" numbered="true" toc="default">
+        <name>SieveScript/set</name>
+        <t>This is a standard "/set" method as described in
+        <xref target="RFC8620" section="5.3" sectionFormat="comma"/>,
+        but with the following additional optional request arguments:
+
+        </t>
+        <dl spacing="normal">
+            <dt><strong>onSuccessActivateScript</strong>:</dt>
+            <dd><t><tt>Id</tt>
+            </t>
+            <t>
+            The id of the SieveScript to activate if and
+            only if all of the creations, modifications, and
+            destructions (if any) succeed.
+            (For references to SieveScript creations, this is
+            equivalent to a creation-reference, so the id will be the
+            creation id prefixed with a "#".)
+            The currently active SieveScript (if any) will be deactivated
+            before activating the specified SieveScript.
+            </t>
+
+            <t>
+            If omitted, or if the id is either invalid or nonexistent, it <bcp14>MUST</bcp14> be
+            ignored, and the currently active SieveScript (if any) will
+            remain as such.
+            </t>
+
+            <t>
+            The id of any activated SieveScript <bcp14>MUST</bcp14> be reported in
+            either the "created" or "updated" argument in the response
+            as appropriate, including a value of "true" for  the "isActive"
+            property.
+            The id of any deactivated SieveScript <bcp14>MUST</bcp14> be reported in
+            the "updated" argument in the response, including a value of
+            "false" for the "isActive" property.
+            </t>
+          </dd>
+
+            <dt><strong>onSuccessDeactivateScript</strong>:</dt>
+            <dd><t><tt>Boolean</tt>
+            </t>
+            <t>
+            If "true", the currently active
+            SieveScript (if any) will be deactivated if and only if
+            all of the creations, modifications, and destructions (if
+            any) succeed.
+            If "false" or omitted, the currently active SieveScript (if
+            any) will remain as such.
+            </t>
+            <t>
+
+            The id of any deactivated SieveScript <bcp14>MUST</bcp14> be reported in
+            the "updated" argument in the response, including a value of
+            "false" for the "isActive" property.
+            </t>
+          </dd>
+        </dl>
+
+        <t>If both the "onSuccessActivateScript" and
+        "onSuccessDeactivateScript" arguments are
+        present in the request, then
+        "onSuccessDeactivateScript" <bcp14>MUST</bcp14> be processed first.
+        If neither argument is present in the request, the currently
+        active SieveScript (if any) will remain as such.
+        </t>
+
+        <t>This method provides functionality equivalent to that of the
+        PUTSCRIPT, DELETESCRIPT, RENAMESCRIPT, and SETACTIVE commands defined
+        in <xref target="RFC5804"/>.
+        </t>
+
+        <t>Script content must first be uploaded as per
+        <xref target="content"/> prior to referencing it in a
+        SieveScript/set call.</t>
+
+        <t>If the SieveScript cannot be created or updated because it
+        would result in two SieveScripts with the same name, the
+        server <bcp14>MUST</bcp14> reject the request with an "alreadyExists"
+        SetError.
+        An "existingId" property of type "Id" <bcp14>MUST</bcp14> be included on the
+        SetError object with the id of the existing SieveScript.</t>
+
+        <t>If the SieveScript cannot be created or updated because
+        its size exceeds the "maxSizeScript" limit, the server <bcp14>MUST</bcp14>
+        reject the request with a "tooLarge" SetError.</t>
+
+        <t>If the SieveScript cannot be created because it would
+        exceed the "maxNumberScripts" limit or would exceed a
+        server-imposed storage limit, the server <bcp14>MUST</bcp14>
+        reject the request with an "overQuota" SetError.</t>
+
+        <t>The active SieveScript <bcp14>MUST NOT</bcp14> be destroyed
+        unless it is first deactivated in a separate SieveScript/set
+        method call.</t>
+        <t>The following extra SetError types are defined:
+        </t>
+
+        <t>For "create" and "update":
+        </t>
+        <dl spacing="normal">
+
+            <dt><strong>invalidSieve</strong>:</dt>
+            <dd><t>
+              The SieveScript content violates the
+              <xref target="RFC5228">Sieve grammar</xref>,
+              and/or one
+              or more extensions mentioned in the script's "require"
+              statement(s) are not supported by the Sieve interpreter.
+              The "description" property on
+              the SetError object <bcp14>SHOULD</bcp14> contain a specific error
+              message giving at least the line number of the first error.</t>
+            </dd>
+          </dl>
+        <t>For "destroy":
+        </t>
+        <dl spacing="normal">
+            <dt><strong>sieveIsActive</strong>:</dt>
+            <dd><t>
+              The SieveScript is active.
+            </t>
+          </dd>
+        </dl>
+        <section numbered="true" toc="default">
+          <name>Examples</name>
+          <t keepWithNext="true">
+                Upload a script
+                requiring the Imap4Flags Extension
+                <xref target="RFC5232"/>
+                using the JMAP uploadUrl as advertised in the example in
+                <xref target="session"/>:
+          </t>
+<sourcecode name="" type="http-message"><![CDATA[
+POST /jmap/upload/ken/ HTTP/1.1
+Host: jmap.example.com
+Authorization: Basic a2VuOnBhc3N3b3Jk
+Content-Type: application/sieve
+Content-Length: 98
+
+require "imapflags";
+
+if address :is ["To", "Cc"] "jmap@ietf.org" {
+  setflag "\\Flagged";
+}
+
+
+HTTP/1.1 201 Created
+Date: Thu, 10 Dec 2020 17:14:31 GMT
+Content-Type: application/json; charset=utf-8
+Content-Length: 171
+
+{
+  "accountId": "ken",
+  "blobId": "Gabcc83e44a6e19991c4568d0b94e1767c83dd123",
+  "type": "application/sieve"
+  "size": 98
+}
+]]></sourcecode>
+          <t keepWithNext="true">
+                Create and activate
+                a script using the uploaded blob.
+                Note that the response shows that an existing active
+                script has been deactivated in lieu of the newly
+                created script being activated.
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+[
+  ["SieveScript/set", {
+    "accountId": "ken",
+    "create": {
+      "A": {
+        "name": null,
+        "blobId": "Gabcc83e44a6e19991c4568d0b94e1767c83dd123"
+      }
+    },
+    "onSuccessActivateScript": "#A"
+  }, "0"]
+]
+
+[
+  [
+    "SieveScript/set",
+    {
+      "oldState": "1603741717.50737918-4096",
+      "newState": "1603741751.227268529-4096",
+      "created": {
+        "A": {
+          "id": "dd1b164f-8cdc-448c-9f54",
+          "name": "ken-20201210T171432-0",
+          "blobId": "Sdd1b164f-8cdc-448c-9f54",
+          "isActive": true
+        }
+      },
+      "updated": {
+        "8abd6f4a-bcb4d-87650-3fcd": {
+          "isActive": false
+        }
+      },
+      "destroyed": null,
+      "notCreated": null,
+      "notUpdated": null,
+      "notDestroyed": null,
+      "accountId": "ken"
+    },
+    "0"
+  ]
+]
+]]></sourcecode>
+          <t keepWithNext="true">
+            Update the script content using
+            the <xref target="RFC9404"> JMAP Blob management extension</xref>:
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+{
+[
+  ["Blob/upload", {
+    "accountId": "ken",
+    "create": {
+      "B": {
+        "data": [ {
+          "data:asText":
+            "redirect \"ken@example.com\"\r\n;"
+         } ],
+        "type": "application/sieve"
+      }
+    }
+  }, "1"],
+  ["SieveScript/set", {
+    "accountId": "ken",
+    "update": { "dd1b164f-8cdc-448c-9f54": {
+      "blobId": "#B"
+      }
+    }
+  }, "2"]
+]
+
+[
+  [
+    "Blob/upload",
+    {
+      "oldState": null,
+      "newState": "1603741700.309607123-0128",
+      "created": {
+        "B": {
+          "id": "G969c83e44a6e10871c4568d0b94e1767c83ddeae",
+          "blobId": "G969c83e44a6e10871c4568d0b94e1767c83ddeae",
+          "type": "application/sieve",
+          "size": 29
+        }
+      },
+      "notCreated": null,
+      "accountId": "ken"
+    },
+    "1"
+  ],
+  [
+    "SieveScript/set",
+    {
+      "oldState": "1603741751.227268529-4096",
+      "newState": "1603742603.309607868-4096",
+      "created": null,
+      "updated": {
+        "dd1b164f-8cdc-448c-9f54": null
+      },
+      "destroyed": null,
+      "notCreated": null,
+      "notUpdated": null,
+      "notDestroyed": null,
+      "accountId": "ken"
+    },
+    "2"
+  ]
+]
+]]></sourcecode>
+          <t keepWithNext="true">
+            Update the script name, and deactivate it:
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+[
+  ["SieveScript/set", {
+    "accountId": "ken",
+    "update": { "dd1b164f-8cdc-448c-9f54": {
+      "name": "myscript"
+      }
+    },
+    "onSuccessDeactivateScript": true
+  }, "3"]
+]
+
+[
+  [
+    "SieveScript/set",
+    {
+      "oldState": "1603742603.309607868-4096",
+      "newState": "1603742967.852315428-4096",
+      "created": null,
+      "updated": {
+        "dd1b164f-8cdc-448c-9f54": {
+          "isActive": false
+        }
+      },
+      "destroyed": null,
+      "notCreated": null,
+      "notUpdated": null,
+      "notDestroyed": null,
+      "accountId": "ken"
+    },
+    "3"
+  ]
+]
+]]></sourcecode>
+          <t keepWithNext="true">
+            Reactivate the script:
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+[
+  ["SieveScript/set", {
+    "accountId": "ken",
+    "onSuccessActivateScript": "dd1b164f-8cdc-448c-9f54"
+  }, "4"]
+]
+
+[
+  [
+    "SieveScript/set",
+    {
+      "oldState": "1603742967.852315428-4096",
+      "newState": "1603744460.316617118-4096",
+      "created": null,
+      "updated": {
+        "dd1b164f-8cdc-448c-9f54": {
+          "isActive": true
+        }
+      },
+      "destroyed": null,
+      "notCreated": null,
+      "notUpdated": null,
+      "notDestroyed": null,
+      "accountId": "ken"
+    },
+    "4"
+  ]
+]
+]]></sourcecode>
+          <t keepWithNext="true">
+            Deactivate and destroy the active script:
+          </t>
+<sourcecode name="" type="json"><![CDATA[
+[
+  ["SieveScript/set", {
+    "accountId": "ken",
+    "onSuccessDeactivateScript": true
+  }, "5"],
+  ["SieveScript/set", {
+    "accountId": "ken",
+    "destroy": [ "dd1b164f-8cdc-448c-9f54" ]
+  }, "6"]
+]
+
+[
+  [
+    "SieveScript/set",
+    {
+      "oldState": "1603744460.316617118-4096",
+      "newState": "1603744637.575375572-4096",
+      "created": null,
+      "updated": {
+        "dd1b164f-8cdc-448c-9f54": {
+          "isActive": false
+        }
+      },
+      "destroyed": null,
+      "notCreated": null,
+      "notUpdated": null,
+      "notDestroyed": null,
+      "accountId": "ken"
+    },
+    "5"
+  ],
+  [
+    "SieveScript/set",
+    {
+      "oldState": "1603744637.575375572-4096",
+      "newState": "1603744637.854390875-4096",
+      "created": null,
+      "updated": null,
+      "destroyed": [
+        "dd1b164f-8cdc-448c-9f54"
+      ],
+      "notCreated": null,
+      "notUpdated": null,
+      "notDestroyed": null,
+      "accountId": "ken"
+    },
+    "6"
+  ]
+]
+]]></sourcecode>
+        </section>
+      </section>
+
+      <section numbered="true" toc="default">
+        <name>SieveScript/query</name>
+        <t>This is a standard "/query" method as described in
+        <xref target="RFC8620" section="5.5" sectionFormat="comma"/>.
+
+        A "FilterCondition" object has the
+        following properties, either of which may be omitted:
+
+        </t>
+        <dl spacing="normal">
+
+            <dt><strong>name</strong>:</dt>
+            <dd><t><tt>String</tt>
+            </t>
+            <t>
+            The SieveScript "name" property contains the given string.
+            </t>
+          </dd>
+
+            <dt><strong>isActive</strong>:</dt>
+            <dd><t><tt>Boolean</tt>
+            </t>
+            <t>
+            The "isActive" property of the SieveScript must be
+            identical to the value given to match the condition.
+            </t>
+          </dd>
+        </dl>
+        <t>The following SieveScript properties <bcp14>MUST</bcp14> be supported for
+        sorting:
+
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t><strong>name</strong>
+            </t>
+          </li>
+          <li>
+            <strong>isActive</strong>
+          </li>
+        </ul>
+      </section>
+      <section numbered="true" toc="default">
+        <name>SieveScript/validate</name>
+        <t>This method is used by the client to verify Sieve script
+        validity without storing the script on the server.
+        </t>
+        <t>The method takes the following arguments: 
+
+        </t>
+        <dl spacing="normal">
+            <dt><strong>accountId</strong>:</dt>
+              <dd><t><tt>Id</tt>
+            </t>
+            <t>
+              The id of the account to use.
+            </t>
+          </dd>
+            <dt><strong>blobId</strong>:</dt>
+              <dd><t><tt>Id</tt>
+            </t>
+            <t>
+              The id of the blob containing the raw octets of the
+              script to validate,
+              subject to the same requirements in
+              <xref target="content"/>.
+            </t>
+          </dd>
+        </dl>
+        <t>The response has the following arguments: 
+
+        </t>
+        <dl spacing="normal">
+            <dt><strong>accountId</strong>:</dt>
+              <dd><t><tt>Id</tt>
+            </t>
+            <t>
+              The id of the account used for this call.
+            </t>
+          </dd>
+
+            <dt><strong>error</strong>:</dt>
+              <dd><t><tt>SetError|null</tt>
+            </t>
+            <t>
+              An "invalidSieve" SetError object if the script content
+              is invalid (see <xref target="set"/>),
+              or <tt>null</tt> if the
+              script content is valid.
+            </t>
+          </dd>
+        </dl>
+
+        <t>This method provides functionality equivalent to that of the
+        CHECKSCRIPT command defined in <xref target="RFC5804"/>.</t>
+
+        <t>Script content must first be uploaded as per
+        <xref target="content"/> prior to referencing it in a
+        SieveScript/validate call.</t>
+      </section>
+    </section>
+
+    <section anchor="quotas" numbered="true" toc="default">
+      <name>Quotas</name>
+      <t>Servers <bcp14>SHOULD</bcp14> impose quotas on Sieve scripts to prevent
+      malicious users from exceeding available storage.
+      Administration of such quotas is outside of the scope of this
+      specification; however, <xref target="RFC9425"/> defines a data
+      model for users to obtain quota details over JMAP.</t>
+
+      <t>The mechanism for handling SieveScript requests that would place
+      a user over a quota setting is discussed in <xref target="set"/>.
+      </t>
+    </section>
+
+    <section anchor="vacation" numbered="true" toc="default">
+      <name>Compatibility with JMAP Vacation Response</name>
+      <t><xref target="RFC8621" section="8"/> defines a
+      "VacationResponse" object to represent an autoresponder to
+      incoming email messages.
+      Servers that implement the VacationResponse as a Sieve script
+      that resides among other user scripts are subject to the
+      following requirements:
+
+      </t>
+      <ul spacing="normal">
+        <li><bcp14>MUST</bcp14> allow the VacationResponse Sieve script to be fetched
+        by the <xref target="get">SieveScript/get method</xref>.
+        </li>
+        <li><bcp14>MUST</bcp14> allow the VacationResponse Sieve script to be
+        activated or deactivated via the "onSuccessActivateScript" argument to
+        the <xref target="set">SieveScript/set method</xref>.
+        </li>
+        <li><bcp14>MUST NOT</bcp14> allow the VacationResponse Sieve script to be
+        destroyed or have its content updated by the
+        <xref target="set">SieveScript/set method</xref>.
+        Any such request <bcp14>MUST</bcp14> be rejected with a "forbidden" SetError.
+        A "description" property <bcp14>MAY</bcp14> be present with an explanation
+        that the script can only be modified by a VacationResponse/set
+        method.
+        </li>
+      </ul>
+    </section>
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>All security considerations discussed in
+      <xref target="RFC8620">JMAP</xref>
+      and <xref target="RFC5228">Sieve</xref>
+      apply to this specification.</t>
+
+      <t>Additionally, implementations <bcp14>MUST</bcp14> treat Sieve script content
+      as untrusted data.  As such, script parsers <bcp14>MUST</bcp14> fail gracefully
+      in the face of syntactically invalid or malicious content and
+      <bcp14>MUST</bcp14> be prepared to deal with resource exhaustion (e.g.,
+      allocation of enormous strings, lists, or command blocks).
+      </t>
+    </section>
+
+    <section numbered="true" toc="default">
+      <name>IANA Considerations</name>
+
+      <section numbered="true" toc="default">
+        <name>JMAP Capability Registration for "sieve"</name>
+        <t>IANA has registered "sieve" in the "JMAP Capabilities" registry as follows:
+        </t>
+        <dl spacing="normal">
+        <dt>Capability Name:</dt><dd><tt>urn:ietf:params:jmap:sieve</tt></dd>
+        <dt>Reference:</dt><dd>RFC 9661</dd>
+        <dt>Intended Use:</dt><dd>common</dd>
+        <dt>Change Controller:</dt><dd>IETF</dd>
+        <dt>Security and Privacy Considerations:</dt><dd>RFC 9661,
+        <xref target="security"/></dd>
+	</dl>
+      </section>
+
+      <section numbered="true" toc="default">
+        <name>JMAP Data Type  Registration for "SieveScript"</name>
+        <t>IANA has registered "SieveScript" in the "JMAP Data Types" registry as follows:
+        </t>
+        <dl spacing="normal">
+        <dt>Type Name:</dt><dd><tt>SieveScript</tt></dd>
+        <dt>Can Reference Blobs:</dt><dd>Yes</dd>
+        <dt>Can Use for State Change:</dt><dd>Yes</dd>
+        <dt>Capability:</dt><dd><tt>urn:ietf:params:jmap:sieve</tt></dd>
+        <dt>Reference:</dt><dd>RFC 9661</dd>
+	</dl>
+      </section>
+
+      <section numbered="true" toc="default">
+        <name>JMAP Error Codes Registry</name>
+        <t>
+          IANA has registered the following two new error codes in the
+          "JMAP Error Codes" registry, as defined in
+          <xref target="RFC8620"/>.
+        </t>
+
+        <section numbered="true" toc="default">
+          <name>invalidSieve</name>
+          <dl spacing="normal">
+          <dt>JMAP Error Code:</dt><dd>invalidSieve</dd>
+          <dt>Intended Use:</dt><dd>common</dd>
+          <dt>Change Controller:</dt><dd>IETF</dd>
+          <dt>Reference:</dt><dd>RFC 9661, <xref target="set"/></dd>
+          <dt>Description:</dt><dd>The SieveScript violates the
+          <xref target="RFC5228">Sieve grammar</xref>, and/or one
+          or more extensions mentioned in the script's "require"
+          statement(s) are not supported by the Sieve interpreter.</dd>
+	  </dl>
+        </section>
+
+        <section numbered="true" toc="default">
+          <name>sieveIsActive</name>
+          <dl spacing="normal">
+          <dt>JMAP Error Code:</dt><dd>sieveIsActive</dd>
+          <dt>Intended Use:</dt><dd>common</dd>
+          <dt>Change Controller:</dt><dd>IETF</dd>
+          <dt>Reference:</dt><dd>RFC 9661, <xref target="set"/></dd>
+          <dt>Description:</dt><dd>The client tried to destroy the active
+          SieveScript.</dd>
+	  </dl>
+        </section>
+      </section>
+    </section>
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8620.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8621.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5228.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5435.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6134.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3629.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5198.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5232.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5463.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5804.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9112.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9404.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9425.xml"/>
+      </references>
+    </references>
+    <section numbered="false" toc="default">
+      <name>Acknowledgments</name>
+      <t>The concepts in this document are based largely on those in
+      <xref target="RFC5804"/>. 
+      The author would like to thank the authors of that document for
+      providing both inspiration and some borrowed text for this
+      document.</t>
+      <t>The author would also like to thank the following
+      individuals for contributing their ideas and support for
+      writing this specification: <contact fullname="Joris Baum"/>, <contact fullname="Mauro De Gennaro"/>,
+      <contact fullname="Bron Gondwana"/>, <contact fullname="Neil Jenkins"/>, <contact fullname="Alexey Melnikov"/>, and <contact fullname="Ricardo Signes"/>.</t>
+    </section>
+  </back>
+</rfc>

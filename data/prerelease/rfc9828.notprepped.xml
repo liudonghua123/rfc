@@ -1,0 +1,1830 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp "&#160;">
+  <!ENTITY zwsp "&#8203;">
+  <!ENTITY nbhy "&#8209;">
+  <!ENTITY wj "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" ipr="trust200902" consensus="true" docName="draft-ietf-avtcore-rtp-j2k-scl-08" number="9828" updates="" obsoletes="" sortRefs="true" symRefs="true" xml:lang="en" version="3">
+
+  <front>
+    <title abbrev="JPEG 2000 Streaming with Sub-Codestream Latency">RTP Payload Format for JPEG 2000 Streaming with Sub-Codestream Latency</title>
+    <seriesInfo name="RFC" value="9828"/>
+
+    <author initials='P.-A.' surname='Lemieux' fullname='Pierre-Anthony Lemieux' role="editor">
+      <organization>Sandflow Consulting LLC</organization>
+      <address>
+        <postal>
+          <city>San Mateo</city>
+          <region>CA</region>
+          <country>United States of America</country>
+        </postal>
+        <email>pal@sandflow.com</email>
+      </address>
+    </author>
+
+    <author initials='D.' surname='Taubman' fullname='David Scott Taubman'>
+      <organization abbrev="University of New South Wales">University of New
+      South Wales</organization>
+      <address>
+        <postal>
+          <city>Sydney</city>
+          <country>Australia</country>
+        </postal>
+        <email>d.taubman@unsw.edu.au</email>
+      </address>
+    </author>
+    <date month="August" year="2025"/>
+
+    <area>WIT</area>
+    <workgroup>avtcore</workgroup>
+
+    <keyword>JPEG 2000</keyword>
+    <keyword>J2K</keyword>
+    <keyword>HTJ2K</keyword>
+    <keyword>low latency</keyword>
+    <keyword>scalable</keyword>
+    <keyword>streaming</keyword>
+
+    <abstract>
+      <t>This document defines the RTP payload format for the streaming of a video signal encoded
+      as a sequence of JPEG 2000 codestreams. The format allows sub-codestream
+      latency, such that the first RTP packet for a given image can be emitted
+      before the entire image is available to or encoded by the sender.</t>
+    </abstract>
+  </front>
+
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>The Real-time Transport Protocol (RTP), which is specified in <xref
+      target="RFC3550"/>, provides end-to-end network transport functions for
+      transmitting real-time data but does not define the characteristics of
+      the data itself (the payload), which varies across applications and is
+      defined in companion RTP payload format documents.</t>
+
+      <t>This RTP payload format specifies the streaming of a video signal
+      encoded as a sequence of JPEG 2000 codestreams (see <xref
+      target="sec-media-description"/> for a primer on the structure of JPEG
+      2000 codestreams). JPEG 2000 is a flexible image codec that supports
+      resolution and quality scalability, lossy-to-lossless coding,
+      non-iterative optimal rate control, and high dynamic range, multi-channel,
+      and subsampled images. These features have made it a mainstay in
+      high-performance applications, including medical, geospatial, archival,
+      cinema, studio post-production, and TV production.</t>
+
+      <t>In addition to supporting a variety of frame-scanning techniques
+      (progressive, interlaced, and progressive segmented frame) and image
+      characteristics, the payload format supports real-time image transmission
+      (live streaming), where image content is encoded, transmitted, and decoded
+      continuously as it is being produced, with minimal latency. Target
+      applications include real-time TV production over IP <xref
+      target="OV2110-0"/>, remote presence, surveillance, etc.
+      Specifically:</t>
+
+      <ul>
+        <li>The payload format allows sub-codestream latency such that the first
+        RTP packet of a given codestream can be emitted before the entire
+        codestream is available. Specifically, the payload format does not rely
+        on the JPEG 2000 PLM (Packet length, main header) and PLT (Packet length, tile-part header) marker segments for recovery after RTP
+        packet loss since these markers can only be written after the codestream
+        is complete and are thus incompatible with sub-codestream latency.
+        Instead, the payload format includes payload header fields
+        (<tt>ORDH</tt>, <tt>ORDB</tt>, <tt>POS</tt>, and <tt>PID</tt>) that
+        indicate whether the RTP packet contains a resynchronization (resync)
+        point and how a recipient can restart codestream processing from that
+        resync point. This contrasts with <xref target="RFC5371"/>, which also
+        specifies an RTP payload format for JPEG 2000 but relies on codestream
+        structures that cannot be emitted until the entire codestream is
+        available.</li>
+
+        <li>As in <xref target="RFC4175"/>, the payload format defines an
+        extended sequence number, which extends the standard (16-bit) sequence
+        number of the RTP Fixed Header by storing additional (high-order) bits
+        in the payload header (<tt>ESEQ</tt> field). This enables the payload
+        format to accommodate high data rates without ambiguity, since the
+        standard sequence number will roll over very quickly for high data rates
+        likely to be encountered in this application. For example, the standard
+        sequence number will roll over in 0.5 seconds with a 1 Gbps video stream
+        with RTP packet sizes of at least 1000 octets, which can be a problem
+        for detecting loss and out-of-order RTP packets, particularly in
+        instances where the round-trip time is greater than the rollover period
+        (0.5 seconds in this example).</li>
+
+        <li>The payload header optionally contains a temporal offset
+        (<tt>PTSTAMP</tt>) relative to the first RTP packet with the same value
+        of RTP <tt>timestamp</tt> field (<xref target="def-timestamp"/>). The
+        higher resolution of <tt>PTSTAMP</tt> compared to the <tt>timestamp</tt>
+        allows receivers to recover the sender's clock more rapidly.</li>
+      </ul>
+
+      <t>In addition to support for sub-codestream latency and high-precision
+      sender clock recovery, the payload format improves on <xref
+      target="RFC5371"/> by supporting:</t>
+      <ul>
+        <li>code-block caching for screen content (see <xref
+        target="sec-send-block-caching"/>);</li>
+        <li>progressive segmented frame (PsF) video support (see <xref
+        target="sec-signal-fmts"/>); and</li>
+        <li>explicit colorspace signaling (see <xref target="def-S"/>).</li>
+      </ul>
+
+      <t>Finally, the payload format also makes use of the unique scalability
+      features of JPEG 2000 to allow an intermediate system or recipient to
+      discard resolution levels and/or quality layers merely by inspecting RTP
+      packet headers (<tt>QUAL</tt> and <tt>RES</tt> fields), without having to
+      parse the underlying codestream (see <xref target="sec-filtering"/>).</t>
+    </section>
+
+    <section>
+      <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <t>In case of conflict between the contents of a figure and the prose, the
+      prose takes precedence.</t>
+    </section>
+
+    <section anchor="sec-media-description">
+      <name>Media Format Description</name>
+      <t>The following summarizes the structure of the JPEG 2000 codestream,
+      which is specified in detail in <xref target="JPEG2000-1"/>.</t>
+
+      <t>NOTE: As described in <xref target="sec-codestream"/>, a JPEG 2000
+      codestream allows capabilities defined in any part of the JPEG 2000 family
+      of standards, including those specified in <xref target="JPEG2000-2"/> and
+      <xref target="JPEG2000-15"/>.</t>
+
+      <t>JPEG 2000 represents an image as one or more components, each uniformly
+      sampled on a common rectangular reference grid. For example, an image can
+      consist of the customary Y (luma), C<sub>b</sub> (blue-difference chroma),
+      and C<sub>r</sub> (red-difference chroma) components, with the
+      C<sub>b</sub> and C<sub>r</sub> being subsampled by a factor of two
+      compared to the Y component.</t>
+
+      <t>An image can be further divided into contiguous rectangular tiles that
+      are each independently coded and decoded.</t>
+
+      <t>JPEG 2000 codes each image as a standalone codestream. A codestream
+      consists of (i) marker segments, which contain coding parameters and
+      metadata, and (ii) coded data.</t>
+
+      <t>For convenience to the reader, the following lists both the abbreviated
+      and full names of marker segments that are mentioned in this specification
+      (several other marker segments are defined by JPEG 2000 and can be present
+      in a codestream):</t>
+
+      <dl spacing="normal" newline="false" indent="7">
+        <dt>CAP:</dt>
+        <dd>Extended Capabilities</dd>
+        <dt>COC:</dt>
+        <dd>Coding style component</dd>
+        <dt>COD:</dt>
+        <dd>Coding style default</dd>
+        <dt>COM:</dt>
+        <dd>Comment</dd>
+        <dt>EOC:</dt>
+        <dd>End of codestream</dd>
+        <dt>PLM:</dt>
+        <dd>Packet length, main header</dd>
+        <dt>PLT:</dt>
+        <dd>Packet length, tile-part header</dd>
+        <dt>SOC:</dt>
+        <dd>Start of codestream</dd>
+        <dt>SOD:</dt>
+        <dd>Start of data</dd>
+        <dt>SOT:</dt>
+        <dd>Start of tile-part</dd>
+      </dl>
+
+      <t>The codestream starts with an SOC marker segment and ends with an EOC
+      marker segment. The main header of the codestream consists of marker
+      segments between the SOC and first SOT marker segment and contains
+      information that applies to the codestream in its entirety. It is
+      generally impossible to decode a codestream without its main header.</t>
+
+      <t>The rest of the codestream consists of additional marker segments
+      (tile-part headers) interleaved with coded image data.</t>
+
+      <t>At the heart of JPEG 2000 coding is the wavelet transform, which
+      decomposes the image into successive resolution levels, with each level
+      related to the next one by a spatial factor of two, i.e., each
+      successive resolution level has half the horizontal and half the vertical
+      resolution of the previous one.</t>
+
+      <t>The coded image data ultimately consists of code-blocks, each
+      containing coded samples belonging to a rectangular (spatial) region
+      within one resolution level of one component. Code-blocks are further
+      collected into precincts, which, accordingly, represent code-blocks
+      belonging to a spatial region within one resolution level of one
+      component.</t>
+
+      <t>The coded image data can be arranged into several progression orders,
+      which dictates which aspect of the image appears first in the codestream
+      (in terms of byte offset). The progression orders are parameterized
+      according to:</t>
+
+      <dl spacing="normal" newline="true">
+        <dt>Position (P)</dt>
+        <dd>The first lines of the image come before the last lines of the
+        image.</dd>
+        <dt>Component (C)</dt>
+        <dd>The first component of the image comes before the last component of
+        the image.</dd>
+        <dt>Resolution Level (R)</dt>
+        <dd>The information needed to reconstruct the lower spatial resolutions
+        of the image come before the information needed to reconstruct the
+        higher spatial resolutions of the image.</dd>
+        <dt>Quality Layer (L)</dt>
+        <dd>The information needed to reconstruct the most significant bits of
+        each sample come before the information needed to reconstruct the
+        least significant bit of each sample.</dd>
+      </dl>
+
+      <t>For example, in the PRCL progression order, the information needed to
+      reconstruct the first lines of the image come before that needed to
+      reconstruct the last lines of the image, and within a collection of lines,
+      the information needed to reconstruct the lower spatial resolutions of the
+      image come before the information needed to reconstruct the higher spatial
+      resolutions. This progression order is particularly useful for subframe
+      latency operations.</t>
+    </section>
+
+    <section>
+      <name>Video Signal Description</name>
+      <t>This RTP payload format supports three distinct techniques for scanning video frames:
+      </t>
+      <ul>
+        <li>Progressive frame</li>
+        <li>Interlaced frame, where each frame consists of two fields. Field 1
+        occurs earlier in time than Field 2. The height in lines of each field
+        is half the height of the image.</li>
+        <li>Progressive segmented frame (PsF), where each frame consists of two
+        segments. Segment 1 contains the odd lines (1, 3, 5, 7, ...) of a frame,
+        and Segment 2 contains the even lines (2, 4, 6, 8, ...) of the same
+        frame, where lines from the top of the frame to the bottom of the frame
+        are numbered sequentially starting at 1.</li>
+      </ul>
+      <t>All frames are scanned left to right, top to bottom.</t>
+    </section>
+
+    <section>
+      <name>Payload Format</name>
+      <section>
+        <name>General</name>
+
+        <figure anchor="fig-payload-header">
+          <name>Packetization of a Sequence of JPEG 2000 Codestreams (Not to
+          Scale)</name>
+          <artwork><![CDATA[
+<--------------- Codestream (image) -------------->
+|                                                 |
+<----- Extended Header ----->                     |
+|                           |                     |
++-----+-//-+-----+-//-+-----+--------//-----+-----+-----+---------
+| SOC | .. | SOT | .. | SOD | ............. | EOC |  P  | SOC  ...
++-----+-//-+-----+-//-+-----+--------//-----+-----+-----+---------
+|          |                                            |
+<----------> Main header                                |
+|                                                       |
++------------------------------+------+--//-+-----------+---------
+|             Main             | Body | ... |    Body   | Main ...
++------------------------------+------+--//-+-----------+---------
+|                              |
+<--------- RTP Packet --------->
+]]></artwork>
+        </figure>
+	<t>In <xref target="fig-payload-header"/>, P denotes (optional) padding
+	bytes. See <xref target="sec-media-description"/> for expansions of
+	SOC, SOD, SOT, and EOC.</t>
+        <t>Each RTP packet, as specified in <xref target="RFC3550"/>, is either
+        a Main Packet or a Body Packet.</t>
+
+        <t>A Main Packet consists of the following ordered sequence of
+        structures concatenated without gaps:</t>
+
+        <ul>
+          <li>the RTP Fixed Header;</li>
+          <li>a Main Packet Payload Header, as specified in <xref
+          target="sec-main-packet-header"/>; and</li>
+          <li>the payload, which consists of a JPEG 2000 codestream
+          fragment.</li>
+        </ul>
+
+        <t>A Body Packet consists of the following ordered sequence of
+          structures concatenated without gaps:</t>
+
+        <ul>
+          <li>the RTP Fixed Header;</li>
+          <li>a Body Packet Payload Header, as specified in <xref
+          target="sec-body-packet-header"/>; and</li>
+          <li>the payload, which consists of a JPEG 2000 codestream
+          fragment.</li>
+        </ul>
+
+        <t>When concatenated, the sequence of JPEG 2000 codestream fragments
+        emitted by the sender <bcp14>MUST</bcp14> be a sequence of JPEG 2000 codestreams where
+        two successive JPEG 2000 codestreams <bcp14>MAY</bcp14> be separated by one or more
+        padding bytes (see <xref target="fig-payload-header"/>).</t>
+
+        <t>The sender <bcp14>MUST</bcp14> set the value of each padding byte to zero.</t>
+
+        <t>The receiver <bcp14>MUST</bcp14> ignore the values of the padding bytes.</t>
+
+        <t>The JPEG 2000 codestreams <bcp14>MUST</bcp14> conform to <xref
+        target="sec-codestream"/>.</t>
+
+	
+        <t>NOTE 1: Padding bytes can be used to achieve constant bit rate
+        transmission.</t>
+
+        <t>A JPEG 2000 codestream fragment, and thus an RTP packet, does not
+        necessarily contain complete JPEG 2000 packets, as defined in <xref
+        target="JPEG2000-1"/>.</t>
+
+        <t>A JPEG 2000 codestream Extended Header consists of the bytes between,
+        and including, the SOC marker and the first SOD marker.</t>
+
+        <t>NOTE 2: The concept of the JPEG 2000 codestream Extended Header is
+        specific to this document and is distinct from the JPEG 2000 codestream
+        main header, which is defined in <xref target="JPEG2000-1"/>. The
+        codestream main header consists of the bytes between, and including, the
+        SOC marker and the first SOT marker. The codestream main header is a
+        subset of the codestream Extended Header (see <xref
+        target="fig-payload-header"/>).</t>
+
+        <t>The payload of a Body Packet <bcp14>MUST NOT</bcp14> contain any bytes of the JPEG
+        2000 codestream Extended Header.</t>
+
+        <t>The payload of a Main Packet <bcp14>MUST</bcp14> contain at least one byte of the
+        JPEG 2000 codestream Extended Header and <bcp14>MAY</bcp14> contain bytes other than
+        those of the JPEG 2000 codestream Extended Header.</t>
+
+        <t>A payload <bcp14>MUST NOT</bcp14> contain bytes from more than one JPEG 2000
+        codestream.</t>
+
+      </section>
+
+      <section anchor="rtp-fixed-header-usage">
+        <name>RTP Fixed Header Usage</name>
+
+        <t>The following RTP header fields have a specific meaning in the
+        context of this payload format:</t>
+
+        <dl newline="true">
+          <dt><tt>marker</tt></dt>
+          <dd>
+            <dl>
+              <dt>1</dt>
+              <dd>The payload contains an EOC marker.</dd>
+
+              <dt>0</dt>
+              <dd>Otherwise</dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-timestamp"><tt>timestamp</tt></dt>
+          <dd>
+            <t>The <tt>timestamp</tt> is the presentation time of the image to
+            which the payload belongs.</t>
+
+            <t>The <tt>timestamp</tt> clock rate is 90 kHz.</t>
+
+            <t>The <tt>timestamp</tt> of successive progressive frames <bcp14>MUST</bcp14>
+            advance at regular increments based on the instantaneous video frame
+            rate.</t>
+
+            <t>The <tt>timestamp</tt> of Field 1 of successive interlaced frames
+            <bcp14>MUST</bcp14> advance at regular increments based on the instantaneous video
+            frame rate, and the <tt>Timestamp</tt> of Field 2 <bcp14>MUST</bcp14> be offset
+            from the <tt>timestamp</tt> of Field 1 by one half of the
+            instantaneous frame period.</t>
+
+            <t>The <tt>timestamp</tt> of both segments of a progressive
+            segmented frame <bcp14>MUST</bcp14> be equal.</t>
+
+            <t>The <tt>timestamp</tt> of all RTP packets of a given image <bcp14>MUST</bcp14> be
+            equal.</t>
+          </dd>
+
+          <dt anchor="def-seq"><tt>sequence number</tt></dt>
+          <dd>
+          <t>The low-order bits of the extended sequence number.</t>
+
+          <t>The high-order bits of the extended sequence number are contained
+          in the <tt>ESEQ</tt> field, which is specified in <xref
+          target="sec-main-packet-header"/>.</t>
+
+          <t>The extended sequence number is calculated as follows:</t>
+          <artwork><![CDATA[
+<extended sequence number> = <ESEQ field> * 65536 + <sequence
+number field of the RTP Fixed Header>
+]]></artwork></dd>
+        </dl>
+      </section>
+
+      <section anchor="sec-main-packet-header">
+        <name>Main Packet Payload Header</name>
+        <t><xref target="fig-main-payload-header"/> specifies the structure of the
+        payload header. Fields are interpreted as unsigned binary integers in
+        network order.</t>
+        <figure anchor="fig-main-payload-header">
+          <name>Structure of the Main Packet Payload Header</name>
+          <artwork><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|MH | TP  |ORDH |P|XTRAC|        PTSTAMP        |     ESEQ      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|R|S|C| RSVD  |*|    PRIMS      |    TRANS      |      MAT      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                              XTRAB                            |
+|                               ...                             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+* RANGE
+]]></artwork>
+        </figure>
+
+        <dl newline="false">
+          <dt anchor="def-MH">MH (Codestream Main Header Presence):</dt><dd><t>2 bits</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd>The RTP packet is a Body Packet.</dd>
+              <dt>1</dt>
+              <dd>The RTP packet is a Main Packet, and the codestream has more
+              than one Main Packet. The next RTP packet is a Main Packet.</dd>
+              <dt>2</dt>
+              <dd>The RTP packet is a Main Packet, and the codestream has more
+              than one Main Packet. The next RTP packet is a Body Packet.</dd>
+              <dt>3</dt>
+              <dd>The RTP packet is a Main Packet, and the codestream has exactly
+              one Main Packet.</dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-TP">TP (Image Type):</dt><dd><t>3 bits</t>
+            <t>Indicates the scanning structure of the image to which the
+            payload belongs.</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd>Progressive frame.</dd>
+
+              <dt>1</dt>
+              <dd>Field 1 of an interlaced frame, where the first line of the
+              field is the first line of the frame.</dd>
+
+              <dt>2</dt>
+              <dd>Field 2 of an interlaced frame, where the first line of the
+              field is the second line of the frame.</dd>
+
+              <dt>3</dt>
+              <dd>Field 1 of an interlaced frame, where the first line of the
+              field is the second line of the frame.</dd>
+
+              <dt>4</dt>
+              <dd>Field 2 of an interlaced frame, where the first line of the
+              field is the first line of the frame.</dd>
+
+              <dt>5</dt>
+              <dd>Segment 1 of a progressive segmented frame, where the
+              first line of the image is the first line of the frame.</dd>
+
+              <dt>6</dt>
+              <dd>Segment 2 of a progressive segmented frame, where the
+              first line of the image is the second line of the frame.</dd>
+
+              <dt>7</dt>
+              <dd>Extension value. See Sections <xref target="sec-receiver-ext" format="counter"/> and
+              <xref target="sec-sender-ext" format="counter"/>.</dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-ORDH">ORDH (Progression Order Flag, Main Packet):</dt>
+	  <dd><t>3 bits</t>
+              <t>Specifies the progression order used by the codestream and
+              whether resync points are signaled. See <xref target="sec-media-description" /> for details about progression orders.</t>
+              <dl newline="false">
+                <dt>0</dt>
+                <dd>Resync points are not necessarily signaled. The progression
+                order can vary over the codestream.</dd>
+
+                <dt>1</dt>
+                <dd>The progression order is LRCP for the entire codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+
+                <dt>2</dt>
+                <dd>The progression order is RLCP for the entire codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+
+                <dt>3</dt>
+                <dd>The progression order is RPCL for the entire codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+
+                <dt>4</dt>
+                <dd>The progression order is PCRL for the entire codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+
+                <dt>5</dt>
+                <dd>The progression order is CPRL for the entire codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+
+                <dt>6</dt>
+                <dd>The progression order is PRCL for the entire codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+
+                <dt>7</dt>
+                <dd>The progression order can vary over the codestream. The
+                first resync point is specified in every Body Packet that
+                contains one or more resync points.</dd>
+              </dl>
+
+              <t><tt>ORDH</tt> <bcp14>MUST</bcp14> be 0 if the codestream consists of more than
+              one tile.</t>
+
+	      
+              <t>NOTE 1: Only <tt>ORDH</tt> = 4 and <tt>ORDH</tt> = 6 allow
+              sub-codestream latency streaming.</t>
+
+              <t>NOTE 2: Progression order PRCL is defined in <xref
+              target="JPEG2000-2"/>. The other progression orders are specified
+              in <xref target="JPEG2000-1"/>.</t>
+          </dd>
+
+          <dt anchor="def-P">P (Precision Timestamp Presence):</dt><dd><t>1 bit</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd><tt>PTSTAMP</tt> is not used.</dd>
+              <dt>1</dt>
+              <dd><tt>PTSTAMP</tt> is used.</dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-XTRAC">XTRAC (Extension Payload Length):</dt><dd><t>3 bits</t>
+          <t>Length, in multiples of 4 bytes, of the <tt>XTRAB</tt> field.</t></dd>
+
+          <dt anchor="def-PTSTAMP">PTSTAMP (Precision Timestamp):</dt><dd><t>12 bits</t>
+            <t>PTSTAMP = (<tt>timestamp</tt> + <tt>TOFF</tt>) mod 4096, if
+            <tt>P</tt> = 1 in the Main Packet of this codestream.</t>
+
+            <t><tt>TOFF</tt> is the transmission time of this RTP packet, in the
+            timebase of the <tt>timestamp</tt> clock and relative to the first
+            RTP packet with the same <tt>timestamp</tt> value.</t>
+
+            <t><tt>TOFF</tt> = 0 in the first RTP packet with the same
+            <tt>timestamp</tt> value.</t>
+
+            <t><tt>PTSTAMP</tt> = 0, if <tt>P</tt> = 0 in the Main Packet of this
+            codestream.</t>
+
+            <t>NOTE 3: As described in Sections <xref target="sec-sender-ptstamp" format="counter"/> and
+            <xref target="sec-recv-ptstamp" format="counter"/>, <tt>PTSTAMP</tt> is intended to
+            improve clock recovery at the receiver and only applies when the
+            transmission time of two consecutive RTP packets with identical
+            <tt>timestamp</tt> fields differ by no more than 45 ms
+           (which is 4095/90,000). <xref target="RFC5450"/> addresses the general
+            case when an RTP packet is transmitted at a time other than its
+            nominal transmission time.</t>
+          </dd>
+
+          <dt anchor="def-ESEQ">ESEQ (Extended Sequence Number High-Order Bits):</dt><dd>
+          <t>8 bits</t>
+            <t>The high-order bits of the extended sequence number.</t>
+            <t>NOTE 4: The low-order bits of the extended sequence number are
+            stored in the <tt>sequence number</tt> field of the RTP Fixed
+            Header.</t>
+            <t><xref target="rtp-fixed-header-usage"/> specifies the formula to compute the
+            extended sequence number.</t>
+          </dd>
+
+          <dt anchor="def-R">R (Codestream Main Header Reuse):</dt><dd><t>1 bit</t>
+            <t>Determines whether Main Packet and codestream main header
+            information can be reused across codestreams.</t>
+            <dl newline="false">
+              <dt>1</dt>
+              <dd>
+                <t>All Main Packets in this stream, as identified by the value
+                of the <tt>SSRC</tt> field in the RTP Fixed Header:</t>
+
+                <ul>
+                  <li><bcp14>MUST</bcp14> have identical Main Packet Payload Headers, with the
+                  exception of their <tt>TP</tt>, <tt>MH</tt>, <tt>ESEQ</tt>, and
+                  <tt>PTSTAMP</tt> fields;</li>
+                  <li><bcp14>MUST</bcp14> contain the same codestream main header information
+                  (with the exception of the SOT and COM marker segments and any
+                  pointer marker segments); and</li>
+                  <li><bcp14>MUST NOT</bcp14> contain bytes other than Extended Header
+                  bytes.</li>
+                </ul>
+              </dd>
+              <dt>0</dt>
+              <dd>Otherwise</dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-S">S (Parameterized Colorspace Presence):</dt><dd><t>1 bit</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd><t>Component colorimetry is not specified; it is left to the
+              session or the application.</t>
+              <t><tt>PRIMS</tt>, <tt>TRANS</tt>, <tt>MAT</tt>, and
+              <tt>RANGE</tt>
+              <bcp14>MUST</bcp14> be zero.</t>
+            </dd>
+              <dt>1</dt>
+              <dd>
+                <t>Component colorimetry is specified by the <tt>PRIMS</tt>,
+                <tt>TRANS</tt>, <tt>MAT</tt>, and <tt>RANGE</tt> fields.</t>
+
+
+                <t>The codestream components <bcp14>MUST</bcp14> conform to one of the
+                combinations in <xref target="t-color-map"/>. </t>
+
+                <table anchor="t-color-map">
+                  <name>Mapping of Codestream Components to Color
+                  Channels</name>
+                  <thead>
+                    <tr>
+                      <th rowspan="2">Combination Name</th>
+                      <th colspan="4">Component Index</th>
+                    </tr>
+                    <tr>
+                      <th>0</th>
+                      <th>1</th>
+                      <th>2</th>
+                      <th>3</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th>Y</th><td>Y</td><td></td><td></td><td></td>
+                    </tr>
+                    <tr>
+                      <th>YA</th><td>Y</td><td>A</td><td></td><td></td>
+                    </tr>
+                    <tr>
+                      <th>RGB</th><td>R</td><td>G</td><td>B</td><td></td>
+                    </tr>
+                    <tr>
+                      <th>RGBA</th><td>R</td><td>G</td><td>B</td><td>A</td>
+                    </tr>
+                    <tr>
+                      <th>YCbCr</th><td>Y</td><td>C<sub>B</sub></td>
+                      <td>C<sub>R</sub></td><td></td>
+                    </tr>
+                    <tr>
+                      <th>YCbCrA</th><td>Y</td><td>C<sub>B</sub></td>
+                      <td>C<sub>R</sub></td><td>A</td>
+                    </tr>
+                  </tbody>
+                </table>
+		<t>Channel <tt>A</tt> is an opacity channel. The minimum
+		sample value (0) indicates a completely transparent sample,
+		and the maximum sample value (as determined by the bit depth
+		of the codestream component) indicates a completely opaque
+		sample. The opacity channel <bcp14>MUST</bcp14> map to a
+		component with unsigned samples.</t>
+              </dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-C">C (Code-Block Caching Usage):</dt><dd><t>1 bit</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd>Code-block caching is not in use.</dd>
+              <dt>1</dt>
+              <dd>
+                <t>Code-block caching is in use.</t>
+                <t><tt>R</tt> <bcp14>MUST</bcp14> be equal to 1.</t>
+              </dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-RSVD">RSVD (Reserved):</dt><dd><t>4 bits</t>
+          <t>Unassigned value. See Sections <xref target="sec-receiver-unassigned" format="counter"/> and
+          <xref target="sec-sender-unassigned" format="counter"/>.</t></dd>
+
+          <dt anchor="def-F">RANGE (Video Full Range Usage):</dt><dd><t>1 bit</t>
+          <t>Value of the VideoFullRangeFlag specified in <xref
+          target="REC-ITU-T-H273"/>.</t></dd>
+
+          <dt anchor="def-PRIMS">PRIMS (Color Primaries):</dt><dd><t>8 bits</t>
+          <t>One of the ColourPrimaries values specified in <xref
+          target="REC-ITU-T-H273"/>.</t></dd>
+
+          <dt anchor="def-TRANS">TRANS (Transfer Characteristics):</dt><dd><t>8 bits</t>
+          <t>One of the TransferCharacteristics values specified in
+          <xref target="REC-ITU-T-H273"/>.</t></dd>
+
+          <dt anchor="def-MAT">MAT (Color Matrix Coefficients):</dt><dd><t>8 bits</t>
+          <t>One of the MatrixCoefficients values specified in <xref
+          target="REC-ITU-T-H273"/>.</t></dd>
+
+          <dt anchor="def-XTRAB">XTRAB (Extension Payload):</dt><dd><t>variable</t>
+          <t>Allows the contents of the Main Packet Payload Header to be
+          extended in the future. The size of the field is determined by <xref
+          target="sec-main-packet-header"/>. See also Sections <xref target="sec-receiver-xtrab" format="counter"/> and
+          <xref target="sec-sender-xtrab" format="counter"/>.</t></dd>
+
+        </dl>
+      </section>
+
+      <section anchor="sec-body-packet-header">
+        <name>Body Packet Payload Header</name>
+        <t><xref target="fig-body-payload-header"/> specifies the structure of
+        the Body Packet Payload Header. Fields are interpreted as unsigned
+        binary integers in network order.</t>
+        <figure anchor="fig-body-payload-header">
+          <name>Structure of the Body Packet Payload Header</name>
+          <artwork><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|MH | TP  |RES  |*|QUAL |       PTSTAMP         |     ESEQ      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         POS           |                  PID                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+* ORDB
+]]></artwork>
+        </figure>
+
+        <dl newline="false">
+          <dt>MH:</dt>
+          <dd>See <xref target="sec-main-packet-header"/>.</dd>
+
+          <dt>TP:</dt>
+          <dd>See <xref target="sec-main-packet-header"/>.</dd>
+
+          <dt anchor="def-RES">RES (Resolution Levels):</dt><dd><t>3 bits</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd>The payload can contribute to all resolution levels.</dd>
+
+              <dt>Otherwise</dt>
+              <dd>The payload contains at least one byte of one JPEG 2000 packet
+              belonging to resolution level (N<sub>L</sub> + RES - 7) but does
+              not contain any byte of any JPEG 2000 packet belonging to lower
+              resolution levels. N<sub>L</sub> is the number of decomposition
+              levels of the codestream.</dd>
+            </dl>
+          </dd>
+
+          <dt anchor="def-ORDB">ORDB (Progression Order Flag, Body Packet):</dt><dd><t>1
+          bit</t>
+              <dl newline="false">
+                <dt>0</dt>
+                <dd>No resync point is specified for the payload.</dd>
+
+                <dt>1</dt>
+                <dd>The payload contains a resync point.</dd>
+              </dl>
+              <t><tt>ORDB</tt> <bcp14>MUST</bcp14> be 0 if the codestream consists of more than
+              one tile.</t>
+          </dd>
+
+          <dt anchor="def-QUAL">QUAL (Quality Layers):</dt><dd><t>3 bits</t>
+            <dl newline="false">
+              <dt>0</dt>
+              <dd>The payload can contribute to all quality layers.</dd>
+
+              <dt>Otherwise</dt>
+              <dd>The payload contributes only to quality layer index
+              <tt>QUAL</tt> or above.</dd>
+            </dl>
+          </dd>
+
+          <dt>PTSTAMP:</dt>
+          <dd>See <xref target="sec-main-packet-header"/>.</dd>
+
+          <dt>ESEQ:</dt>
+          <dd>See <xref target="sec-main-packet-header"/>.</dd>
+
+          <dt anchor="def-POS">POS (Resync Point Offset):</dt><dd><t>12 bits</t>
+            <t>Byte offset from the start of the payload to the first byte of
+            the resync point belonging to the precinct identified by PID.</t>
+            <t><tt>POS</tt> <bcp14>MUST</bcp14> be 0 if <tt>ORDB</tt> = 0.</t>
+          </dd>
+
+          <dt anchor="def-PID">PID (Precinct Identifier):</dt><dd><t>20 bits</t>
+
+            <t>Unique identifier of the precinct of the resync point.</t>
+
+            <artwork><![CDATA[PID = c + s * num_components]]></artwork>
+
+            <t>where:</t>
+            <dl>
+              <dt>c:</dt><dd>Index (starting from 0) of the image
+              component to which the precinct belongs.</dd>
+              <dt>s:</dt><dd>Sequence number that identifies the precinct
+              within its tile-component.</dd>
+              <dt>num_components:</dt><dd>Number of components of the
+              codestream.</dd>
+            </dl>
+
+            <t>If <tt>PID</tt> is present, the payload <bcp14>MUST NOT</bcp14> contain
+            codestream bytes from more than one precinct.</t>
+
+            <t><tt>PID</tt> <bcp14>MUST</bcp14> be 0 if <tt>ORDB</tt> = 0.</t>
+
+            <t>NOTE: <tt>PID</tt> is identical to precinct identifier I
+            specified in <xref target="JPEG2000-9"/>.</t>
+          </dd>
+
+        </dl>
+
+      </section>
+    </section>
+
+    <section anchor="sec-codestream">
+      <name>JPEG 2000 Codestream</name>
+        <t> A JPEG 2000 codestream consists of the bytes between, and including,
+        the SOC and EOC markers, as defined in <xref target="JPEG2000-1"/>.</t>
+
+        <t>The JPEG 2000 codestream <bcp14>MAY</bcp14> include capabilities beyond those
+        specified in <xref target="JPEG2000-1"/>, including those specified in
+        <xref target="JPEG2000-2"/> and <xref target="JPEG2000-15"/>.</t>
+
+        <t>NOTE 1: The <tt>Rsiz</tt> parameter and <tt>CAP</tt> marker segments of
+        each JPEG 2000 codestream contain detailed information on the
+        capabilities necessary to decode the codestream.</t>
+
+        <t>NOTE 2: The <tt>caps</tt> media type parameter defined in
+        <xref target="sec-media-type-def"/> allows applications to signal
+        required device capabilities.</t>
+
+        <t>NOTE 3: The block coder specified in <xref target="JPEG2000-15"/>
+        improves throughput and reduces latency compared to the original
+        arithmetic block coder defined in <xref target="JPEG2000-1"/>.</t>
+
+        <t>For interlaced or progressive segmented frames, the height specified
+        in the JPEG 2000 main header <bcp14>MUST</bcp14> be the height in lines of the field or
+        the segment, respectively.</t>
+
+        <t>If any decomposition level involves only horizontal decomposition,
+        then no decomposition level <bcp14>MUST</bcp14> involve only vertical decomposition;
+        conversely, if any decomposition level involves only vertical
+        decomposition, then no decomposition level <bcp14>MUST</bcp14> involve only horizontal
+        decomposition.</t>
+
+    </section>
+
+    <section anchor="sec-sender">
+      <name>Sender</name>
+
+      <section>
+        <name>Main Packet</name>
+
+        <t>A Main Packet <bcp14>MAY</bcp14> contain zero or more bytes of the JPEG 2000
+        codestream Extended Header.</t>
+
+        <t>The sender <bcp14>MUST</bcp14> emit either a single Main Packet with <tt>MH</tt> =
+        3, or one or more Main Packets with <tt>MH</tt> = 1 followed by a
+        single Main Packet with <tt>MH</tt> = 2.</t>
+
+        <t>The Main Packet Payload Headers fields <bcp14>MUST</bcp14> be identical in all Main
+        Packets of a given codestream, with the exception of:</t>
+        <ul>
+          <li><tt>MH</tt>;</li>
+          <li><tt>ESEQ</tt>; and</li>
+          <li><tt>PTSTAMP</tt>.</li>
+        </ul>
+      </section>
+
+      <section anchor="sec-filtering">
+        <name>RTP Packet Filtering</name>
+        <t>An intermediate system <bcp14>MAY</bcp14> strip out RTP packets from a codestream
+        that are of no interest to a particular client, e.g., based on a
+        resolution or a spatial region of interest.</t>
+      </section>
+
+      <section>
+        <name>Resync Point</name>
+        <t>A resync point is the first byte of JPEG 2000 packet header data for
+        a precinct and for which PID &lt; 2<sup>24</sup>.</t>
+
+        <t>NOTE 1: Resync points cannot be specified if the codestream consists of
+        more than one tile (<tt>ORDB</tt> and <tt>ORDH</tt> are both equal to
+        zero).</t>
+
+        <t>NOTE 2: A resync point can be used by a receiver to process a
+        codestream even if earlier RTP packets in the codestream have been
+        corrupted, lost, or deliberately discarded by an intermediate system. As
+        a corollary, resync points can be used by an intermediate system to
+        discard RTP packets that are not relevant to a given rendering
+        resolution or region of interest. Resync points play a role similar to
+        pointer marker segments, albeit tailored for high-bandwidth, low-latency
+        streaming applications.</t>
+      </section>
+
+      <section anchor="sec-sender-ptstamp">
+        <name>PTSTAMP Field</name>
+
+        <t>A sender <bcp14>SHOULD</bcp14> set <tt>P</tt> = 1, but only if it can generate
+        <tt>PTSTAMP</tt> accurately.</t>
+
+        <t><tt>PTSTAMP</tt> can be derived from the same clock that is used to
+        produce the 32-bit <tt>timestamp</tt> field in the RTP Fixed Header.
+        Specifically, a sender maintains, at least conceptually, a 32-bit
+        counter that is incremented by a 90 kHz clock. The counter is sampled at
+        the point in time when each RTP packet is transmitted and the 12 least significant bits of
+        the sample are stored in the <tt>PTSTAMP</tt> field.</t>
+
+        <t>If <tt>P</tt> = 1, then the transmission time <tt>TOFF</tt> (as
+        defined in <xref target="sec-main-packet-header"></xref>) for two consecutive RTP
+        packets with identical <tt>timestamp</tt> fields <bcp14>MUST NOT</bcp14> differ by more
+        than 4095.</t>
+      </section>
+
+      <section>
+        <name>RES Field</name>
+        <t>A sender <bcp14>SHOULD</bcp14> set <tt>RES</tt> &gt; 0 whenever possible.</t>
+
+        <t>NOTE: While a sender can always safely set <tt>RES</tt> = 0, this
+        makes it more difficult to discard RTP packets based on resolution, as
+        described in <xref target="recv-RES"/>.</t>
+      </section>
+
+      <section anchor="sec-sender-xtrab">
+        <name>Extra Information</name>
+        <t>The sender <bcp14>MUST</bcp14> set the value of <tt>XTRAC</tt> to 0.</t>
+
+        <t>Future updates to this RTP payload format can permit other
+        values.</t>
+      </section>
+
+      <section anchor="sec-sender-unassigned">
+        <name>Unassigned Values</name>
+        <t>The sender <bcp14>MUST</bcp14> set unassigned values to 0.</t>
+
+        <t>Unassigned values are available for assignment by future updates to
+        this RTP payload format. As specified in <xref
+        target="sec-receiver-unassigned"/>, these future assigned values are
+        ignored by receivers that conform to this specification. In contrast
+        to extension values (see <xref target="sec-sender-ext"/>), this mechanism
+        allows updates to this RTP payload format that remain compatible with
+        receivers that conform to this specification.</t>
+      </section>
+
+      <section anchor="sec-sender-ext">
+        <name>Extension Values</name>
+        <t>A sender <bcp14>MUST NOT</bcp14> use an extension value.</t>
+      </section>
+
+      <section anchor="sec-send-block-caching">
+        <name>Code-Block Caching</name>
+
+        <t>This section only applies if <tt>C</tt> = 1.</t>
+
+        <t>A sender can improve bandwidth efficiency by only occasionally
+        transmitting code-blocks corresponding to static portions of the video
+        and otherwise transmitting empty code-blocks. When <tt>C</tt> = 1,
+	a receiver
+        maintains a simple cache of previously received code-blocks, which it
+        uses to replace empty code-blocks (see <xref target="sec-rcv-block-caching"/>).</t>
+
+        <t>A sender alone determines which code-blocks are replaced
+        with empty code-blocks and when the replacement occurs.</t>
+
+        <t>The sender cannot, however, determine with certainty the state of the
+        receiver's cache; for example, some code-blocks might have been lost in transit, the
+        sender doesn't know exactly when the receiver started processing the
+        stream, etc.</t>
+
+        <t>A code-block is <em>empty</em> if:</t>
+
+        <ul>
+          <li>it does not contribute code-bytes as specified in the parent JPEG
+          2000 packet header; or</li>
+          <li>it
+          contains an HT cleanup segment and the first two bytes of the Magsgn
+          byte-stream are between <tt>0xFF80</tt> and <tt>0xFF8F</tt> (if the code-block conforms to <xref target="JPEG2000-15"/>).</li>
+        </ul>
+
+        <t>NOTE: The last condition allows the encoder to insert padding bytes
+        to achieve a constant bit rate even when a code-block does not
+        contribute code-bytes, as suggested in Annex F.4 of <xref target="JPEG2000-15"/>.
+        </t>
+      </section>
+    </section>
+
+    <section anchor="sec-receiver">
+      <name>Receiver</name>
+
+      <section anchor="sec-recv-ptstamp">
+        <name>PTSTAMP</name>
+
+        <t>Receivers can use <tt>PTSTAMP</tt> values to accelerate sender clock
+        recovery since <tt>PTSTAMP</tt> typically updates more regularly than
+        <tt>timestamp</tt>.</t>
+
+      </section>
+
+      <section>
+        <name>QUAL</name>
+
+        <t>A receiver can discard RTP packets where <tt>QUAL</tt> &gt; N if it
+        is interested in reconstructing an image that only incorporates quality
+        layers N and below.</t>
+      </section>
+
+      <section anchor="recv-RES">
+        <name>RES</name>
+
+        <t>The JPEG 2000 coding process decomposes an image using a sequence of
+        discrete wavelet transform (DWT) stages.</t>
+
+        <table anchor="t-res-ll-example">
+          <name>Optional discarding of Body Packets based on the value of the
+          <tt>RES</tt> field when decoding a reduced resolution image, in the
+          case where N<sub>L</sub> = 5 and all DWT stages consist of both
+          horizontal and vertical transforms. The image has nominal width and
+          height of W x H.</name>
+          <thead>
+            <tr>
+              <th>Decomposition Level</th>
+              <th>Resolution Level</th>
+              <th>Sub-bands</th>
+              <th>Keep all Body Packets with <tt>RES</tt> equal to or less than
+              this value...</th>
+              <th>...to decode an image with at most these dimensions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>5</td>
+              <td>HL1,LH1,HH1</td>
+              <td>7</td>
+              <td>W x H</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>4</td>
+              <td>HL2,LH2,HH2</td>
+              <td>6</td>
+              <td>(W/2) x (H/2)</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>3</td>
+              <td>HL3,LH3,HH3</td>
+              <td>5</td>
+              <td>(W/4) x (H/4)</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>2</td>
+              <td>HL4,LH4,HH4</td>
+              <td>4</td>
+              <td>(W/8) x (H/8)</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>1</td>
+              <td>HL5,LH5,HH5</td>
+              <td>3</td>
+              <td>(W/16) x (H/16)</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>0</td>
+              <td>LL5</td>
+              <td>2</td>
+              <td>(W/32) x (H/32)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <t><xref target="t-res-ll-example"/> illustrates the case where each DWT
+        stage consists of both horizontal and vertical transforms, which is the
+        only mode supported in <xref target="JPEG2000-1"/>. The first stage
+        transforms the image into (i) the image at half-resolution (LL1
+        sub-bands) and (ii) residual high-frequency data (HH1, LH1, HL1
+        sub-bands). The second stage transforms the image at half-resolution
+        (LL1 sub-bands) into the image at quarter resolution (LL2 sub-bands) and
+        residual high-frequency data (HH2, LH2, HL2 sub-bands). This process is
+        repeated N<sub>L</sub> times, where N<sub>L</sub> is the number of
+        decomposition levels as defined in the COD and COC marker segments of
+        the codestream.</t>
+
+        <t>The decoding process reconstructs the image by reversing the coding
+        process, starting with the lowest resolution image stored in the
+        codestream (LL<sub>N<sub>L</sub></sub>).</t>
+
+        <t>As a result, it is possible to reconstruct a lower resolution of the
+        image by stopping the decoding process at a selected stage. For example,
+        in order to reconstruct the image at quarter resolution (LL2), only
+        sub-bands with index greater than 2 (e.g., HL3, LH3, HH3, HL4, LH4, HH4,
+        etc.) are necessary. In other words, a receiver that wishes to
+        reconstruct an image at quarter resolution could discard all RTP packets
+        where <tt>RES</tt> &gt;= 6 since those RTP packets can only contribute
+        to HL1, LH1, HH1, HL2, LH2, and HH2 sub-bands.</t>
+
+        <t>In the case where all DWT stages consist of both horizontal and
+        vertical transforms, the maximum decodable resolution is reduced by a
+        factor of 2<sup>7 - N</sup> if all Body Packets where <tt>RES</tt> &gt;
+        N are discarded.</t>
+
+        <table anchor="t-res-lx-example">
+          <name>Optional discarding of Body Packets based on the value of the
+          <tt>RES</tt> field when decoding a reduced resolution image, in the
+          case where N<sub>L</sub> = 5 and some DWT stages consist of only
+          horizontal transforms. The image has nominal width and height of W x
+          H.</name>
+          <thead>
+            <tr>
+              <th>Decomposition Level</th>
+              <th>Resolution Level</th>
+              <th>Sub-bands</th>
+              <th>Keep all Body Packets with RES equal to or less than this
+              value...</th>
+              <th>...to decode an image with at most these dimensions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1</td>
+              <td>5</td>
+              <td>HL1,LH1,HH1</td>
+              <td>7</td>
+              <td>W x H</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td>4</td>
+              <td>HL2,LH2,HH2</td>
+              <td>6</td>
+              <td>(W/2) x (H/2)</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td>3</td>
+              <td>HX3</td>
+              <td>5</td>
+              <td>(W/4) x (H/2)</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td>2</td>
+              <td>HX4</td>
+              <td>4</td>
+              <td>(W/8) x (H/2)</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>1</td>
+              <td>HX5</td>
+              <td>3</td>
+              <td>(W/16) x (H/2)</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td>0</td>
+              <td>LX5</td>
+              <td>2</td>
+              <td>(W/32) x (H/2)</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <t><xref target="t-res-lx-example"/> illustrates the case where some DWT
+        stages consist of only horizontal transforms, as specified in Annex F of
+        <xref target="JPEG2000-2"/>.</t>
+
+        <t>A receiver can therefore discard all Body Packets where <tt>RES</tt> is
+        greater than some threshold value if it is interested in decoding an
+        image with its resolution reduced by a factor determined by the
+        threshold value, as illustrated in Tables <xref target="t-res-ll-example" format="counter"/> and
+        <xref target="t-res-lx-example" format="counter"/>.</t>
+
+      </section>
+
+      <section anchor="sec-receiver-xtrab">
+        <name>Extra Information</name>
+
+        <t>The receiver <bcp14>MUST</bcp14> accept values of <tt>XTRAC</tt> other than 0 and <bcp14>MUST</bcp14>
+        ignore the value of <tt>XTRAB</tt>, whose length is given by
+        <tt>XTRAC</tt>.</t>
+
+        <t>Future updates to this RTP payload format can specify <tt>XTRAB</tt>
+        contents such that this content can be ignored by receivers that conform
+        to this specification.</t>
+      </section>
+
+      <section anchor="sec-receiver-unassigned">
+        <name>Unassigned Values</name>
+        <t>The receiver <bcp14>MUST</bcp14> ignore unassigned values (see additional discussion
+        in <xref target="sec-sender-unassigned"/>).</t>
+      </section>
+
+      <section anchor="sec-receiver-ext">
+        <name>Extension Values</name>
+        <t>The receiver <bcp14>MUST</bcp14> discard an RTP packet that contains any extension
+        value.</t>
+      </section>
+
+      <section anchor="sec-rcv-block-caching">
+        <name>Code-Block Caching</name>
+
+        <t>This section only applies if <tt>C</tt> = 1.</t>
+
+        <t>When <tt>C</tt> = 1,
+	the sender can improve bandwidth
+        efficiency by only occasionally transmitting code-blocks corresponding
+        to static portions of the video and otherwise transmitting empty
+        code-blocks (see <xref target="sec-send-block-caching"/>).</t>
+
+	
+        <t>When decoding a codestream, the following procedures apply for each
+        code-block in the codestream:
+	</t>
+
+        <ul>
+          <li>
+            If the code-block in the codestream is empty, the receiver <bcp14>MUST</bcp14>
+            replace it with a matching code-block from the cache, if one exists.
+          </li>
+          <li>
+            If the code-block in the codestream is not empty, the receiver <bcp14>MUST</bcp14>
+            replace any matching code-block from the cache with the code-block
+            in the codestream.
+          </li>
+        </ul>
+
+        <t>Two code-blocks are <em>matching</em> if the following
+        characteristics are identical for both: spatial coordinates, resolution
+        level, component, sub-band, and value of the <tt>TP</tt> field of the
+        parent RTP packet.</t>
+
+      </section>
+    </section>
+
+    <section anchor="sec-media-type">
+      <name>Media Type</name>
+
+      <section>
+        <name>General</name>
+
+        <t>This RTP payload format is identified using the media type defined in
+        <xref target="sec-media-type-def"/>. This media type has been registered in accordance
+        with <xref target="RFC4855"/> using the template in <xref
+        target="RFC6838"/>.</t>
+      </section>
+
+      <section anchor="sec-media-type-def">
+        <name>Definition</name>
+
+        <dl newline="false" spacing="normal">
+          <dt>Type name:</dt>
+          <dd>video</dd>
+
+          <dt>Subtype name:</dt>
+          <dd>jpeg2000-scl</dd>
+
+          <dt>Required parameters:</dt>
+          <dd>N/A</dd>
+
+          <dt>Optional parameters:</dt>
+          <dd><t><br/></t>
+            <dl newline="true">
+              <dt><tt>pixel</tt>:</dt>
+              <dd>
+                <t>Specifies the pixel format used by the video sequence.</t>
+                <t>The parameter <bcp14>MUST</bcp14> be a <tt>URI-reference</tt> as specified in
+                <xref target="RFC3986"/>.</t>
+                <t>If the parameter is a <tt>relative-ref</tt> as specified in
+                <xref target="RFC3986"/>, then it <bcp14>MUST</bcp14> be equal to one of the
+                pixel formats specified in <xref target="t-pix-fmts"/>, and the
+                RTP header and payload <bcp14>MUST</bcp14> conform to the characteristics of
+                that pixel format.</t>
+                <t>If the parameter is not a <tt>relative-ref</tt>, the
+                specification of the pixel format is left to the application that
+                defined the URI.</t>
+                <t>If the parameter is not specified, the pixel format is
+                unspecified.</t>
+              </dd>
+
+              <dt><tt>sample</tt>:</dt>
+              <dd>
+                <t>Specifies the format of the samples in each component of the
+                codestream.</t>
+                <t>The parameter <bcp14>MUST</bcp14> be a <tt>URI-reference</tt> as specified in
+                <xref target="RFC3986"/>.</t>
+                <t>If the parameter is a <tt>relative-ref</tt> as specified in
+                <xref target="RFC3986"/>, then it <bcp14>MUST</bcp14> be equal to one of the
+                formats specified in <xref target="sec-sample-fmts"/>, and the
+                stream <bcp14>MUST</bcp14> conform to the characteristics of that format.</t>
+                <t>If the parameter is not a <tt>relative-ref</tt>, the
+                specification of the sample format is left to the application that
+                defined the URI.</t>
+                <t>If the parameter is not specified, the sample format is
+                unspecified.</t>
+              </dd>
+
+              <dt><tt>width</tt>:</dt>
+              <dd>
+                <t>Maximum width in pixels of each image. Integer between 0 and
+                4,294,967,295.</t>
+                <t>The parameter <bcp14>MUST</bcp14> be a sequence of 1 or more digits.</t>
+                <t>If the parameter is not specified, the maximum width is
+                unspecified.</t>
+              </dd>
+
+              <dt><tt>height</tt>:</dt>
+              <dd>
+                <t>Maximum height in pixels of each image. Integer between 0 and
+                4,294,967,295.</t>
+                <t>The parameter <bcp14>MUST</bcp14> be a sequence of 1 or more digits.</t>
+                <t>If the parameter is not specified, the maximum height is
+                unspecified.</t>
+              </dd>
+
+              <dt><tt>signal</tt>:</dt>
+              <dd>
+                <t>Specifies the sequence of image types.</t>
+                <t>The parameter <bcp14>MUST</bcp14> be a <tt>URI-reference</tt> as specified
+                in <xref target="RFC3986"/>.</t>
+                <t>If the parameter is a <tt>relative-ref</tt> as specified in
+                <xref target="RFC3986"/>, then it <bcp14>MUST</bcp14> be equal to one of the
+                signal formats specified in <xref target="sec-signal-fmts"/>, and
+                the image sequence <bcp14>MUST</bcp14> conform to that signal format.</t>
+                <t>If the parameter is not a <tt>relative-ref</tt>, the
+                specification of the pixel format is left to the application
+                that defined the URI.</t>
+                <t>If the parameter is not specified, the stream consists of an
+                arbitrary sequence of image types.</t>
+              </dd>
+
+              <dt><tt>caps</tt>:</dt>
+              <dd>
+                <t>The parameter contains a list of sets of constraints to
+                which the stream conforms, with each set of constraints
+                identified using an <tt>absolute-URI</tt> defined by an
+                application.</t>
+                <t>The parameter <bcp14>MUST</bcp14> conform to the <tt>uri-list</tt> syntax
+                expressed as follows using ABNF <xref target="RFC5234"/>:</t>
+
+                <sourcecode type="abnf"><![CDATA[ 
+  uri-list = absolute-URI *(";" absolute-URI)
+]]></sourcecode>
+                <t>The application that defines the <tt>absolute-URI</tt> <bcp14>MUST</bcp14>
+                ensure that it does not contain any <tt>";"</tt> character and
+                <bcp14>MUST</bcp14> associate it with a set of constraints to which the stream
+                conforms. Such constraints can, for example, include the maximum
+                height and width of images.</t>
+                <t>If the parameter is not specified, constraints beyond those
+                specified in this document are unspecified.</t>
+              </dd>
+
+              <dt><tt>cache</tt>:</dt>
+              <dd>
+                <t>The value of the parameter <bcp14>MUST</bcp14> be either <tt>false</tt> or
+                <tt>true</tt>.</t>
+                <t>If the parameter is <tt>true</tt>, the field <tt>C</tt> <bcp14>MAY</bcp14>
+                be 0 or 1; otherwise, the field <tt>C</tt> <bcp14>MUST</bcp14> be 0.</t>
+                <t>If the parameter is not specified, then the parameter is
+                equal to <tt>false</tt>.</t>
+              </dd>
+            </dl>
+          </dd>
+
+          <dt>Encoding considerations:</dt>
+          <dd>This media type is framed and binary. See <xref target="RFC6838"
+          section="4.8"/>.</dd>
+
+          <dt>Security considerations:</dt>
+          <dd>
+            <t>JPEG 2000 is a flexible image format. As a result, the size of
+            the memory structures required to process JPEG 2000 images can vary
+            greatly depending on the characteristics of the image and the
+            encoding parameters. For example, the JPEG 2000 syntax allows image
+            height and width up to 2<sup>32</sup> - 1 pixels, which is also
+            captured in the syntax of the <tt>height</tt> and <tt>width</tt>
+            parameters of this media type.
+            Therefore, implementations <bcp14>SHOULD</bcp14> take
+            care when processing input that influences the size of memory
+            structures and <bcp14>SHOULD</bcp14> fail gracefully when resource constraints are
+            exceeded.</t>
+            <t>See also <xref target="sec-sec"/>.</t>
+          </dd>
+
+          <dt>Interoperability considerations:</dt>
+          <dd>The RTP stream is a sequence of JPEG 2000 images. An
+          implementation that conforms to the family of JPEG 2000 standards can
+          decode and attempt to display each image.</dd>
+
+          <dt>Published specification:</dt>
+          <dd>RFC 9828</dd>
+
+          <dt>Applications that use this media type:</dt>
+          <dd>video streaming and communication</dd>
+
+	  <dt>Fragment identifier considerations:</dt>
+	  <dd>N/A</dd>
+
+	  <dt>Additional information:</dt>
+	  <dd>N/A</dd>
+
+          <dt>Person &amp; email address to contact for further information:</dt>
+          <dd>Pierre-Anthony Lemieux &lt;pal@sandflow.com&gt;</dd>
+
+          <dt>Intended usage:</dt>
+          <dd>COMMON</dd>
+
+          <dt>Restrictions on Usage:</dt>
+          <dd>This media type depends on RTP framing and hence is only defined
+          for use with RTP as specified in <xref target="RFC3550"/>. Transport
+          within other framing protocols is not defined at the time.</dd>
+
+          <dt>Author:</dt>
+          <dd>Pierre-Anthony Lemieux &lt;pal@sandflow.com&gt;
+          </dd>
+
+          <dt>Change controller:</dt>
+          <dd>IETF</dd>
+        </dl>
+      </section>
+    </section>
+
+    <section anchor="sec-sdp">
+      <name>Mapping to the Session Description Protocol (SDP)</name>
+      <t>The mapping of the payload format media type and its parameters to
+      SDP, as specified in <xref target="RFC8866"/>, <bcp14>MUST</bcp14> be done according to
+      <xref target="RFC4855" section="3"/>.</t>
+    </section>
+
+    <section anchor="sec-congestion-control">
+      <name>Congestion Control</name>
+      <t>Since this RTP payload format can be used in a variety of applications
+      across many different contexts, there is no single congestion control
+      mechanism that will work for all. Below is a non-exhaustive list of example
+      mechanisms that can be used:</t>
+      <ul>
+        <li>a sender can offer several alternative streams for a given video
+        signal, each with a different data rate corresponding to a different
+        compression ratio;</li>
+        <li>a sender can modulate the data rate within a stream by modulating
+        the resolution, frame rate, or compression ratio of the underlying video
+        signal; or</li>
+        <li>an intermediate system can lower the data rate of a stream by
+        discarding resolution levels and/or quality layers, as specified in
+        <xref target="sec-filtering"/>.</li>
+      </ul>
+      <t>As suggested in <xref target="RFC3550" sectionFormat="of" section="10"/>, RTCP feedback can
+      be used in the data rate adaptation process.</t>
+    </section>
+
+    <section anchor="sec-iana">
+      <name>IANA Considerations</name>
+        <t>IANA has registered the media type specified in
+        <xref target="sec-media-type"/>.</t>
+    </section>
+
+    <section anchor="sec-sec">
+      <name>Security Considerations</name>
+
+      <t>RTP packets using the payload format specified in this document are
+      subject to the security considerations discussed in <xref
+      target="RFC3550"/> and in any applicable RTP profile such as <xref
+      target="RFC3551"/>, <xref target="RFC4585"/>, <xref target="RFC3711"/>, and
+      <xref target="RFC5124"/>.  However, as <xref target="RFC7202"/> discusses,
+      it is not an RTP payload format's responsibility to discuss or mandate
+      what solutions are used to meet the basic security goals like
+      confidentiality, integrity, and source authenticity for RTP in general.
+      This responsibility lies with anyone using RTP in an application. They can
+      find guidance on available security mechanisms and important
+      considerations in <xref target="RFC7201"/>. Applications <bcp14>SHOULD</bcp14> use one or
+      more appropriate strong security mechanisms.  The rest of this
+      section discusses the security impacting properties of the
+      payload format itself.</t>
+
+      <t>This RTP payload format and its media decoder do not exhibit any
+      significant non-uniformity in the receiver-side computational complexity
+      for RTP packet processing and thus are unlikely to pose a
+      denial-of-service threat due to the receipt of pathological data. In addition, 
+      the RTP payload format does not contain any active content.</t>
+
+      <t>Security considerations related to the JPEG 2000 codestream contained
+      in the payload are discussed in <xref target="RFC3745" section="3"/>.</t>
+    </section>
+
+  </middle>
+
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+        <reference anchor="JPEG2000-1" target="https://www.itu.int/rec/T-REC-T.800/">
+          <front>
+            <title abbrev="Rec. ITU-T T.800">Information technology - JPEG 2000 image
+coding system: Core coding system</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2024" month="07"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="T.800" />
+        </reference>
+
+        <reference anchor="JPEG2000-2" target="https://www.itu.int/rec/T-REC-T.801">
+          <front>
+            <title abbrev="Rec. ITU-T T.801">Information Technology - JPEG 2000 image
+coding system - Extensions</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2023" month="08"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="T.801" />
+        </reference>
+
+
+        <reference anchor="JPEG2000-15" target="https://www.itu.int/rec/T-REC-T.814/">
+          <front>
+            <title abbrev="Rec. ITU-T T.814">Information technology - JPEG 2000 image
+coding system: High-throughput JPEG 2000</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2019" month="06"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="T.814" />
+        </reference>
+
+        <reference anchor="REC-ITU-T-H273" target="https://www.itu.int/rec/T-REC-H.273">
+            <front>
+              <title abbrev="Rec. ITU-T H.273">Coding-independent code points for video signal type
+              identification</title>
+              <author>
+                <organization>ITU-T</organization>
+              </author>
+              <date year="2024" month="07"/>
+            </front>
+            <seriesInfo name="ITU-T Recommendation" value="H.273" />
+          </reference>
+
+          <reference anchor="JPEG2000-9" target="https://www.itu.int/rec/T-REC-T.808">
+            <front>
+              <title abbrev="Rec. ITU-T T.808">Information technology - JPEG 2000 image
+coding system: Interactivity tools, APIs and protocols</title>
+              <author>
+                <organization>ITU-T</organization>
+              </author>
+              <date year="2022" month="12"/>
+            </front>
+            <seriesInfo name="ITU-T Recommendation" value="T.808" />
+          </reference>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3550.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8866.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4855.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+          <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+      </references>
+
+      <references>
+        <name>Informative References</name>
+        <reference anchor="OV2110-0" target="https://pub.smpte.org/doc/ov2110-0/20181204-pub/">
+          <front>
+            <title abbrev="SMPTE OV 2110-0">Professional Media Over Managed IP
+            Networks, Roadmap for the 2110 Document Suite</title>
+            <author>
+              <organization>SMPTE</organization>
+            </author>
+            <date year="2018" month="12" day="04"/>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5371.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4175.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6838.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3551.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4585.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3711.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5124.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7201.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7202.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3745.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5450.xml"/>
+      </references>
+    </references>
+
+    <section anchor="sec-pixel-fmts">
+      <name>Pixel Formats</name>
+
+      <t><xref target="t-pix-fmts"/> defines pixel formats.</t>
+      <table anchor="t-pix-fmts">
+        <name>Defined Pixel Formats</name>
+        <thead>
+          <tr>
+            <th>NAME</th>
+            <th>SAMP</th>
+            <th>COMPS</th>
+            <th>TRANS</th>
+            <th>PRIMS</th>
+            <th>MAT</th>
+            <th>VFR</th>
+            <th>Mapping in <xref target="t-color-map"/></th>
+          </tr>
+          </thead>
+          <tbody>
+          <tr>
+            <td>rgb444sdr</td>
+            <td>4:4:4</td>
+            <td>RGB</td>
+            <td>1</td>
+            <td>1</td>
+            <td>0</td>
+            <td>0, 1</td>
+            <td>RGB</td>
+          </tr>
+          <tr>
+            <td>rgb444wcg</td>
+            <td>4:4:4</td>
+            <td>RGB</td>
+            <td>1</td>
+            <td>9</td>
+            <td>0</td>
+            <td>0, 1</td>
+            <td>RGB</td>
+          </tr>
+          <tr>
+            <td>rgb444pq</td>
+            <td>4:4:4</td>
+            <td>RGB</td>
+            <td>16</td>
+            <td>9</td>
+            <td>0</td>
+            <td>0, 1</td>
+            <td>RGB</td>
+          </tr>
+          <tr>
+            <td>rgb444hlg</td>
+            <td>4:4:4</td>
+            <td>RGB</td>
+            <td>18</td>
+            <td>9</td>
+            <td>0</td>
+            <td>0, 1</td>
+            <td>RGB</td>
+          </tr>
+          <tr>
+            <td>ycbcr420sdr</td>
+            <td>4:2:0</td>
+            <td>YCbCr</td>
+            <td>1</td>
+            <td>1</td>
+            <td>1</td>
+            <td>0</td>
+            <td>YCbCr</td>
+          </tr>
+          <tr>
+            <td>ycbcr422sdr</td>
+            <td>4:2:2</td>
+            <td>YCbCr</td>
+            <td>1</td>
+            <td>1</td>
+            <td>1</td>
+            <td>0</td>
+            <td>YCbCr</td>
+          </tr>
+          <tr>
+            <td>ycbcr422wcg</td>
+            <td>4:2:2</td>
+            <td>YCbCr</td>
+            <td>1</td>
+            <td>9</td>
+            <td>9</td>
+            <td>0</td>
+            <td>YCbCr</td>
+          </tr>
+          <tr>
+            <td>ycbcr422pq</td>
+            <td>4:2:2</td>
+            <td>YCbCr</td>
+            <td>16</td>
+            <td>9</td>
+            <td>9</td>
+            <td>0</td>
+            <td>YCbCr</td>
+          </tr>
+          <tr>
+            <td>ycbcr422hlg</td>
+            <td>4:2:2</td>
+            <td>YCbCr</td>
+            <td>18</td>
+            <td>9</td>
+            <td>9</td>
+            <td>0</td>
+            <td>YCbCr</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <t>Each pixel format is characterized by the following:</t>
+      <dl newline="false" spacing="normal">
+        <dt><tt>NAME</tt>:</dt>
+        <dd>Identifies the pixel format</dd>
+        <dt><tt>SAMP</tt>:</dt>
+        <dd><t><br/></t>
+          <dl newline="false" indent="8">
+            <dt>4:2:0</dt>
+            <dd>The C<sub>b</sub> and C<sub>r</sub> color channels are
+            subsampled horizontally and vertically by 1/2.</dd>
+            <dt>4:2:2</dt>
+            <dd>The C<sub>b</sub> and C<sub>r</sub> color channels are
+            subsampled horizontally by 1/2.</dd>
+            <dt>4:4:4</dt>
+            <dd>No color channels are subsampled.</dd>
+          </dl>
+        </dd>
+        <dt><tt>COMPS</tt>:</dt>
+        <dd><t><br/></t>
+          <dl newline="false" indent="9">
+            <dt>RGB:</dt>
+            <dd>Each codestream contains exactly three components, associated
+            with the R, G, and B color channels, in order.</dd>
+            <dt>YCbCr:</dt>
+            <dd>Each codestream contains exactly three components, associated
+            with the Y, C<sub>b</sub>, and C<sub>r</sub> color channels, in
+            order.</dd>
+          </dl>
+        </dd>
+        <dt><tt>TRANS</tt>:</dt>
+        <dd>
+          <t>Identifies the transfer characteristics allowed by the pixel
+          format, as defined in <xref target="REC-ITU-T-H273"/>.</t>
+        </dd>
+        <dt><tt>PRIMS</tt>:</dt>
+        <dd>
+          <t>Identifies the color primaries allowed by the pixel
+          format, as defined in <xref target="REC-ITU-T-H273"/>.</t>
+        </dd>
+        <dt><tt>MAT</tt>:</dt>
+        <dd>
+          <t>Identifies the matrix coefficients allowed by the pixel
+          format, as defined in <xref target="REC-ITU-T-H273"/>.</t>
+        </dd>
+        <dt><tt>VFR</tt>:</dt>
+        <dd>
+          <t>Allows values of the VideoFullRangeFlag defined in <xref target="REC-ITU-T-H273"/>.</t>
+        </dd>
+      </dl>
+    </section>
+
+    <section anchor="sec-signal-fmts">
+      <name>Signal Formats</name>
+      <dl newline="false">
+        <dt><tt>prog</tt>:</dt>
+        <dd>The stream <bcp14>MUST</bcp14> only consist of a sequence of progressive
+        frames.</dd>
+
+        <dt><tt>psf</tt>:</dt>
+        <dd>Progressive segmented frame (PsF) stream. The stream <bcp14>MUST</bcp14> only
+        consist of an alternating sequence of first segment and second
+        segment.</dd>
+
+        <dt><tt>tff</tt>:</dt>
+        <dd>Interlaced stream. The stream <bcp14>MUST</bcp14> only consist of an alternating
+        sequence of first field and second field, where the first line of the
+        first field is the first line of the frame.</dd>
+
+        <dt><tt>bff</tt>:</dt>
+        <dd>Interlaced stream. The stream <bcp14>MUST</bcp14> only consist of an alternating
+        sequence of first field and second field, where the first line of the
+        first field is the second line of the frame.</dd>
+      </dl>
+    </section>
+
+    <section anchor="sec-sample-fmts">
+      <name>Sample Formats</name>
+      <dl newline="false" indent="6">
+        <dt><tt>8</tt></dt>
+        <dd>All components consist of unsigned 8-bit integer samples.</dd>
+        <dt><tt>10</tt></dt>
+        <dd>All components consist of unsigned 10-bit integer samples.</dd>
+        <dt><tt>12</tt></dt>
+        <dd>All components consist of unsigned 12-bit integer samples.</dd>
+        <dt><tt>16</tt></dt>
+        <dd>All components consist of unsigned 16-bit integer samples.</dd>
+      </dl>
+    </section>
+
+  </back>
+
+</rfc>

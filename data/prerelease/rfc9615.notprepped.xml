@@ -1,0 +1,554 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]> 
+
+<rfc version="3" 
+xmlns:xi="http://www.w3.org/2001/XInclude"
+submissionType="IETF" consensus="true"
+ipr="trust200902" docName="draft-ietf-dnsop-dnssec-bootstrapping-11" number="9615"  category="std" xml:lang="en" updates="7344, 8078" tocInclude="true" symRefs="true" 
+sortRefs="true">
+
+<front>
+  <title abbrev="DNSSEC Bootstrapping">Automatic DNSSEC Bootstrapping Using Authenticated Signals from the Zone's Operator</title>
+  <seriesInfo name="RFC" value="9615"/>
+  <author initials="P." surname="Thomassen" fullname="Peter Thomassen">
+    <organization>deSEC, Secure Systems Engineering (SSE)</organization>
+    <address>
+      <postal>
+	<city>Berlin</city>
+	<country>Germany</country>
+      </postal>
+      <email>peter@desec.io</email>
+    </address>
+  </author>
+  <author initials="N." surname="Wisiol" fullname="Nils Wisiol">
+    <organization>deSEC, Technische Universität Berlin</organization>
+    <address>
+      <postal>
+	<city>Berlin</city>
+	<country>Germany</country>
+      </postal>
+      <email>nils@desec.io</email>
+    </address>
+  </author>
+  <date year="2024" month="July"/>
+
+  <area>OPS</area>
+  <workgroup>dnsop</workgroup>
+
+<keyword>DNSSEC</keyword>
+<keyword>bootstrapping</keyword>
+<keyword>DS</keyword>
+<keyword>CDS</keyword>
+<keyword>CDNSKEY</keyword>
+
+<abstract>
+<t>This document introduces an in-band method for DNS operators to
+publish arbitrary information about the zones for which they are authoritative, in an authenticated fashion and on a per-zone basis.
+The mechanism allows managed DNS operators to securely announce
+DNSSEC key parameters for zones under their management, including for
+zones that are not currently securely delegated.</t>
+<t>Whenever DS records are absent for a zone's delegation, this signal
+enables the parent's registry or registrar to cryptographically
+validate the CDS/CDNSKEY records found at the child's apex.
+The parent can then provision DS records for the delegation without
+resorting to out-of-band validation or weaker types of cross-checks
+such as "Accept after Delay".</t>
+<t>This document establishes the DS enrollment method described in
+Section 4 of this document as the preferred method over
+those from Section 3 of RFC 8078. It also updates RFC 7344.</t>
+
+</abstract>
+
+</front>
+
+<middle>
+
+<section anchor="introduction"><name>Introduction</name>
+<t>Securing a DNS delegation for the first time requires that the
+child's DNSSEC parameters be conveyed to the parent through some
+trusted channel.
+While the communication conceptually has to occur between the parent
+registry and the DNSSEC key holder, what that means exactly and how
+communication is coordinated traditionally depends on the
+relationship the child has with the parent.</t>
+<t>A typical situation is that the key is held by the child DNS
+operator; thus, the communication often involves this entity.
+In addition, depending on the circumstances, it may also involve the
+registrar, possibly via the registrant (for details, see <xref target="RFC7344" sectionFormat="of" section="A"></xref>.</t>
+
+<t>As observed in <xref target="RFC7344"></xref>, these dependencies often result in a manual
+process that is susceptible to mistakes and/or errors.
+In addition, due to the annoyance factor of the process, involved
+parties may avoid the process of getting a DS resource record set (RRset)
+published in the first place.</t>
+<t>To alleviate these problems, automated provisioning of DS records has
+been specified in <xref target="RFC8078"></xref>.
+It is based on the parental agent (registry or registrar) fetching
+DNSSEC key parameters from the CDS and CDNSKEY records (<xref target="RFC7344"></xref>)
+located at the child zone's apex, and validating them somehow.
+This validation can be done using the child's existing DNSSEC chain of
+trust if the objective is to update an existing DS RRset (such as
+during key rollover).
+However, when bootstrapping a DNSSEC delegation, the child zone has
+no existing DNSSEC validation path, so other means to ensure the
+CDS/CDNSKEY records' legitimacy must be found.</t>
+<t>Due to the lack of a comprehensive DNS-innate solution, either
+out-of-band methods have been used so far to complete the chain of
+trust, or cryptographic validation has been entirely dispensed with, in
+exchange for weaker types of cross-checks such as "Accept after
+Delay" (<xref target="RFC8078" sectionFormat="of" section="3.3"></xref>).
+<xref target="RFC8078"></xref> does not define an in-band validation method for enabling
+DNSSEC.</t>
+<t>This document aims to close this gap by introducing an in-band method
+for DNS operators to publish arbitrary information about the zones
+for which they are authoritative, in an authenticated manner and on a
+per-zone basis.
+The mechanism allows managed DNS operators to securely announce
+DNSSEC key parameters for zones under their management.
+The parent can then use this signal to cryptographically validate the
+CDS/CDNSKEY RRsets found at an insecure child zone's apex and, upon
+success, secure the delegation.</t>
+<t>While applicable to the vast majority of domains, the protocol does
+not support certain edge cases, such as excessively long child zone
+names, or DNSSEC bootstrapping for domains with in-domain nameservers
+only (see <xref target="limitations"></xref>).</t>
+<t>DNSSEC bootstrapping is just one application of the generic signaling
+mechanism specified in this document.
+Other applications might arise in the future, such as publishing
+operational metadata or auxiliary information that the DNS operator
+likes to make known (e.g., API endpoints for third-party interaction).</t>
+<t>Readers are expected to be familiar with DNSSEC <xref target="BCP237"></xref>.</t>
+
+<section anchor="terminology"><name>Terminology</name>
+<t>This section defines the terminology used in this document.</t>
+
+<dl spacing="normal">
+<dt>CDS/CDNSKEY:</dt>
+<dd>This notation refers to CDS and/or CDNSKEY, i.e., one or both.</dd>
+<dt>Child:</dt>
+<dd>See <xref target="RFC9499" sectionFormat="of" section="7"></xref>.</dd>
+<dt>Child DNS operator:</dt>
+<dd>The entity that maintains and publishes the zone information for
+the child DNS.</dd>
+<dt>Parent:</dt>
+<dd>See <xref target="RFC9499" sectionFormat="of" section="7"></xref>.</dd>
+<dt>Parental agent:</dt>
+<dd>The entity that has the authority to insert DS records into the
+parent zone on behalf of the child.
+(It could be the registry, registrar, a reseller, or some other
+authorized entity.)</dd>
+
+<dt>Signaling domain:</dt>
+<dd>A domain name constructed by prepending the label <tt>_signal</tt> to a
+hostname taken from a delegation's NS RRset.
+There are as many signaling domains as there are distinct NS
+targets.</dd>
+<dt>Signaling name:</dt>
+<dd>The labels that are prefixed to a signaling domain in order to
+identify a signaling type and a child zone's name (see
+<xref target="signalingnames"></xref>).</dd>
+<dt>Signaling record:</dt>
+<dd>A DNS record located at a signaling name under a signaling domain.
+Signaling records are used by the child DNS operator to publish
+information about the child.</dd>
+<dt>Signaling type:</dt>
+<dd>A signal type identifier, such as <tt>_dsboot</tt> for DNSSEC bootstrapping.</dd>
+<dt>Signaling zone:</dt>
+<dd>The zone that is authoritative for a given signaling record.</dd>
+</dl>
+</section>
+
+<section anchor="requirements-notation"><name>Requirements Notation</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+</section>
+</section>
+
+<section anchor="updates-to-rfcs"><name>Updates to RFCs</name>
+<t>The DS enrollment methods described in <xref target="RFC8078" sectionFormat="of" section="3"></xref> are less
+secure than the method described in <xref target="dnssec-bootstrapping"></xref> of this
+document.
+Therefore, child DNS operators and parental agents wishing to use CDS/CDNSKEY
+records for initial DS enrollment <bcp14>SHOULD</bcp14> support the
+authentication protocol described here.</t>
+<t>In order to facilitate publication of signaling records for the purpose
+of DNSSEC bootstrapping (see <xref target="signalingrecords"></xref>), the first bullet
+("Location") of <xref target="RFC7344" sectionFormat="of" section="4.1"></xref> is removed.</t>
+</section>
+
+<section anchor="signaling"><name>Signaling</name>
+<t>This section describes the general mechanism by which a child DNS
+operator can publish an authenticated signal about a child zone.
+Parental agents (or any other party) can then discover and process the
+signal.
+Authenticity is ensured through standard DNSSEC validation.</t>
+
+<section anchor="chain-of-trust"><name>Chain of Trust</name>
+<t>If a child DNS operator implements this specification, each signaling
+zone <bcp14>MUST</bcp14> be signed and be validatable by the parental agent (i.e., have
+a valid publicly resolvable DNSSEC chain of trust).
+This is typically achieved by securely delegating each signaling zone.</t>
+<t>For example, when publishing a signal that relates to a child zone
+with NS records <tt>ns1.example.net</tt> and <tt>ns2.example.org</tt>, the child
+DNS operator needs to ensure that the parental agent has a valid DNSSEC
+chain of trust for the zone(s) that are authoritative for the signaling
+domains <tt>_signal.ns1.example.net</tt> and <tt>_signal.ns2.example.org</tt>.</t>
+</section>
+
+<section anchor="signalingnames"><name>Signaling Names</name>
+<t>To publish information about the child zone in an
+authenticated fashion, the child DNS operator <bcp14>MUST</bcp14> publish one or
+more signaling records at a signaling name under each signaling domain.</t>
+<t>Signaling records <bcp14>MUST</bcp14> be accompanied by RRSIG records created with
+the corresponding signaling zone's key(s).
+The type and contents of these signaling records depend on the type of
+signal.</t>
+<t>The signaling name identifies the child and the signaling type.
+It is identical to the child name (with the final root label removed),
+prefixed with a label containing the signaling type.</t>
+</section>
+</section>
+
+<section anchor="dnssec-bootstrapping"><name>Bootstrapping a DNSSEC Delegation</name>
+<t>When the child zone's CDS/CDNSKEY RRsets are used for setting up initial
+trust, they need to be authenticated.
+This is achieved by copublishing the child's CDS/CDNSKEY RRsets as an
+authenticated signal as described in <xref target="signaling"></xref>.
+The parent can discover and validate it, thus transferring trust from
+the child DNS operator nameservers' chain of trust to the child zone.</t>
+<t>This protocol is not intended for updating an existing DS RRset.
+For this purpose, the parental agent can validate the child's
+CDS/CDNSKEY RRsets directly, using the chain of trust established by
+the existing DS RRset (<xref target="RFC7344" sectionFormat="of" section="4"></xref>).</t>
+
+<section anchor="signalingrecords"><name>Signaling Consent to Act as the Child's Signer</name>
+<t>To confirm its willingness to act as the child's delegated signer and
+authenticate the child's CDS/CDNSKEY RRsets, the child DNS operator
+<bcp14>MUST</bcp14> copublish them at the corresponding signaling name under each
+signaling domain, excluding those that would fall within the child
+domain (<xref target="signalingnames"></xref>).
+For simplicity, the child DNS operator <bcp14>MAY</bcp14> also copublish the child's
+CDS/CDNSKEY RRsets under signaling domains within the child domain,
+although those signaling domains are not used for validation
+(<xref target="cds-auth"></xref>).</t>
+<t>Unlike the CDS/CDNSKEY RRsets at the child's apex, a signaling
+RRset <bcp14>MUST</bcp14> be signed with the corresponding signaling zone's
+key(s).  Its contents <bcp14>MUST</bcp14> be identical to the corresponding
+RRset published at the child's apex.</t>
+<t>Existing use of CDS/CDNSKEY records was specified at the child apex
+only (<xref target="RFC7344" sectionFormat="of" section="4.1"></xref>).  This protocol extends the use of
+these record types to non-apex owner names for the purpose of DNSSEC
+bootstrapping.  To exclude the possibility of semantic collision,
+there <bcp14>MUST NOT</bcp14> be a zone cut at a signaling name.</t>
+
+<section anchor="example"><name>Example</name>
+<t>For the purposes of bootstrapping the child zone <tt>example.co.uk</tt> with NS
+records <tt>ns1.example.net</tt>, <tt>ns2.example.org</tt>, and <tt>ns3.example.co.uk</tt>,
+the required signaling domains are <tt>_signal.ns1.example.net</tt> and
+<tt>_signal.ns2.example.org</tt>.</t>
+<t>In the zones containing these domains, the child DNS operator
+authenticates the CDS/CDNSKEY RRsets found at the child's apex by
+copublishing them as CDS/CDNSKEY RRsets at the names:</t>
+
+<artwork><![CDATA[_dsboot.example.co.uk._signal.ns1.example.net
+_dsboot.example.co.uk._signal.ns2.example.org]]>
+</artwork>
+<t>These RRsets are signed with DNSSEC just like any other zone data.</t>
+<t>Publication of signaling records under the in-domain name
+<tt>_signal.ns3.example.co.uk</tt> is not required.</t>
+</section>
+</section>
+
+<section anchor="cds-auth"><name>Validating CDS/CDNSKEY Records for DNSSEC Bootstrapping</name>
+<t>To validate a child's CDS/CDNSKEY RRset for DNSSEC bootstrapping, the
+parental agent, knowing both the child zone name and its NS
+hostnames, <bcp14>MUST</bcp14> execute the following steps:</t>
+
+<ol type="Step %d:">
+<li anchor="s1"><t>verify that the child has no DS records published at the parent and
+that at least one of its nameservers is outside the child domain;</t>
+</li>
+<li anchor="s2"><t>query the CDS/CDNSKEY RRset at the child zone apex directly from
+each of the authoritative servers as determined by the delegation's
+(parent-side) NS RRset, without caching;</t>
+</li>
+<li anchor="s3"><t>query the CDS/CDNSKEY RRset located at the signaling name under
+each signaling domain (except those falling within the child domain)
+using a trusted DNS resolver and enforce DNSSEC validation;</t>
+</li>
+<li anchor="s4"><t>check (separately by record type) that all RRsets retrieved
+in Steps 2 and 3 have equal contents;</t>
+</li>
+</ol>
+<t>If the above steps succeed without error, the CDS/CDNSKEY RRsets are
+successfully verified, and the parental agent can proceed with the
+publication of the DS RRset under the precautions described in
+<xref target="RFC8078" sectionFormat="of" section="5"></xref>.</t>
+<t>The parental agent <bcp14>MUST</bcp14> abort the procedure if an error
+condition occurs, in particular:</t>
+
+<ul>
+<li><t>in <xref target="s1" format="none">Step 1</xref>: the child is already securely delegated or has in-domain
+nameservers only;</t>
+</li>
+<li><t>in <xref target="s2" format="none">Step 2</xref>: any failure during the retrieval of the CDS/CDNSKEY
+RRset located at the child apex from any of the authoritative
+nameservers;</t>
+</li>
+<li><t>in <xref target="s3" format="none">Step 3</xref>: any failure to retrieve the CDS/CDNSKEY RRsets located
+at the signaling name under any signaling domain, including failure
+of DNSSEC validation, or unauthenticated data (AD bit not set);</t>
+</li>
+<li><t>in <xref target="s4" format="none">Step 4</xref>: inconsistent responses (for at least one of the types),
+including an RRset that is empty in one of Steps <xref target="s2" format="none">2</xref> or <xref target="s3" format="none">3</xref>, but
+non-empty in the other.</t>
+</li>
+</ul>
+
+<section anchor="example-1"><name>Example</name>
+<t>To verify the CDS/CDNSKEY RRsets for the child <tt>example.co.uk</tt>, the
+parental agent (assuming that the child delegation's NS records are
+<tt>ns1.example.net</tt>, <tt>ns2.example.org</tt>, and <tt>ns3.example.co.uk</tt>)</t>
+
+<ol>
+<li><t>checks that the child domain is not yet securely delegated;</t>
+</li>
+<li><t>queries the CDS/CDNSKEY RRsets for <tt>example.co.uk</tt> directly from
+<tt>ns1.example.net</tt>, <tt>ns2.example.org</tt>, and <tt>ns3.example.co.uk</tt>
+(without caching);</t>
+</li>
+<li><t>queries and validates the CDS/CDNSKEY RRsets located at (see
+<xref target="signalingnames"></xref>; <tt>ns3.example.co.uk</tt> is ignored because it is
+in-domain)</t>
+<artwork><![CDATA[_dsboot.example.co.uk._signal.ns1.example.net
+_dsboot.example.co.uk._signal.ns2.example.org]]>
+</artwork>
+</li>
+
+<li>checks that the CDS/CDNSKEY RRsets retrieved in Steps <xref target="s2" format="none">2</xref>
+and <xref target="s3" format="none">3</xref> agree across responses.</li>
+</ol>
+<t>If all of these steps succeed, the parental agent can proceed to publish
+a DS RRset as indicated by the validated CDS/CDNSKEY RRset.</t>
+<t>As in-domain signaling names do not have a chain of trust at
+bootstrapping time, the parental agent does not consider them during
+validation.
+Consequently, if all NS hostnames are in-domain, validation cannot be
+completed and DS records are not published.</t>
+</section>
+</section>
+
+<section anchor="triggers"><name>Triggers</name>
+<t>Parental agents <bcp14>SHOULD</bcp14> trigger the procedure described in <xref target="cds-auth"></xref>
+once one of the following conditions is fulfilled:</t>
+
+<ul>
+<li><t>The parental agent receives a new or updated NS RRset for a
+child;</t>
+</li>
+<li><t>The parental agent receives a notification indicating that the child
+wishes to have its CDS/CDNSKEY RRset processed;</t>
+</li>
+<li><t>The parental agent encounters a signaling record during a proactive,
+opportunistic scan (e.g., daily queries of signaling records for
+some or all of its delegations);</t>
+</li>
+<li><t>The parental agent encounters a signaling record during an NSEC walk
+or when parsing a signaling zone (e.g., when made available via AXFR
+by the child DNS operator);</t>
+</li>
+<li><t>Any other condition deemed appropriate by local policy.</t>
+</li>
+</ul>
+<t>Timer-based trigger mechanisms (such as scans) exhibit undesirable
+properties with respect to processing delay and scaling; on-demand
+triggers (like notifications) are preferable. Whenever possible, child
+DNS operators and parental agents are thus encouraged to use them,
+reducing both delays and the amount of scanning traffic.</t>
+<t>Most types of discovery (such as daily scans of delegations) are based
+directly on the delegation's NS RRset.
+In this case, these NS names can be used as is by the bootstrapping
+algorithm (<xref target="cds-auth"></xref>) for querying signaling records.</t>
+<t>Some discovery methods, however, do not imply reliable knowledge of the
+delegation's NS RRset.
+For example, when discovering signaling names by performing an NSEC
+walk or zone transfer of a signaling zone, the parental agent <bcp14>MUST NOT</bcp14>
+assume that a nameserver under whose signaling domain a signaling
+record appears is actually authoritative for the corresponding child.</t>
+<t>Instead, whenever a list of "bootstrappable domains" is obtained by means other
+than directly from the parent, the parental
+agent <bcp14>MUST</bcp14> ascertain that the delegation actually contains the
+nameserver hostname seen during discovery, and ensure that signaling-record queries are only made against the proper set of nameservers as
+listed in the child's delegation from the parent.</t>
+</section>
+
+<section anchor="limitations"><name>Limitations</name>
+<t>As a consequence of <xref target="s3" format="none">Step 3</xref> in <xref target="cds-auth"></xref>, DS bootstrapping does not
+work for fully in-domain delegations, as no preexisting chain of
+trust to the child domain is available during bootstrapping.
+(As a workaround, one can add an out-of-domain nameserver to the
+initial NS RRset and remove it once bootstrapping is completed.
+Automation for this is available via CSYNC records, see <xref target="RFC7477"></xref>.)</t>
+<t>Fully qualified signaling names must by valid DNS names.
+Label count and length requirements for DNS names (<xref target="RFC1035" sectionFormat="of" section="3.1"></xref>) imply that the protocol does not work for unusually long child
+domain names or NS hostnames.</t>
+</section>
+</section>
+
+<section anchor="operational-recommendations"><name>Operational Recommendations</name>
+
+<section anchor="child-dns-operator"><name>Child DNS Operator</name>
+<t>It is possible to add CDS/CDNSKEY records and corresponding signaling
+records to a zone without the domain owner's explicit knowledge.
+To spare domain owners from being caught off guard by the ensuing DS
+changes, child DNS operators following this practice are advised to make
+that transparent, such as by informing the domain owner during zone
+creation (e.g., in a GUI) or by notifying them via email.</t>
+<t>When transferring a zone to another DNS operator, the old and new child
+DNS operators need to cooperate to achieve a smooth transition, e.g.,
+by using the multi-signer protocols described in <xref target="RFC8901"></xref>.
+If all else fails, the domain owner might have to request the removal of
+all DS records and have the transfer performed insecurely (see
+<xref target="I-D.hardaker-dnsop-intentionally-temporary-insec"></xref>).</t>
+<t>Signaling domains <bcp14>SHOULD</bcp14> be delegated as standalone zones, so
+that the signaling zone's apex coincides with the signaling domain (such
+as <tt>_signal.ns1.example.net</tt>).
+While it is permissible for the signaling domain to be contained
+in a signaling zone of fewer labels (such as <tt>example.net</tt>), a
+zone cut ensures that bootstrapping activities do not require
+modifications of the zone containing the nameserver hostname.</t>
+<t>Once a child DNS operator determines that specific signaling record sets
+have been processed (e.g., by seeing the result in the parent zone),
+they are advised to remove them.
+This will reduce the size of the signaling zone and facilitate more
+efficient bulk processing (such as via zone transfers).</t>
+</section>
+
+<section anchor="parental-agent"><name>Parental Agent</name>
+<t>In order to ensure timely DNSSEC bootstrapping of insecure domains,
+stalemate situations due to mismatch of stale cached records (<xref target="s4" format="none">Step 4</xref> of
+<xref target="cds-auth"></xref>) need to be avoided.
+  It is thus <bcp14>RECOMMENDED</bcp14> that
+  queries into signaling domains be performed with an (initially) empty
+  resolver cache, or that some other method for retrieving fresh data
+  from authoritative servers be used.</t>
+<t>It is also <bcp14>RECOMMENDED</bcp14> that QNAME minimization <xref target="RFC9156"></xref> be used when
+resolving queries for signaling records to guard against certain
+attacks (see <xref target="security"></xref>).</t>
+</section>
+</section>
+
+<section anchor="security"><name>Security Considerations</name>
+<t>The DNSSEC bootstrapping method introduced in this document is based on
+the approaches described in <xref target="RFC8078" sectionFormat="of" section="3"></xref>, but
+adds authentication to the CDS/CDNSKEY concept.
+Its security level is therefore strictly higher than that of existing
+approaches described in that document (e.g., "Accept after Delay").
+Apart from this general improvement, the same Security Considerations
+apply as in <xref target="RFC8078"></xref>.</t>
+<t>The level of rigor in <xref target="cds-auth"></xref> is needed to prevent publication of an
+ill-conceived DS RRset (authorized only under a subset of NS hostnames).
+This ensures, for example, that an operator in a multi-homed setup
+cannot enable DNSSEC unless all other operators agree.</t>
+<t>In any case, as the child DNS operator has authoritative knowledge of
+the child's CDS/CDNSKEY records, it can readily detect fraudulent
+provisioning of DS records.</t>
+<t>In order to prevent the parents of nameserver hostnames from becoming a
+single point of failure for a delegation (both in terms of resolution
+availability and for the trust model of this protocol), 
+diversifying the path from the root to the child's nameserver hostnames is advisable. For example, different and independently operated TLDs may be used for each one.</t>
+<t>If QNAME minimization <xref target="RFC9156"></xref> is not used when querying for
+signaling records, an upstream parent of a signaling domain will see
+those CDS/CDNSKEY queries and could respond with an authoritative answer
+signed with its own key, instead of sending the referral.
+Enabling QNAME minimization reduces the attack surface for such forgery.</t>
+</section>
+
+<section anchor="iana-considerations"><name>IANA Considerations</name>
+
+<t>IANA has added the following entries to the
+"Underscored and Globally Scoped DNS Node Names" registry <xref target="RFC8552"/>:</t>
+<table anchor="iana-table">
+  <name></name>
+  <thead>
+    <tr>
+      <th>RR Type</th>
+      <th>_NODE NAME</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>          
+    <tr>
+      <td>CDS</td>
+      <td>_signal</td>
+      <td>RFC 9615</td>
+    </tr>
+    <tr>
+      <td>CDNSKEY</td>
+      <td>_signal</td>
+      <td>RFC 9615</td>
+    </tr>
+  </tbody>
+</table>
+
+</section>
+
+
+
+</middle>
+
+<back>
+<displayreference target="I-D.hardaker-dnsop-intentionally-temporary-insec" to="INSEC"/>
+<references>
+  <name>References</name>
+  <references>
+    <name>Normative References</name>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7344.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7477.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8078.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8552.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9156.xml"/>
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9499.xml"/>
+  </references>
+  <references>
+    <name>Informative References</name>
+    <referencegroup anchor="BCP237" target="https://www.rfc-editor.org/info/bcp237">
+      <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9364.xml"/>
+    </referencegroup>
+
+<!-- [I-D.hardaker-dnsop-intentionally-temporary-insec] IESG state: Expired as of 05/29/24-->
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.hardaker-dnsop-intentionally-temporary-insec.xml"/>
+
+    <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8901.xml"/>
+  </references>
+</references>
+
+<section anchor="acknowledgements" numbered="false"><name>Acknowledgements</name>
+<t>Thanks to <contact fullname="Brian Dickson"/>, <contact fullname="Ondřej Caletka"/>, <contact fullname="John R. Levine"/>, <contact fullname="Christian
+Elmerot"/>, <contact fullname="Oli Schacher"/>, <contact fullname="Donald Eastlake"/>, <contact fullname="Libor Peltan"/>, <contact fullname="Warren Kumari"/>,
+<contact fullname="Scott Rose"/>, <contact fullname="Linda Dunbar"/>, <contact fullname="Tim Wicinski"/>, <contact fullname="Paul Wouters"/>, <contact fullname="Paul Hoffman"/>,
+<contact fullname="Peter Yee"/>, <contact fullname="Benson Muite"/>, <contact fullname="Roman Danyliw"/>, <contact fullname="Éric Vyncke"/>, and <contact fullname="Joe Abley"/> for
+reviewing draft proposals and offering comments and suggestions.</t>
+<t>Thanks also to <contact fullname="Steve Crocker"/>, <contact fullname="Hugo Salgado"/>, and <contact fullname="Ulrich Wisser"/> for
+early-stage brainstorming.</t>
+</section>
+</back>
+
+</rfc>

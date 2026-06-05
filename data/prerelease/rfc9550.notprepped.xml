@@ -1,0 +1,697 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" 
+category="info" 
+docName="draft-ietf-detnet-pof-11" 
+number="9550"
+ipr="trust200902" 
+submissionType="IETF" 
+consensus="true"
+obsoletes="" 
+updates="" 
+xml:lang="en" 
+tocInclude="true" 
+symRefs="true" 
+sortRefs="true" 
+version="3">
+
+  <front>
+    <title abbrev="DetNet POF">
+    Deterministic Networking (DetNet): Packet Ordering Function</title>
+    <seriesInfo name="RFC" value="9550"/>
+    <author role="editor" fullname="Balazs Varga" initials="B." surname="Varga">
+      <organization>Ericsson</organization>
+      <address>
+        <postal>
+          <street>Magyar Tudosok krt. 11.</street>
+          <city>Budapest</city>
+          <country>Hungary</country>
+          <code>1117</code>
+        </postal>
+        <email>balazs.a.varga@ericsson.com</email>
+      </address>
+    </author>
+    <author fullname="Janos Farkas" initials="J." surname="Farkas">
+      <organization>Ericsson</organization>
+      <address>
+        <postal>
+          <street>Magyar Tudosok krt. 11.</street>
+          <city>Budapest</city>
+          <country>Hungary</country>
+          <code>1117</code>
+        </postal>
+        <email>janos.farkas@ericsson.com</email>
+      </address>
+    </author>
+    <author fullname="Stephan Kehrer" initials="S." surname="Kehrer">
+      <organization abbrev="Belden">Belden Electronics GmbH</organization>
+      <address>
+        <postal>
+          <street>Stuttgarter Strasse 45-51.</street>
+          <city>Neckartenzlingen</city>
+          <country>Germany</country>
+          <code>72654</code>
+        </postal>
+        <email>Stephan.Kehrer@belden.com</email>
+      </address>
+    </author>
+    <author fullname="Tobias Heer" initials="T." surname="Heer">
+      <organization abbrev="Belden">Belden Electronics GmbH</organization>
+      <address>
+        <postal>
+          <street>Stuttgarter Strasse 45-51.</street>
+          <city>Neckartenzlingen</city>
+          <country>Germany</country>
+          <code>72654</code>
+        </postal>
+        <email>Tobias.Heer@belden.com</email>
+      </address>
+    </author>
+
+    <date month="March" year="2024"/>
+
+    <area>RTG</area>
+    <workgroup>DetNet</workgroup>
+
+<abstract>
+
+      <t>
+     The replication and elimination functions of the Deterministic Networking
+     (DetNet) architecture can result in out-of-order packets, which is not
+     acceptable for some time-sensitive applications. The Packet Ordering
+     Function (POF) algorithms described in this document enable restoration
+     of the correct packet order when the replication and elimination
+     functions are used in DetNet networks.  The POF only provides ordering within
+     the latency bound of a DetNet flow; it does not provide any additional
+     reliability.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="sec_intro" numbered="true" toc="default">
+      <name>Introduction</name>
+
+      <t>
+     <xref target="RFC8655" format="default"/> defines the Packet Replication
+     Function (PRF) and Packet Elimination Function (PEF) in DetNet for
+     achieving extremely low packet loss. The PRF and PEF provide service
+     protection for DetNet flows. This service protection method relies on
+     copies of the same packet sent over multiple maximally disjoint paths and
+     uses sequencing information to eliminate duplicates. A possible
+     implementation of the PRF and PEF is described in <xref
+     target="IEEE8021CB" format="default"/>, and the related YANG model is
+     defined in <xref target="IEEEP8021CBcv" format="default"/>.
+      </t>
+
+      <t>
+     In general, use of per-packet replication and elimination functions can
+     result in out-of-order delivery of packets, which is not acceptable for
+     some deterministic applications. Correcting packet order is not a trivial
+     task; therefore, details of a Packet Ordering Function (POF) are
+     specified in this document. <xref target="RFC8655" format="default"/>
+     defines the external observable result of a POF (i.e., that
+     packets are reordered) but does not specify any implementation details.
+      </t>
+      <t>
+     So far in packet networks, out-of-order delivery situations have been handled 
+	 at higher OSI layers at the endpoints/hosts (e.g., in the TCP stack when 
+	 packets are sent to the application layer) and not within a network in nodes 
+	 acting at the Layer 2 or Layer 3 OSI layers. 
+      </t>
+      <t>
+     <xref target="PREOF-scene" format="default"/> shows a DetNet flow on which Packet 
+	 Replication, Elimination, and Ordering Functions (PREOF)  
+	 are applied during forwarding from source to destination. 
+      </t>
+      <figure anchor="PREOF-scene">
+        <name>PREOF Scenario in a DetNet Network</name>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+                                    +------------+
+             +-----------E1----+    |            |
++----+       |            |    +---R3---+        |          +----+
+|src |------R1        +---+             |        E3----O1---+ dst|
++----+       |        |                 E2-------+          +----+
+             +-------R2                 |
+                      +-----------------+
+
+R: replication point (PRF)
+E: elimination point (PEF)
+O: ordering function (POF)
+]]></artwork>
+      </figure>
+
+
+      <t>
+    In general, the use of PREOF requires sequencing information
+    to be included in the packets of a DetNet compound flow.  This can be
+    done by adding a sequence number as part of DetNet encapsulation 
+    <xref target="RFC8655" format="default"/>. Sequencing information is typically added once, 
+	at or close to the source.
+      </t>
+      <t>
+     It is important to note that different applications can react differently to out-of-order 
+	 delivery. A single out-of-order packet (e.g., packet order #1, #3, #2, 
+	 #4, #5) is interpreted by some application as a single error, but 
+	 other applications treat it as three errors in a row.
+	 For example, in industrial scenarios,
+	 three errors in a row is a typical error threshold and can cause the 
+	 application to stop (e.g., go to a fail-safe state).
+      </t>
+      <t>
+     The POF ensures in-order delivery for packets within
+	 the latency bound of the DetNet flow. The POF does not correct
+	 errors in the packet flow (e.g., duplicate packets or packets that are too late).
+      </t>
+    </section>
+
+<section numbered="true" toc="default">
+      <name>Terminology</name>
+      <section numbered="true" toc="default">
+        <name>Terms Used in This Document</name>
+        <t>
+   This document uses the terminology established in the DetNet architecture
+   <xref target="RFC8655" format="default"/>; the reader is assumed
+   to be familiar with that document and its terminology.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Abbreviations</name>
+        <t>
+   The following abbreviations are used in this document:
+        </t>
+        <dl newline="false" spacing="normal" indent="9">
+          <dt>DetNet</dt>
+          <dd>Deterministic Networking</dd>
+          <dt>PEF</dt>
+          <dd>Packet Elimination Function</dd>
+          <dt>POF</dt>
+          <dd>Packet Ordering Function</dd>
+          <dt>PREOF</dt>
+          <dd>Packet Replication, Elimination, and Ordering Functions</dd>
+          <dt>PRF</dt>
+          <dd>Packet Replication Function</dd>
+        </dl>
+      </section>
+ 
+</section>
+
+<section anchor="req-on-pof" numbered="true" toc="default">
+
+  <name>Requirements for POF Implementations</name>
+      <t>
+     The requirements for POF implementations are: 
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>To solve the out-of-order delivery problem of the replication 
+		 and elimination functions of DetNet networks. </t>
+        </li>
+        <li>
+          <t>To consider the delay bound requirement of a DetNet flow. </t>
+        </li>
+        <li>
+
+          <t>To be simple and to require only a minimum set of states,
+          configuration parameters, and resources per DetNet flow in network
+          nodes.
+	  </t>
+        </li>
+        <li>
+          <t>To add minimal or no delay to the forwarding process 
+		 of packets. </t>
+        </li>
+        <li>
+          <t>To not require synchronization between PREOF nodes. </t>
+        </li>
+      </ul>
+      <t>
+     Some aspects are explicitly out of scope for a POF: 
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>To eliminate the delay variation caused by the packet ordering.
+          Dealing with delay variation is a DetNet forwarding sub-layer
+          target, and it can be achieved, for example, by placing a de-jitter
+          buffer or flow regulator (e.g., shaping) function after the POF.</t>
+        </li>
+      </ul>
+    </section>
+
+<section anchor="pof-alg" numbered="true" toc="default">
+      <name>POF Algorithms</name>
+      <section anchor="preof-relations" numbered="true" toc="default">
+        <name>Prerequisites and Assumptions</name>
+        <t>
+        The POF algorithms discussed in this document make some assumptions and
+        trade-offs regarding the characteristics of the sequence of received
+        packets. In particular, the algorithms assume that a 
+        PEF is performed on the incoming packets
+        before they are handed to the POF. Hence, the sequence
+        of incoming packets can be out-of-order or incomplete but cannot 
+		contain duplicate packets. However, the PREOF run
+        independently without any state exchange required between the
+        PEF and the POF or the PRF and the POF. Error cases in which 
+		duplicate packets are presented to the POF can lead to out-of-order delivery of duplicate packets and to increased delays.
+        </t>
+        <t>
+        The algorithms further require that the delay difference between two
+        replicated packets that arrive at the PEF before the POF is bounded and
+        known. Error cases that violate this condition (e.g., a packet that
+        arrives later than this bound) will result in out-of-order packets.
+        </t>
+        <t>
+        The algorithms also make some trade-offs. For simplicity, it is designed
+        to allow for some out-of-order packets directly after
+        initialization. If this is not acceptable, 
+		<xref target="enh-pof" format="default"/> provides an alternative initialization scheme
+        that prevents out-of-order packets in the initialization phase.
+        </t>
+      </section>
+
+ <section anchor="pof-blocks" numbered="true" toc="default">
+        <name>POF Building Blocks</name>
+        <t>
+     The method described in this document provides a POF for DetNet networks. The 
+	 configuration parameters of the POF can be derived when engineering the 
+	 DetNet flow through the network.
+        </t>
+        <t>
+     The POF method is provided via the following: 
+        </t>
+
+	<dl newline="false" spacing="normal">
+            <dt>Delay calculator:</dt><dd>Calculates buffering time for out-of-order packets.
+		 Buffering time considers (i) the delay 
+		 difference of paths used for forwarding the replicated packets 
+		 and (ii) the bounded delay requirement of the given DetNet flow. 
+          </dd>
+            <dt>Conditional delay buffer:</dt><dd>Used for buffering the out-of-order packets of a 
+		 DetNet flow for a given time. </dd>
+</dl>
+        <t>
+     Note: The conditional delay buffer of the POF increases the burstiness of the 
+	 traffic as it only adds delay for some of the packets. 
+        </t>
+        <t>
+     <xref target="POF-blocks" format="default"/> shows the building blocks of a 
+	 possible POF implementation. 
+        </t>
+        <figure anchor="POF-blocks">
+          <name>POF Building Blocks</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+               +------------+        +--------------+
+               | Delay calc |        | Conditional  |
+            +--| for packet >--->>---| Delay Buffer >--+
+            |  +------------+        +--------------+  |  
+            |                                          |        
+     +------^--------+                                 |
+->>--| POF selector  >---------------------------------+-->>----  
+     | (Flow ident.) |
+     +---------------+
+
+->>- packet flow
+]]></artwork>
+        </figure>
+      </section>
+
+ <section anchor="basic-pof" numbered="true" toc="default">
+        <name>The Basic POF Algorithm</name>
+        <t>
+     The basic POF algorithm delays all out-of-order packets until all 
+	 previous packets arrive or a given time ("POFMaxDelay") elapses. The 
+	 basic POF algorithm works as follows:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>The sequence number of the last forwarded packet ("POFLastSent") is 
+		 stored for each DetNet flow. </t>
+          </li>
+          <li>
+            <t>The sequence number (seq_num) of a received packet is compared to 
+		 that of the last forwarded one ("POFLastSent"). </t>
+          </li>
+          <li>
+            <t>If (seq_num &lt;= POFLastSent + 1)
+            </t>
+            <ul spacing="normal">
+              <li>
+                <t> Then the packet is forwarded without buffering, and "POFLastSent"
+				is updated (POFLastSent = seq_num). </t>
+              </li>
+              <li>
+                <t> Else, the received packet is buffered. </t>
+              </li>
+            </ul>
+          </li>
+          <li>
+            <t>A buffered packet is forwarded from the buffer when its seq_num 
+		 becomes equal to "POFLastSent + 1" OR a predefined time ("POFMaxDelay") 
+		 elapses.</t>
+          </li>
+          <li>
+            <t>When a packet is forwarded from the buffer, "POFLastSent" is 
+		 updated with its seq_num (POFLastSent = seq_num). </t>
+          </li>
+        </ul>
+
+<t>Notes:</t>
+<ul spacing="normal">
+<li>The difference between sequence numbers in consecutive packets is bounded 
+	 due to the history window of the elimination function before the POF. 
+	 Therefore, "&lt;="  can be evaluated despite the circular 
+	 sequence number space. A possible implementation of the PEF and 
+	 the impact of the history window are described in <xref target="IEEE8021CB" format="default"/>. 
+        </li>
+        <li>The basic POF algorithm can be extended to cope with multiple failure scenarios 
+	 (i.e., simultaneous packet loss and out-of-order packets) when the expiration 
+	 of the timer for a packet with sequence number N triggers the release of some 
+	 packets with a sequence number smaller than N.
+        </li>
+</ul>	
+        <t>
+     The state used by the basic POF algorithm (i.e., "POFLastSent") needs 
+	 initialization and maintenance. This works as follows:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>The next received packet is forwarded and the "POFLastSent"
+		 updated when the POF is reset OR no packet is received 
+		 for a predefined time ("POFTakeAnyTime"). </t>
+          </li>
+          <li>
+            <t>The reset of the POF erases all packets from the time-based 
+		 buffer used by the POF. </t>
+          </li>
+        </ul>
+        <t>
+     The basic POF algorithm has two parameters to engineer:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>"POFMaxDelay", which cannot be smaller than the delay 
+		 difference of the paths used by the flow. </t>
+          </li>
+          <li>
+            <t>"POFTakeAnyTime", which is calculated based on several factors,
+            for example, the settings of the elimination function(s) relating
+            to RECOVERY_TIMEOUT before the POF, the flow characteristics
+            (e.g., inter-packet time), and the delay difference of the paths
+            used by the flow.  </t>
+          </li>
+        </ul>
+        <t>
+     Design of these parameters is out of scope for this document.
+        </t>
+        <t>
+     Note: Multiple network failures can impact the POF
+	 (e.g., complete outage of all redundant paths).
+        </t>
+
+        <t>
+     The basic POF algorithm increases the delay of packets with maximum 
+	 "POFMaxDelay" time. In-order packets are not delayed. This basic 
+	 POF method can be applied in all network scenarios where the remaining 
+	 delay budget of a flow at the POF point is larger than "POFMaxDelay" 
+	 time.
+        </t>
+
+        <t>
+     <xref target="delay-budget" format="default"/> shows the delay budget
+     situation at the POF point.
+        </t>
+        <figure anchor="delay-budget">
+          <name>Delay Budget Situation at the POF Point</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+                          Path delay
+                          difference
+                        /-------------/
+<- path with min delay ->             /-- remaining delay budget --/
+
+|-----------------------|-------------|----------------------------|
+0                       t1            t2                           T
+
+<-------- path with max delay -------->
+  
+/-------------------- delay budget at POF point -------------------/
+]]></artwork>
+        </figure>
+      </section>
+
+ <section anchor="adv-pof" numbered="true" toc="default">
+        <name>The Advanced POF Algorithm</name>
+        <t>
+     In network scenarios where the remaining delay budget of a flow at the 
+	 POF point is smaller than "POFMaxDelay" time, the basic method needs 
+	 extensions. 
+        </t>
+        <t>
+     The issue is that packets on the longest path cannot be buffered in order 
+	 to keep the delay budget of the flow. It must be noted that such a packet 
+	 (i.e., forwarded over the longest path) needs no buffering as it is the 
+	 last chance to deliver a packet with a given sequence number. This is 
+	 because all replicas already arrived via a shorter path(s).
+        </t>
+
+        <t>
+The advanced POF algorithm requires extensions of the basic POF algorithm:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>to identify the received packet's path at the POF location and </t>
+          </li>
+          <li>
+            <t>to make the value of "POFMaxDelay" for buffered packets path 
+		 dependent ("POFMaxDelay_i", where "i" notes the path the packet 
+		 has used). </t>
+          </li>
+        </ul>
+        <t>
+  The advanced POF algorithm identifies the path of a given packet and uses this
+  information to select the predefined time ("POFMaxDelay_i") to apply for the
+  buffered packet.  So, in the advanced POF algorithm, "POFMaxDelay" is an
+  array that contains the predefined and path-specific buffering time for each
+  redundant path of a flow. Values in the "POFMaxDelay" array are engineered
+  to fulfill the delay budget requirement.
+        </t>
+        <t>
+     Design of these parameters is out of scope for this document.
+        </t>
+        <t>
+     Note: For the advanced POF algorithm, the path-dependent delays
+	 might result in multiple packets triggering the "maximum delay 
+	 reached" at exactly the same time. The transmission order of 
+	 these packets should be done in their seq_num order.
+        </t>
+
+        <t>
+     The method for identifying the packet's path at the POF location 
+     depends on the network scenario.
+  It can be implemented via
+  various techniques, for example, using ingress interface information,
+  encoding the path in the packet itself (e.g., replication functions
+  set a different FlowID per member flow at their egress and such 
+  a FlowID is used to identify the path of a packet at the POF), or
+  other means.  
+     Methods for identifying the packet's path are out of scope 
+	 for this document.
+        </t>
+        <t>
+     Note: When using the advanced POF algorithm, it might be 
+	 advantageous to combine PEF and POF locations in the DetNet network, as 
+	 this can simplify the method used for identifying the packet's path 
+	 at the POF location.
+        </t>
+      </section>
+
+ <section anchor="enh-pof" numbered="true" toc="default">
+        <name>Further Enhancements of the POF Algorithms</name>
+
+        <t>
+     POF algorithms can be further enhanced by distinguishing the case of 
+	 initialization from normal operation at the price of more states and 
+	 more sophisticated implementation. Such enhancements could, for example,
+	 react better after some failure scenarios (e.g., complete outage of all 
+	 paths of a DetNet flow) and can be dependent on the PEF implementation.
+        </t>
+
+        <t>
+  The challenge for POF initialization is that it is not known whether the
+  first received packet is in-order or out-of-order (for example, after a
+  reset).
+
+  The original initialization (see <xref target="basic-pof"/>) considers the 
+	 first packet as in-order, so out-of-order packet(s) during 
+	 "POFMaxTime"/"POFMaxTime_path_i" time -- after the first packet is
+	 received -- cannot be corrected.
+
+	 The motivation behind such an initialization 
+	 is simplicity of POF implementation.
+        </t>
+        <t>
+     A possible enhancement of POF initialization works as follows:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>After a reset, all received packets are buffered with their 
+		 predefined timer ("POFMaxTime"/"POFMaxTime_path_i"). </t>
+          </li>
+          <li>
+            <t>No basic or advanced POF rules are applied until the first timer 
+		 expires. </t>
+          </li>
+          <li>
+            <t>When the first timer expires, the packet with lowest seq_num in the
+		 buffer is selected and forwarded, and "POFLastSent" is set with its 
+		 seq_num.</t>
+          </li>
+          <li>
+            <t>The basic or advanced POF rules are applied for the packet(s) in the 
+		 buffer and the subsequently received packets.</t>
+          </li>
+        </ul>
+      </section>
+
+ <section anchor="select-pof" numbered="true" toc="default">
+        <name>Selecting and Using the POF Algorithms</name>
+        <t>
+     The selection of the POF algorithm depends on the network scenario and 
+	 the remaining delay budget of a flow. Using the POF algorithms and calculating their
+	 parameters require proper design. Knowing the path delay difference is 
+	 essential for the POF algorithms described here. Failure scenarios 
+	 breaking the design assumptions can impact the result of the POF (e.g., 
+	 packet received out of the expected worst-case delay window 
+	 -- calculated based on the path delay difference -- can result in unwanted 
+	 out-of-order delivery).
+        </t>
+        <t>
+     In DetNet scenarios, there is always an elimination function before the
+     POF (therefore, duplicates are not considered by the POF). Implementing
+     them together in the same node allows the POF to consider PEF events/states
+     during the reordering. For example, under normal circumstances, the
+     difference between sequence numbers in consecutive packets is bounded due
+     to the history window of the PEF.  However, in some scenarios (e.g., reset of
+     sequence number), the difference can be much larger than the size of the
+     history window.
+        </t>
+      </section>
+</section>
+
+<section anchor="ctrl-mngmnt-pof" numbered="true" toc="default">
+      <name>Control and Management Plane Parameters for POF</name>
+
+      <t>POF algorithms require the following parameters to be set:
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>Basic POF
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>"POFMaxDelay" </t>
+            </li>
+            <li>
+              <t>"POFTakeAnyTime" </t>
+            </li>
+          </ul>
+        </li>
+        <li>
+          <t>Advanced POF 
+          </t>
+          <ul spacing="normal">
+            <li>
+              <t>"POFMaxDelay_i" for each possible path i </t>
+            </li>
+            <li>
+              <t>"POFTakeAnyTime" </t>
+            </li>
+            <li>
+              <t>Configuration(s) related to network path identification</t>
+            </li>
+          </ul>
+        </li>
+      </ul>
+      <t>
+     Note: In a proper design, "POFTakeAnyTime" is always larger than "POFMaxDelay".
+      </t>
+    </section>
+
+<section numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+     PREOF-related security considerations (including POF) are described in
+     <xref target="RFC9055" sectionFormat="of" section="3.3"/>. There are no
+     additional POF-related security considerations originating from this
+     document.
+      </t>
+    </section>
+    <section anchor="iana" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.
+      </t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8655.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9055.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+
+        <reference anchor="IEEE8021CB" target="https://standards.ieee.org/standard/802_1CB-2017.html">
+          <front>
+            <title>IEEE Standard for Local and metropolitan area
+          networks -- Frame Replication and Elimination for Reliability
+            </title>
+            <author>
+              <organization>IEEE</organization>
+            </author>
+            <date month="October" year="2017"/>
+          </front>
+	  <seriesInfo name='IEEE Std' value='802.1CB-2017' />
+          <seriesInfo name="DOI" value="10.1109/IEEESTD.2017.8091139"/>
+        </reference>
+
+<reference anchor="IEEEP8021CBcv" target="https://standards.ieee.org/ieee/802.1CBcv/7285/">
+          <front>
+            <title>IEEE Standard for Local and metropolitan area networks --
+            Frame Replication and Elimination for Reliability - Amendment 1:
+            Information Model, YANG Data Model, and Management Information
+            Base Module
+	    </title>
+            <author>
+              <organization>IEEE</organization>
+            </author>
+            <date month="February" year="2022"/>
+          </front>
+          <seriesInfo name="IEEE Std" value="802.1CBcv-2001"/>
+	  <seriesInfo name="DOI" value="10.1109/IEEESTD.2022.9715061"/>
+        </reference>
+      </references>
+    </references>
+    <section anchor="acks" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+
+      <t>
+   Authors extend their appreciation to <contact fullname="Gyorgy Miklos"/>,
+   <contact fullname="Ehsan Mohammadpour"/>, <contact fullname="Ludovic
+   Thomas"/>, <contact fullname="Greg Mirsky"/>, <contact fullname="Jeong-dong
+   Ryoo"/>, <contact fullname="Fan Yang"/>, <contact fullname="Toerless
+   Eckert"/>, <contact fullname="Norman Finn"/>, and <contact fullname="Ethan
+   Grossman"/> for their insightful comments and productive discussion that
+   helped to improve the document.
+      </t>
+    </section>
+
+  </back>
+</rfc>

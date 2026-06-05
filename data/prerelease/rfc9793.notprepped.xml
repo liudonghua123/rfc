@@ -1,0 +1,625 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-bier-idr-extensions-19" number="9793" ipr="trust200902" consensus="true" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="BGP Extensions for BIER">BGP Extensions for Bit Index Explicit Replication (BIER)</title>
+    <seriesInfo name="RFC" value="9793"/>
+    <author fullname="Xiaohu Xu" initials="X." surname="Xu">
+      <organization>China Mobile</organization>
+      <address>
+        <email>xuxiaohu@cmss.chinamobile.com</email>
+      </address>
+    </author>
+    <author fullname="Mach(Guoyi) Chen" initials="M." surname="Chen">
+      <organization>Huawei</organization>
+      <address>
+        <email>mach.chen@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Keyur Patel" initials="K." surname="Patel">
+      <organization>Arrcus, Inc.</organization>
+      <address>
+        <email>keyur@arrcus.com</email>
+      </address>
+    </author>
+    <author fullname="IJsbrand Wijnands" initials="IJ." surname="Wijnands">
+      <organization>Individual</organization>
+      <address>
+        <email>ice@braindump.be</email>
+      </address>
+    </author>
+    <author fullname="Tony Przygienda" initials="T." surname="Przygienda">
+      <organization>Juniper</organization>
+      <address>
+        <email>prz@juniper.net</email>
+      </address>
+    </author>
+    <author fullname="Zhaohui Zhang" initials="Z." role="editor" surname="Zhang">
+      <organization>Juniper</organization>
+      <address>
+        <email>zzhang@juniper.net</email>
+      </address>
+    </author>
+    <date month="June" year="2025"/>
+    <area>RTG</area>
+    <workgroup>bier</workgroup>
+   <abstract>
+      <t>Bit Index Explicit Replication (BIER) is a multicast forwarding
+      architecture that doesn't require an explicit tree-building protocol
+      and doesn't require intermediate routers to maintain per-tree multicast
+      states. Some BIER-specific information and states, which are only in
+      proportion to the number of BIER routers but not per-tree, do need to be advertised,
+      calculated, and maintained. This document describes BGP extensions for
+      advertising the BIER information and methods for calculating BIER states
+	  based on the advertisements.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Bit Index Explicit Replication (BIER) <xref target="RFC8279" format="default"/> is a multicast
+      forwarding architecture that doesn't require an explicit tree-building
+      protocol and doesn't require intermediate routers to maintain per-tree
+      multicast states. It supports both direct and tunneled BIER forwarding.
+   This document describes BGP extensions for advertising the BIER
+   information and methods for calculating BIER states based on the
+   advertisements. More
+      specifically, in this document, we define a new optional
+      transitive BGP attribute, referred to as the "BIER attribute", to convey
+      the BIER-specific information such as Bit-Forwarding Router Identifier
+      (BFR-ID), BitStringLength (BSL), and so on. The signaling is to be
+	  used in a single Administrative Domain (AD), and <xref target="op" format="default"/> specifies
+	  procedures to prevent the BIER attribute from "leaking out" of the domain.</t>
+    </section>
+    <section anchor="Abbreviations_Terminology" numbered="true" toc="default">
+      <name>Terminology</name>
+      <t>This document makes use of the terminology defined in <xref
+      target="RFC4271" format="default"/> and <xref target="RFC8279"
+      format="default"/>. Some terms are listed below for
+      convenience.</t>
+      <dl spacing="normal" newline="false">
+	<dt>BIER:</dt><dd>Bit Indexed Explicit Replication</dd>
+	<dt>BFR:</dt><dd>Bit-Forwarding Router</dd>
+	<dt>BFR-ID:</dt><dd>BFR Identifier</dd>
+	<dt>BSL:</dt><dd>BitStringLength</dd>
+	<dt>BIFT:</dt><dd>Bit Index Forwarding Table</dd>
+	<dt>BIFT-id:</dt><dd>Bit Index Forwarding Table Identifier</dd>
+	<dt>BFER:</dt><dd>Bit-Forwarding Egress Router</dd>
+	<dt>BFR-prefix:</dt><dd>Each BFR is assigned a single "BFR-prefix" for each
+	sub-domain to which it belongs. It is recommended that the BFR-prefix
+	be a loopback address of the BFR.</dd>
+	<dt>NLRI:</dt><dd>Network Layer Reachability Information <xref target="RFC4271" format="default"/></dd>
+	<dt>AFI:</dt><dd>Address Family Identifier <xref target="RFC4760" format="default"/></dd>
+	<dt>SAFI:</dt><dd>Subsequent Address Family Identifier <xref target="RFC4760" format="default"/></dd>
+      </dl>
+      <section>
+      <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section anchor="attr" numbered="true" toc="default">
+      <name>BIER Path Attribute</name>
+      <t>This specification defines an optional, transitive BGP path attribute,
+      referred to as the "BIER attribute". This attribute can be attached to a
+      BGP UPDATE message by the originator for NLRIs of AFI 1 or 2 and
+	  SAFI 1, 2, or 4 to indicate the BIER-specific information of a
+	  particular BFR identified by the /32 (for IPv4) or /128 (for IPv6)
+	  host address prefix contained in the NLRI. The attachment of the BIER
+	  attribute to non-host address prefixes is not defined by this document.
+	  It may be specified in the future, for example, by
+	  <xref target="I-D.ietf-bier-prefix-redistribute" format="default"/>.
+      </t>
+      <t>
+	  If the BIER path attribute is present, the NLRI is referred to as a
+      "BFR-prefix". Use of the attribute with other AFIs/SAFIs is outside the
+	  scope of this document.
+      </t>
+      <t>
+   The BIER path attribute is an optional, transitive BGP path attribute
+   with type code 41 and of variable length. The attribute value portion
+   carries BIER TLVs, which are encoded as follows:
+      </t>
+      <artwork align="center" name="" type="" alt=""><![CDATA[
+   0                   1                   2                   3
+   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |              Type             |             Length            |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  ~                        Value (variable)                       ~
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      <t>
+The Length field defines the length of the value portion in octets (thus, a TLV with no value portion would have a length of zero). The TLV is not padded to 4-octet alignment. Unknown and unsupported types <bcp14>MUST</bcp14> be preserved and propagated within the BIER attribute. The presence of unknown or unexpected TLVs <bcp14>MUST NOT</bcp14> result in the NLRI or the BIER attribute being considered malformed.
+      </t>
+      <t>
+	  When creating a BIER attribute, a BFR <bcp14>MUST</bcp14> include one
+      BIER TLV for every sub-domain that the prefix belongs to. The
+      attribute type code for the BIER attribute is 41. The value field of
+      the BIER attribute contains one or more BIER TLVs as shown below:</t>
+      <artwork align="center" name="" type="" alt=""><![CDATA[
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           Type = 1            |            Length             |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |  Sub-domain   |            BFR-ID             |   Reserved    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~                                                               ~
+   |                           Sub-TLVs                            |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+..........................
+]]></artwork>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt><dd>1</dd>
+        <dt>Length:</dt><dd>2 octets encoding the length in octets of the
+        Value part.</dd>
+        <dt>Sub-domain:</dt><dd>A
+        1-octet field encoding the sub-domain ID corresponding to the
+        BFR-ID (see <xref target="RFC8279" format="default"/>).</dd>
+        <dt>BFR-ID:</dt><dd>A
+        2-octet field encoding the BFR-ID (see <xref target="RFC8279" format="default"/>).</dd>
+        <dt>Reserved:</dt><dd><bcp14>SHOULD</bcp14> be set to 0 on
+        transmission and <bcp14>MUST</bcp14> be ignored on reception.</dd>
+        <dt>Sub-TLVs:</dt><dd>Contains one or more sub-TLVs.</dd>
+      </dl>
+      <t>The BIER TLV <bcp14>MAY</bcp14> appear multiple times in the BIER path attribute, one for each sub-domain. There <bcp14>MUST</bcp14> be no more than
+        one BIER TLV with the same Sub-domain value; if there is, the
+        entire BIER path attribute <bcp14>MUST</bcp14> be ignored.
+      </t>
+      <t>A BIER TLV may have sub-TLVs, which may have their own sub-TLVs.
+        All those are referred to as sub-TLVs and share the same Type space,
+        regardless of the level.
+      </t>
+      <section numbered="true" toc="default">
+        <name>BIER MPLS Encapsulation Sub-TLV</name>
+        <t>The BIER MPLS Encapsulation sub-TLV has the following format.
+	  It <bcp14>MAY</bcp14> appear multiple times in the BIER TLV.
+        </t>
+        <t>
+   The BIER MPLS Encapsulation sub-TLV has the following format:
+        </t>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           Type = 2            |             Length            |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Max SI    |BS Len |             Label                     |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~                        sub-TLVs                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        <dl newline="false" spacing="normal">
+	  <dt>Type:</dt><dd>2</dd>
+	  <dt>Length:</dt><dd>2 octets encoding the length in octets of the Value
+          part. The value is 4 or other (depending on sub-TLVs).</dd>
+	  <dt>Max SI:</dt><dd>A 1-octet field encoding the Maximum Set
+	  Identifier (see <xref section="1" sectionFormat="of" target="RFC8279"
+	  format="default"/>) used in the encapsulation for this BIER
+	  sub-domain for this BitString length.</dd>
+	  <dt>BS Len:</dt><dd>BitString Length. A 4-bit field encoding the
+	  supported BitString length associated with this BFR-prefix.  The
+	  values allowed in this field are specified in <xref section="2" sectionFormat="of"
+	  target="RFC8296" format="default"/>.</dd>
+	  <dt>Label:</dt><dd>A 20-bit value representing the first label in the label range.</dd>
+        </dl>
+        <t> The "label range" is the set of labels beginning with the Label
+        and ending with (Label + (Max SI)).  A unique label range is allocated
+        for each BitString length and sub-domain-id.  These labels are used
+        for BIER forwarding, as described in <xref target="RFC8279"
+        format="default"/> and <xref target="RFC8296" format="default"/>.
+        </t>
+        <t> The size of the label range is determined by the number of SIs
+        (<xref section="1" sectionFormat="of" target="RFC8279" format="default"/>) that are used
+        in the network.  Each SI maps to a single label in the label range:
+        the first label is for SI=0, the second label is for SI=1, etc.
+        </t>
+        <t>
+
+   If the label associated with the Maximum SI exceeds the
+   20-bit range, the BIER MPLS Encapsulation sub-TLV containing the
+   error <bcp14>MUST</bcp14> be ignored.
+        </t>
+        <t>
+
+   If the same BitString length is repeated in multiple BIER MPLS Encapsulation sub-TLVs inside the same BIER TLV, all BIER MPLS Encapsulation sub-TLVs in the BIER TLV <bcp14>MUST</bcp14> be ignored.
+        </t>
+        <t>
+
+   Label ranges within all BIER MPLS Encapsulation sub-TLVs advertised
+   by the same BFR <bcp14>MUST NOT</bcp14> overlap.  If an overlap is detected, all
+   BIER MPLS Encapsulation sub-TLVs advertised by the BFR <bcp14>MUST</bcp14> be ignored.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>BIER Non-MPLS Encapsulation Sub-TLV</name>
+        <t>The BIER non-MPLS Encapsulation sub-TLV is used for non-MPLS encapsulation and has the following format. It <bcp14>MAY</bcp14> appear multiple times within a
+   single BIER TLV.  If the same BitString length is repeated in
+   multiple BIER non-MPLS Encapsulation sub-TLVs inside the same BIER
+   TLV, the BIER TLV <bcp14>MUST</bcp14> be ignored.
+        </t>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |           Type = 3            |             Length            |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |     Max SI    |BS Len |                  BIFT-id              |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~                        sub-TLVs                               |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        <dl newline="false" spacing="normal">
+	  <dt>Type:</dt><dd>3</dd>
+	  <dt>Length:</dt><dd>2 octets encoding the length in octets of the Value
+          part. The value is 4 or other (depending on sub-TLVs).</dd>
+	  <dt>Max SI:</dt><dd>A 1-octet field encoding the Maximum Set
+	  Identifier (<xref section="1" sectionFormat="of" target="RFC8279" format="default"/>)
+	  used in the encapsulation for this BIER sub-domain for this BitString
+	  length. The first BIFT-id is for SI=0, the second BIFT-id is for
+	  SI=1, etc. If the BIFT-id associated with the Maximum SI
+	  exceeds the 20-bit range, the sub-TLV <bcp14>MUST</bcp14> be
+	  ignored.</dd>
+	  <dt>BS Len:</dt><dd>BitString Length. A 4-bit field encoding the
+	  BitString length (as per <xref target="RFC8296" format="default"/>)
+	  supported for the encapsulation.</dd>
+	  <dt>BIFT-id:</dt><dd>A 20-bit field representing the first BIFT-id
+	  in the BIFT-id range.</dd>	  
+        </dl>
+        <t>
+   The "BIFT-id range" is the set of 20-bit values beginning with the
+   BIFT-id and ending with (BIFT-id + (Max SI)).  These BIFT-ids are
+   used for BIER forwarding, as described in <xref target="RFC8279" format="default"/> and <xref target="RFC8296" format="default"/>.
+        </t>
+        <t>
+   The size of the BIFT-id range is determined by the number of SIs
+   (<xref section="1" sectionFormat="of" target="RFC8279" format="default"/>) that are used in the network.  Each SI maps
+   to a single BIFT-id in the BIFT-id range: the first BIFT-id is for
+   SI=0, the second BIFT-id is for SI=1, etc.
+        </t>
+        <t>
+
+   If the BIFT-id associated with the Maximum SI exceeds
+   the 20-bit range, the BIER non-MPLS Encapsulation sub-TLV
+   containing the error <bcp14>MUST</bcp14> be ignored.
+        </t>
+        <t>
+
+	  BIFT-id ranges within all the BIER non-MPLS Encapsulation sub-TLVs
+	  advertised by the same BFR <bcp14>MUST NOT</bcp14> overlap.  If an overlap is
+   detected, all the BIER non-MPLS Encapsulation sub-TLVs advertised
+   by the BFR <bcp14>MUST</bcp14> be ignored. However, the
+   BIFT-id ranges may overlap across different encapsulation types and
+   that is allowed.  As an example, the BIFT-id value in the non-MPLS Encapsulation sub-TLV may overlap with the Label value in the
+   Label range in the BIER MPLS Encapsulation sub-TLV.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>BIER Nexthop Sub-TLV</name>
+	
+        <t>The BIER Nexthop sub-TLV <bcp14>MAY</bcp14> be included, and it <bcp14>MUST NOT</bcp14> be included
+	  more than once in each of the MPLS or non-MPLS
+        Encapsulation sub-TLVs or in the top-level BIER TLV. It is used
+		when calculating BIFT entries, as described in <xref target="bift" format="default"/>
+		and illustrated in <xref target="biernh" format="default"/>.
+        </t>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |            Type = 4           |             Length            |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |                            Nexthop                            |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+        <dl newline="false" spacing="normal">
+          <dt>Type:</dt><dd>4</dd>
+          <dt>Length:</dt><dd>2 octets. The value is 4 if the Nexthop is an
+          IPv4 address and 16 if the Nexthop is an IPv6 address.</dd>
+          <dt>Nexthop:</dt><dd>4 or 16 octets of an IPv4/IPv6 address.</dd>
+        </dl>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Originating/Propagating/Updating the BIER Attribute</name>
+      <t>A Bit-Forwarding Egress Router (BFER) <bcp14>MUST</bcp14> attach a BIER attribute
+        to its own /32 (for IPv4) or /128 (for IPv6)
+		host BFR-prefix NLRI. The BIER attribute <bcp14>MUST</bcp14> include one
+        BIER TLV for each BIER sub-domain that it supports. Each BIER TLV
+        <bcp14>MUST</bcp14> include an MPLS and/or non-MPLS Encapsulation sub-TLV and <bcp14>MAY</bcp14>
+        include a BIER Nexthop sub-TLV with the Nexthop set to the
+        BIER prefix. If the BIER Nexthop sub-TLV is not included, the BIER prefix
+        will be used by receiving BFRs as the BIER next hop when calculating BIFT.
+      </t>
+        <t>When a BFR receives an update with the BIER path attribute, the
+        attribute is parsed with the following validations:</t>
+
+      <ul spacing="normal">
+        <li><t>Syntactic checking based on the Length field of TLVs and sub-TLVs:</t>
+          <ul spacing="normal">
+            <li>The total length of BIER TLVs (including the Type and Length
+            fields) <bcp14>MUST</bcp14> be equal to the BIER path attribute
+            length.</li>
+            <li>The total length of sub-TLVs (including the Type and Length
+            fields) of a TLV <bcp14>MUST</bcp14> be equal to the length of the
+            TLV.</li>
+          </ul>
+        </li>
+        <li>Semantic checking as per <xref target="attr" format="default"/>.</li>
+      </ul>
+      <t>
+   If the syntactic checking fails, the attribute is considered	
+   malformed and the "attribute discard" action <xref target="RFC7606" format="default"/>
+   for the BIER attribute <bcp14>MUST</bcp14> be taken. If the semantic checking passes,
+   BIFT	 entries are calculated as described in <xref target="bift" format="default"/>.  Otherwise
+   (i.e., if semantic checking fails), some or all BIER TLVs are ignored, per the rules
+   given in <xref target="attr" format="default"/>, and if the remaining data permits,
+   BIFT entries are calculated per <xref target="bift" format="default"/>.
+      </t>
+      <t>When a BFR re-advertises a BGP NLRI with a BIER attribute, for the
+		sub-domains that this BFR supports, in the corresponding BIER TLV, it
+        <bcp14>SHOULD</bcp14> set/update the BIER Nexthop sub-TLV to use its own BIER prefix;
+        in which case, it <bcp14>MUST</bcp14> replace the MPLS or non-MPLS Encapsulation sub-TLV
+        with its own, i.e., as if the BFR is attaching the
+        encapsulation sub-TLV for its own BIER prefix. If it does not
+        update the BIER Nexthop sub-TLVs, it <bcp14>MUST NOT</bcp14> update the MPLS or
+        non-MPLS Encapsulation sub-TLV. If it does not support a sub-domain,
+		it <bcp14>MUST NOT</bcp14> update the corresponding BIER TLV.
+      </t>
+      <t>It's possible that the BFR supports some but not all
+		BitStringLengths (BSLs)
+        in the received MPLS or non-MPLS Encapsulation sub-TLVs.
+        After setting/updating the BIER Nexthop sub-TLV in the top BIER TLV
+        to itself, for the BSLs that it does support, the BFR <bcp14>MUST</bcp14> remove
+        the BIER Nexthop sub-TLV (if present) in the corresponding Encapsulation
+        sub-TLVs. For the BSLs that it does not support:
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>If a BIER Nexthop sub-TLV is included in the Encapsulation sub-TLV,
+		  it <bcp14>MUST NOT</bcp14> be updated.</t>
+        </li>
+        <li>
+          <t>Otherwise, if a BIER Nexthop sub-TLV is included in the received
+		  BIER TLV, its original value (before changed for supported BSLs by
+		  this BFR) <bcp14>MUST</bcp14> be copied into the Encapsulation sub-TLV.</t>
+        </li>
+        <li>
+          <t>Otherwise, a BIER Nexthop sub-TLV <bcp14>MUST</bcp14> be added to the
+		  Encapsulation sub-TLV with its value set to the BFR-prefix.</t>
+        </li>
+      </ul>
+      <t>
+		  All impacted Length fields (e.g.,
+        the Encapsulation sub-TLV Length and the top-level BIER TLV Length) <bcp14>MUST</bcp14>
+        be updated accordingly.
+      </t>
+      <t>Since the BIER attribute is an optional, transitive BGP path
+      attribute, a non-BFR BGP speaker could still re-advertise the received
+      route with a BIER attribute.
+      </t>
+      <t>Two different BFR-prefixes <bcp14>MUST NOT</bcp14> have the same non-zero BFR-ID
+	  in the same sub-domain. If a duplication is detected, the receiving
+	  BFR <bcp14>MUST NOT</bcp14> use the BFR-prefixes with the same BFR-ID for BIFT
+	  calculation for the sub-domain and an error <bcp14>SHOULD</bcp14> be logged.
+      </t>
+    </section>
+    <section anchor="bift" numbered="true" toc="default">
+      <name>BIFT Calculation with BGP Signaling</name>
+      <t>As pointed out in <xref target="RFC8279" format="default"/>, BIFTs are derived from
+	  the unicast FIB by adding BIER-specific information.
+      </t>
+      <t>For each sub-domain, a BFR calculates the corresponding BIFTs
+      by going through the BIER prefixes whose BIER attribute includes
+      a BIER TLV for the sub-domain.
+      For a non-zero BFR-id in the BIER TLV,
+      a BIFT entry is created or updated. The entry's BFR Neighbor
+      (BFR-NBR) <xref target="RFC8279" format="default"/> is the Nexthop in the BIER
+      Nexthop sub-TLV in the corresponding Encapsulation sub-TLV or
+      in the top-level BIER TLV if the Encapsulation sub-TLV does not
+      have a BIER Nexthop sub-TLV. If there is no BIER Nexthop sub-TLV at all,
+      the entry's BFR-NBR is the BIER prefix itself. The BIER label
+      or BIFT-id for the entry is derived from the label range in the
+      MPLS Encapsulation sub-TLV or from the BIFT-id range in the
+      non-MPLS Encapsulation sub-TLV.
+      </t>
+      <t>BIER traffic is sent to the BFR-NBR either directly (BIER header
+      directly follows a Layer 2 header) if the BFR-NBR is directly
+      connected or via a tunnel. Notice that, if a non-BFR
+      BGP speaker re-advertises a BIER prefix (in this case, it cannot update
+      the BIER attribute since it is not capable), or if a BFR BGP speaker
+      re-advertises a BIER prefix without updating the BIER Nexthop
+      sub-TLV, the BFR receiving the prefix will tunnel BIER traffic --  
+      the BGP speaker re-advertising the BIER prefix will not see the
+      BIER traffic for the BIER prefix.
+      </t>
+      <t>How the tunnel is set up and chosen is outside the scope of this
+	  document. It can be any kind of tunnel, e.g., MPLS Label Switched Path
+	  or IP/GRE, as long as the tunnel header can indicate that the payload
+	  is BIER.
+      </t>
+    </section>
+    <section anchor="biernh" numbered="true" toc="default">
+      <name>Example of BIER Nexthop Usage and Handling</name>
+      <t>Consider a simple topology as follows:
+      </t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+                                      ----- BFER1
+                                     /
+           BFR1 --- non-BFR --- BFR2 ------ BFER2
+                                     \
+                                      ----- BFER3
+]]></artwork>
+
+      <t>The BFER1/2/3 each advertises a route for its loopback address with a
+      BIER path attribute, listing one BIER TLV for each sub-domain that it is
+      in, with a non-zero BFR-ID and an MPLS Encapsulation sub-TLV.  A BIER
+      Nexthop sub-TLV is not included in the one from BFER1 but is included in
+      the ones from BFER2/3. The BIER Nexthop sub-TLV encodes the BFR-prefix
+      of BFER2 and BFER3, respectively.
+      </t>
+      <t>When BFR2 receives the route, it calculates its BIFT entries.
+	  Because the route from BFER1 does not include a BIER Nexthop, BFR2
+	  uses BFR1's BFR-prefix as the next hop.
+      </t>
+      <t>When BFR2 re-advertises the routes to the non-BFR, it adds
+	  a BIER Nexthop sub-TLV to the BFER1 route and updates the BIER Nexthop
+	  sub-TLV in the BFER2/3 routes, all encoding BFR2's own address.
+	  It also updates the MPLS Encapsulation sub-TLV to encode its own labels.
+      </t>
+      <t>When the non-BFR receives the routes, since it does not support BIER,
+	  no BIER-specific action is taken and the routes are re-advertised to
+	  BFR1 with the BIER path attribute unchanged.
+      </t>
+      <t>When BFR1 receives the routes, it calculates the BIFT entries,
+	  using BFR2's address encoded in the BIER Nexthop sub-TLV as the
+	  next hop. Because BFR2 is not directly connected, a tunnel must be used.
+      </t>
+    </section>
+    <section anchor="op" numbered="true" toc="default">
+      <name>Operational Considerations</name>
+      <t>In this document, it is assumed that the BIER domain
+	  <xref target="RFC8279" format="default"/> is aligned with
+      an Administrative Domain (AD), which may be composed of multiple
+	  Autonomous Systems. Use of the BIER attribute in other
+      scenarios is outside the scope of this document.</t>
+      <t>BFR-prefixes are typically loopback addresses on the BFRs. They
+	  are distributed throughout the AD, but they do not need to be
+	  distributed outside the AD for the BIER's purposes. This is analogous
+	  to the Provider Edge router's loopback addresses that are distributed
+	  inside the AD, but they do not need to be distributed outside the AD.
+      </t>
+      <t>If prefixes are distributed outside of the AD with the BIER
+	  attribute attached and the neighboring AD also deploying BIER,
+	  then the two BIER domains, which should be independent of each other,
+	  may be incorrectly joined together and most likely have conflicting
+	  configurations, causing security risks and operational troubles.
+      </t>
+      <t>To prevent that, a boundary router of the AD that supports the BIER
+	  attribute <bcp14>MUST</bcp14>
+      support a policy based on an External BGP (EBGP) session/group that indicates whether the
+      attribute is allowed; by default, it is NOT allowed.
+	  If it is not allowed, the BIER
+      attribute <bcp14>MUST NOT</bcp14> be sent to any EBGP peer of the session/group.
+      If a BIER attribute is received from the peer, it <bcp14>MUST</bcp14> be treated
+      exactly as if it were an unrecognized non-transitive attribute.
+	  That is, it <bcp14>MUST</bcp14> be quietly ignored and not passed along to other
+	  BGP peers.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>IANA has assigned codepoint 41 to the BIER attribute in the "BGP Path
+      Attributes" registry
+      <eref brackets="angle" target="https://www.iana.org/assignments/bgp-parameters"/> as follows:</t>
+      <table>
+	<thead>
+	  <tr>
+	    <th>Value</th>
+	    <th>Code</th>
+            <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>41</td>
+	    <td>BIER</td>
+            <td>RFC 9793</td>
+	  </tr>
+	</tbody>
+      </table>
+      <t>IANA has created the "BGP BIER TLV and Sub-TLV Types" registry within the "Border Gateway Protocol (BGP) Parameters" registry group.  The type field for the
+      registry consists of 2 octets, with possible values from 0 to 65535
+      (the value 0 is reserved). The allocation policy for this field is
+      First Come First Served <xref target="RFC8126" format="default"/>.</t>
+      <t>The five initial values have been allocated as follows:</t>
+
+      <table>
+	<thead>
+	  <tr>
+	    <th>Value</th>
+	    <th>Name</th>
+            <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>0</td> <td>Reserved</td> <td>RFC 9793</td>
+	  </tr>
+	  <tr>
+	    <td>1</td> <td>BIER TLV</td> <td>RFC 9793</td>
+	  </tr>
+	  <tr>
+	    <td>2</td> <td>MPLS Encapsulation sub-TLV</td> <td>RFC 9793</td>
+	  </tr>
+	  <tr>
+	    <td>3</td> <td>non-MPLS Encapsulation sub-TLV</td> <td>RFC 9793</td>
+	  </tr>
+	  <tr>
+	    <td>4</td> <td>BIER Nexthop sub-TLV</td> <td>RFC 9793</td>
+	  </tr>
+	  <tr>
+	    <td>5-65535</td> <td colspan="2">Unassigned</td>
+	  </tr>
+	</tbody>
+      </table>
+
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document introduces no new security considerations beyond those
+      already discussed in <xref target="RFC4271" format="default"/>, <xref
+      target="RFC8279" format="default"/>, and the operational considerations
+      (<xref target="op" format="default"/>) of this document.</t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="I-D.ietf-bier-prefix-redistribute" to="BIER-Prefix-Redistribute"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4271.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8279.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8296.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-bier-prefix-redistribute.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4760.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7606.xml"/>
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>Thanks to <contact fullname="Eric Rosen"/> and <contact
+      fullname="Peter Psenak"/> for their valuable comments on this
+      document.</t>
+    </section>  
+    <section numbered="false" toc="default">
+      <name>Contributors</name>
+      <t>This document has the following contributor:</t>
+      <contact fullname="Zheng (Sandy) Zhang">
+	<organization>ZTE</organization>
+	<address>
+          <email>zhang.zheng@zte.com.cn</email>
+	</address>
+      </contact>
+    </section>
+  </back>
+</rfc>

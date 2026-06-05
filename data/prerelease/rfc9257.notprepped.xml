@@ -1,0 +1,576 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-external-psk-guidance-06" number="9257" obsoletes="" updates="" submissionType="IETF" category="info" consensus="true" xml:lang="en" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <front>
+    <title abbrev="Guidance for External PSK  Usage in TLS">Guidance for External Pre-Shared Key (PSK) Usage in TLS</title>
+    <seriesInfo name="RFC" value="9257"/>
+    <author initials="R." surname="Housley" fullname="Russ Housley">
+    <organization abbrev="Vigil Security">Vigil Security, LLC</organization>
+      <address>
+        <email>housley@vigilsec.com</email>
+      </address>
+    </author>
+    <author initials="J." surname="Hoyland" fullname="Jonathan Hoyland">
+      <organization>Cloudflare Ltd.</organization>
+      <address>
+        <email>jonathan.hoyland@gmail.com</email>
+      </address>
+    </author>
+    <author initials="M." surname="Sethi" fullname="Mohit Sethi">
+      <organization>Aalto University</organization>
+      <address>
+        <email>mohit@iki.fi</email>
+      </address>
+    </author>
+    <author initials="C. A." surname="Wood" fullname="Christopher A. Wood">
+      <organization>Cloudflare</organization>
+      <address>
+        <email>caw@heapingbits.net</email>
+      </address>
+    </author>
+    <date year="2022" month="July"/>
+    <area>security</area>
+    <workgroup>tls</workgroup>
+
+    <abstract>
+      <t>This document provides usage guidance for external Pre-Shared Keys (PSKs)
+in Transport Layer Security (TLS) 1.3 as defined in RFC 8446.
+It lists TLS security properties provided by PSKs under certain
+assumptions, then it demonstrates how violations of these assumptions lead
+to attacks. Advice for applications to help meet these assumptions is
+provided. This document also discusses PSK use cases and provisioning processes.
+Finally, it lists the privacy and security properties that are not
+provided by TLS 1.3 when external PSKs are used.</t>
+    </abstract>
+   </front>
+  <middle>
+    <section anchor="introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>This document provides guidance on the use of external Pre-Shared Keys (PSKs)
+in Transport Layer Security (TLS) 1.3 <xref target="RFC8446" format="default"/>. This guidance also
+applies to Datagram TLS (DTLS) 1.3 <xref target="RFC9147" format="default"/> and
+Compact TLS 1.3 <xref target="I-D.ietf-tls-ctls" format="default"/>. For readability, this document uses
+the term "TLS" to refer to all such versions.</t>
+      <t>External PSKs are symmetric
+secret keys provided to the TLS protocol implementation as external inputs.
+External PSKs are provisioned out of band.</t>
+      <t>This document lists
+TLS security properties provided by PSKs under certain assumptions and
+demonstrates how violations of these assumptions lead to attacks. This
+document discusses PSK use cases, provisioning processes, and TLS stack
+implementation support in the context of these assumptions.
+This document
+also provides advice for applications in various use cases to help meet
+these assumptions.</t>
+      <t>There are many resources that provide guidance for password generation and
+verification aimed towards improving security. However, there is no such
+equivalent for external PSKs in TLS. This document aims
+to reduce that gap.</t>
+    </section>
+    <section anchor="conventions-and-definitions" numbered="true" toc="default">
+      <name>Conventions and Definitions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>
+    <section anchor="notation" numbered="true" toc="default">
+      <name>Notation</name>
+      <t>For purposes of this document, a "logical node" is a computing presence that
+other parties can interact with via the TLS protocol. A logical node could
+potentially be realized with multiple physical instances operating under common
+administrative control, e.g., a server farm. An "endpoint" is a client or server
+participating in a connection.</t>
+    </section>
+    <section anchor="sec-properties" numbered="true" toc="default">
+      <name>PSK Security Properties</name>
+      <t>The use of a previously established PSK allows TLS nodes to authenticate
+the endpoint identities. It also offers other benefits, including
+resistance to attacks in the presence of quantum computers;
+see <xref target="entropy" format="default"/> for related discussion. However, these keys do not provide
+privacy protection of endpoint identities, nor do they provide non-repudiation
+(one endpoint in a connection can deny the conversation); see <xref target="endpoint-privacy" format="default"/>
+for related discussion.</t>
+      <t>PSK authentication security implicitly assumes one fundamental property: each
+PSK is known to exactly one client and one server and they never switch
+roles. If this assumption is violated, then the security properties of TLS are
+severely weakened as discussed below.</t>
+      <section anchor="shared-psks" numbered="true" toc="default">
+        <name>Shared PSKs</name>
+        <t>As discussed in <xref target="use-cases" format="default"/>, to demonstrate their attack, <xref target="AASS19" format="default"/> describes
+scenarios where multiple clients or multiple servers share a PSK. If
+this is done naively by having all members share a common key, then
+TLS authenticates only group membership, and the security of the
+overall system is inherently rather brittle. There are a number of
+obvious weaknesses here:</t>
+        <ol spacing="normal" type="1">
+          <li>Any group member can impersonate any other group member.</li>
+	  
+          <li>If a PSK is combined with the result of a fresh ephemeral key exchange, then compromise of a group member that knows
+the resulting shared secret will enable the attacker to passively read traffic (and actively modify it).</li>
+          <li>If a PSK is not combined with the result of a fresh ephemeral key exchange, then compromise of any group member allows the
+attacker to passively read all traffic (and actively modify it), including past traffic.</li>
+        </ol>
+        <t>Additionally, a malicious non-member can reroute handshakes between honest group members
+to connect them in unintended ways, as described below. Note that a partial mitigation for
+this class of attack is available: each group member includes the Server Name Indication (SNI) extension <xref target="RFC6066" format="default"/>
+and terminates the connection on mismatch between the presented SNI value and the
+	receiving member's known identity. See <xref target="Selfie" format="default"/> for details.</t>
+	
+        <t>To illustrate the rerouting attack, consider three peers, <tt>A</tt>, <tt>B</tt>, and <tt>C</tt>,
+who all know the PSK. The attack proceeds as follows:</t>
+        <ol spacing="normal" type="1">
+          <li>
+            <tt>A</tt> sends a <tt>ClientHello</tt> to <tt>B</tt>.</li>
+          <li>The attacker intercepts the message and redirects it to <tt>C</tt>.</li>
+          <li>
+            <tt>C</tt> responds with a second flight (<tt>ServerHello</tt>, ...) to <tt>A</tt>.</li>
+          <li>
+            <tt>A</tt> sends a <tt>Finished</tt> message to <tt>B</tt>.
+<tt>A</tt> has completed the handshake, ostensibly with <tt>B</tt>.</li>
+          <li>The attacker redirects the <tt>Finished</tt> message to <tt>C</tt>.
+<tt>C</tt> has completed the handshake with <tt>A</tt>.</li>
+        </ol>
+        <t>In this attack, peer authentication is not provided. Also, if <tt>C</tt> supports a
+weaker set of ciphersuites than <tt>B</tt>, cryptographic algorithm downgrade attacks
+might be possible. This rerouting is a type of identity misbinding attack
+<xref target="Krawczyk" format="default"/> <xref target="Sethi" format="default"/>. Selfie attack <xref target="Selfie" format="default"/> is a special case of the rerouting
+attack against a group member that can act as both a TLS server and a client. In the
+Selfie attack, a malicious non-member reroutes a connection from the client to
+the server on the same endpoint.</t>
+        <t>Finally, in addition to these weaknesses, sharing a PSK across nodes may negatively
+affect deployments. For example, revocation of individual group members is not
+possible without establishing a new PSK for all of the members that have not been revoked.</t>
+      </section>
+      <section anchor="entropy" numbered="true" toc="default">
+        <name>PSK Entropy</name>
+        <t>Entropy properties of external PSKs may also affect TLS security properties. For example,
+if a high-entropy PSK is used, then PSK-only key establishment modes provide expected
+security properties for TLS, including establishment of the same
+session keys between peers, secrecy of session keys, peer authentication, and downgrade
+protection. See <xref section="E.1" sectionFormat="of" target="RFC8446" format="default"/> for an explanation of these properties.
+However, these modes lack forward security. Forward security may be achieved by using a
+PSK-DH mode or by using PSKs with short lifetimes.</t>
+        <t>In contrast, if a low-entropy PSK is used, then PSK-only key establishment modes
+are subject to passive exhaustive search attacks, which will reveal the
+traffic keys. PSK-DH modes are subject to active attacks in which the attacker
+impersonates one side. The exhaustive search phase of these attacks can be mounted
+offline if the attacker captures a single handshake using the PSK, but those
+attacks will not lead to compromise of the traffic keys for that connection because
+those also depend on the Diffie-Hellman (DH) exchange. Low-entropy keys are only
+secure against active attack if a Password-Authenticated Key Exchange (PAKE) is used
+with TLS. At the time of writing, the Crypto Forum Research Group (CFRG) is working on specifying
+recommended PAKEs (see <xref target="I-D.irtf-cfrg-cpace" format="default"/> and <xref target="I-D.irtf-cfrg-opaque" format="default"/> for
+the symmetric and asymmetric cases, respectively).</t>
+      </section>
+    </section>
+    <section anchor="external-psks-in-practice" numbered="true" toc="default">
+      <name>External PSKs in Practice</name>
+      <t>PSK ciphersuites were first specified for TLS in 2005. PSKs are now an integral
+part of the TLS 1.3 specification <xref target="RFC8446" format="default"/>. TLS 1.3 also uses PSKs for session resumption.
+It distinguishes these resumption PSKs from external PSKs that have been provisioned out of band.
+This section describes known use cases and provisioning processes for external PSKs with TLS.</t>
+      <section anchor="use-cases" numbered="true" toc="default">
+        <name>Use Cases</name>
+        <t>This section lists some example use cases where pairwise external PSKs (i.e., external
+PSKs that are shared between only one server and one client) have been used for authentication
+in TLS.  There was no attempt to prioritize the examples in any particular order.</t>
+<ul spacing="normal">
+  
+          <li>Device-to-device communication with out-of-band synchronized keys. PSKs provisioned out of band
+for communicating with known identities, wherein the identity to use is discovered via a different
+online protocol.</li>
+          <li>Intra-data-center communication. Machine-to-machine communication within a single data center
+or Point of Presence (PoP) may use externally provisioned PSKs; this is primarily for the purpose of supporting TLS
+connections with early data. See <xref target="security-con" format="default"/> for considerations when using early data
+with external PSKs.</li>
+          <li>Certificateless server-to-server communication. Machine-to-machine communication
+may use externally provisioned PSKs; this is primarily for the purposes of establishing TLS
+connections without requiring the overhead of provisioning and managing PKI certificates.</li>
+          <li>Internet of Things (IoT) and devices with limited computational capabilities.
+<xref target="RFC7925" format="default"/> defines TLS and DTLS profiles for resource-constrained devices and suggests
+the use of PSK ciphersuites for compliant devices. The Open Mobile Alliance Lightweight Machine-to-Machine (LwM2M) Technical Specification <xref target="LwM2M" format="default"/>  states that LwM2M servers <bcp14>MUST</bcp14> support the
+PSK mode of DTLS.</li>
+          <li>Securing RADIUS <xref target="RFC2865" format="default"/> with TLS. PSK ciphersuites are optional for this use case, as specified
+	  in <xref target="RFC6614" format="default"/>.</li>
+	  
+          <li>3GPP server-to-user equipment authentication. The Generic Authentication Architecture (GAA) defined by
+	  3GPP mentions that TLS PSK ciphersuites can be used between server and user equipment for authentication <xref target="GAA" format="default"/>.</li>
+	  
+          <li>Smart Cards. The German electronic Identity (eID) card supports authentication of a card holder to
+online services with TLS PSK <xref target="SmartCard" format="default"/>.</li>
+          <li>Quantum resistance. Some deployments may use PSKs (or combine them with certificate-based
+authentication as described in <xref target="RFC8773" format="default"/>) because of the protection they provide against
+quantum computers.</li>
+        </ul>
+        <t>There are also use cases where PSKs are shared between more than two entities. Some examples below
+(as noted by Akhmetzyanova, et al. <xref target="AASS19" format="default"/>):</t>
+        <ul spacing="normal">
+          <li>Group chats. In this use case, group participants may be provisioned an external PSK out of band for establishing
+authenticated connections with other members of the group.</li>
+          <li>IoT and devices with limited computational capabilities. Many PSK provisioning examples are
+possible in this use case. For example, in a given setting, IoT devices may all share the same PSK and use it to
+communicate with a central server (one key for n devices), have their own key for communicating with a central server (n
+keys for n devices), or have pairwise keys for communicating with each other (n<sup>2</sup> keys for n devices).</li>
+        </ul>
+      </section>
+      <section anchor="provisioning-examples" numbered="true" toc="default">
+        <name>Provisioning Examples</name>
+        <t>The exact provisioning process depends on the system requirements and threat
+model. Whenever possible, avoid sharing a PSK between nodes; however, sharing
+a PSK among several nodes is sometimes unavoidable. When PSK sharing happens,
+other accommodations <bcp14>SHOULD</bcp14> be used as discussed in <xref target="recommendations" format="default"/>.</t>
+        <t>Examples of PSK provisioning processes are included below.</t>
+        <ul spacing="normal">
+          <li>Many industrial protocols assume that PSKs are distributed and assigned manually via one of the following
+approaches: (1) typing the PSK into the devices or (2) using a trust-on-first-use (TOFU) approach with a device
+completely unprotected before the first login took place. Many devices have a very limited UI. For example,
+they may only have a numeric keypad or even fewer buttons. When the TOFU approach is not suitable,
+entering the key would require typing it on a constrained UI.</li>
+          <li>Some devices provision PSKs via an out-of-band, cloud-based syncing protocol.</li>
+          <li>Some secrets may be baked into hardware or software device components. Moreover, when this is done
+at manufacturing time, secrets may be printed on labels or included in a Bill of Materials for ease of
+scanning or import.</li>
+        </ul>
+      </section>
+      <section anchor="provisioning-constraints" numbered="true" toc="default">
+        <name>Provisioning Constraints</name>
+        <t>PSK provisioning systems are often constrained in application-specific ways. For example, although one goal of
+provisioning is to ensure that each pair of nodes has a unique key pair, some systems do not want to distribute
+pairwise shared keys to achieve this. As another example, some systems require the provisioning process to embed
+application-specific information in either PSKs or their identities. Identities may sometimes need to be routable,
+as is currently under discussion for <xref target="I-D.mattsson-emu-eap-tls-psk" format="default"/>.</t>
+      </section>
+    </section>
+    <section anchor="recommendations" numbered="true" toc="default">
+      <name>Recommendations for External PSK Usage</name>
+      <t>Recommended requirements for applications using external PSKs are as follows:</t>
+      <ol spacing="normal" type="1">
+        <li>Each PSK <bcp14>SHOULD</bcp14> be derived from at least 128 bits of entropy, <bcp14>MUST</bcp14> be at least
+128 bits long, and <bcp14>SHOULD</bcp14> be combined with an ephemeral key exchange, e.g., by using the
+"psk_dhe_ke" Pre-Shared Key Exchange Mode in TLS 1.3 for forward secrecy. As
+discussed in <xref target="sec-properties" format="default"/>, low-entropy PSKs (i.e., those derived from less
+than 128 bits of entropy) are subject to attack and <bcp14>SHOULD</bcp14> be avoided. If only
+low-entropy keys are available, then key establishment mechanisms such as PAKE that mitigate the risk of offline dictionary attacks
+<bcp14>SHOULD</bcp14> be employed. Note that no such mechanisms have yet been standardized, and further
+that these mechanisms will not necessarily follow the same architecture as the
+process for incorporating external PSKs described in <xref target="RFC9258" format="default"/>.</li>
+        <li>Unless other accommodations are made to mitigate the risks of PSKs known to a group, each PSK <bcp14>MUST</bcp14> be restricted in
+its use to at most two logical nodes: one logical node in a TLS client
+role and one logical node in a TLS server role. (The two logical nodes
+<bcp14>MAY</bcp14> be the same, in different roles.) Two acceptable accommodations
+are described in <xref target="RFC9258" format="default"/>: (1) exchanging
+client and server identifiers over the TLS connection after the
+handshake and (2) incorporating identifiers for both the client and the
+server into the context string for an external PSK importer.</li>
+        <li>Nodes <bcp14>SHOULD</bcp14> use external PSK importers <xref target="RFC9258" format="default"/>
+when configuring PSKs for a client-server pair when applicable. Importers make provisioning
+external PSKs easier and less error-prone by deriving a unique, imported PSK from the
+external PSK for each key derivation function a node supports. See the Security Considerations of
+<xref target="RFC9258" format="default"/> for more information.</li>
+        <li>Where possible, the main PSK (that which is fed into the importer) <bcp14>SHOULD</bcp14> be
+deleted after the imported keys have been generated. This prevents an attacker
+from bootstrapping a compromise of one node into the ability to attack connections
+between any node; otherwise, the attacker can recover the main key and then
+re-run the importer itself.</li>
+      </ol>
+      <section anchor="stack-interfaces" numbered="true" toc="default">
+        <name>Stack Interfaces</name>
+        <t>Most major TLS implementations support external PSKs. Stacks supporting external PSKs
+provide interfaces that applications may use when configuring PSKs for individual
+connections. Details about some existing stacks at the time of writing are below.</t>
+        <ul spacing="normal">
+          <li>OpenSSL and BoringSSL: Applications can specify support for external PSKs via
+distinct ciphersuites in TLS 1.2 and below. Also, they can then configure callbacks that are invoked for
+PSK selection during the handshake. These callbacks must provide a PSK identity and key. The
+exact format of the callback depends on the negotiated TLS protocol version, with new callback
+functions added specifically to OpenSSL for TLS 1.3 <xref target="RFC8446" format="default"/> PSK support. The PSK length is validated to be between 1-256 bytes (inclusive). The PSK identity may be up to 128 bytes long.</li>
+          <li>mbedTLS: Client applications configure PSKs before creating a connection by providing the PSK
+identity and value inline. Servers must implement callbacks similar to that of OpenSSL. Both PSK
+identity and key lengths may be between 1-16 bytes long (inclusive).</li>
+          <li>gnuTLS: Applications configure PSK values as either raw byte strings or
+hexadecimal strings. The PSK identity and key size are not validated.</li>
+          <li>wolfSSL: Applications configure PSKs with callbacks similar to OpenSSL.</li>
+        </ul>
+        <section anchor="psk-identity-encoding-and-comparison" numbered="true" toc="default">
+          <name>PSK Identity Encoding and Comparison</name>
+          <t><xref target="RFC4279" sectionFormat="of" section="5.1"/> mandates that the PSK identity should be first converted to a character string and then
+encoded to octets using UTF-8. This was done to avoid interoperability problems (especially when the identity is
+configured by human users).  On the other hand, <xref target="RFC7925" format="default"/> advises  implementations against assuming any structured
+format for PSK identities and recommends byte-by-byte comparison for any operation. When PSK identities are configured
+manually, it is important to be aware that visually identical strings may, in fact, differ due to encoding issues.</t>
+          <t>TLS 1.3 <xref target="RFC8446" format="default"/> follows the same practice of specifying
+the PSK identity as a sequence of opaque bytes (shown as opaque identity&lt;1..2^16-1&gt;
+in the specification) that thus is compared on a byte-by-byte basis.
+<xref target="RFC8446" format="default"/> also requires that the PSK identities are at
+least 1 byte and at the most 65535 bytes in length. Although <xref target="RFC8446" format="default"/> does not
+place strict requirements on the format of PSK identities, note that
+the format of PSK identities can vary depending on the deployment:</t>
+          <ul spacing="normal">
+            <li>The PSK identity <bcp14>MAY</bcp14> be a user-configured string when used in protocols like
+Extensible Authentication Protocol (EAP) <xref target="RFC3748" format="default"/>. For example, gnuTLS treats
+PSK identities as usernames.</li>
+            <li>PSK identities <bcp14>MAY</bcp14> have a domain name suffix for roaming and federation. In
+applications and settings where the domain name suffix is privacy sensitive, this
+practice is <bcp14>NOT RECOMMENDED</bcp14>.</li>
+            <li>Deployments should take care that the length of the PSK identity is sufficient
+to avoid collisions.</li>
+          </ul>
+        </section>
+        <section anchor="psk-identity-collisions" numbered="true" toc="default">
+          <name>PSK Identity Collisions</name>
+          <t>It is possible, though unlikely, that an external PSK identity may clash with a
+resumption PSK identity. The TLS stack implementation and sequencing of PSK callbacks
+influences the application's behavior when identity collisions occur. When a server
+receives a PSK identity in a TLS 1.3 ClientHello, some TLS stacks
+execute the application's registered callback function before checking the stack's
+internal session resumption cache. This means that if a PSK identity collision occurs,
+the application's external PSK usage will typically take precedence over the internal
+session resumption path.</t>
+          <t>Because resumption PSK identities are assigned by the TLS stack implementation,
+it is <bcp14>RECOMMENDED</bcp14> that these identifiers be assigned in a manner that lets
+resumption PSKs be distinguished from external PSKs to avoid concerns with
+collisions altogether.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="endpoint-privacy" numbered="true" toc="default">
+      <name>Privacy Considerations</name>
+      <t>PSK privacy properties are orthogonal to security properties described in <xref target="sec-properties" format="default"/>.
+TLS does little to keep PSK identity information private. For example,
+an adversary learns information about the external PSK or its identifier by virtue of the identifier
+appearing in cleartext in a ClientHello. As a result, a passive adversary can link two or
+more connections together that use the same external PSK on the wire. Depending on the PSK
+identity, a passive attacker may also be able to identify the device, person, or enterprise
+running the TLS client or TLS server. An active attacker can also use the PSK identity to
+suppress handshakes or application data from a specific device by blocking, delaying, or
+rate-limiting traffic. Techniques for mitigating these risks require further analysis and are out
+of scope for this document.</t>
+      <t>In addition to linkability in the network, external PSKs are intrinsically linkable
+by PSK receivers. Specifically, servers can link successive connections that use the
+same external PSK together. Preventing this type of linkability is out of scope.</t>
+    </section>
+    <section anchor="security-con" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>Security considerations are provided throughout this document.  It bears
+repeating that there are concerns related to the use of external PSKs regarding
+proper identification of TLS 1.3 endpoints and additional risks when external
+PSKs are known to a group.</t>
+      <t>It is <bcp14>NOT RECOMMENDED</bcp14> to share the same PSK between more than one client and server.
+However, as discussed in <xref target="use-cases" format="default"/>, there are application scenarios that may
+rely on sharing the same PSK among multiple nodes. <xref target="RFC9258" format="default"/>
+helps in mitigating rerouting and Selfie-style reflection attacks when the PSK
+is shared among multiple nodes. This is achieved by correctly using the node
+identifiers in the ImportedIdentity.context construct specified in
+<xref target="RFC9258" format="default"/>. One solution would be for each endpoint
+to select one globally unique identifier to use in all PSK handshakes. The
+unique identifier can, for example, be one of its Media Access Control (MAC) addresses, a 32-byte
+random number, or its Universally Unique IDentifier (UUID) <xref target="RFC4122" format="default"/>.
+Note that such persistent, global identifiers have privacy implications;
+see <xref target="endpoint-privacy" format="default"/>.</t>
+      <t>Each endpoint <bcp14>SHOULD</bcp14> know the identifier of the other endpoint with which it wants
+to connect and <bcp14>SHOULD</bcp14> compare it with the other endpoint's identifier used in
+ImportedIdentity.context. However, it is important to remember that endpoints
+sharing the same group PSK can always impersonate each other.</t>
+      <t>Considerations for external PSK usage extend beyond proper identification.
+When early data is used with an external PSK, the random value in the ClientHello
+is the only source of entropy that contributes to key diversity between sessions.
+As a result, when an external PSK is used more than one time, the random number
+source on the client has a significant role in the protection of the early data.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+  </middle>
+  <back>
+<displayreference target="I-D.ietf-tls-ctls" to="CTLS"/>
+<displayreference target="I-D.irtf-cfrg-cpace" to="CPACE"/>
+<displayreference target="I-D.irtf-cfrg-opaque" to="OPAQUE"/>
+<displayreference target="I-D.mattsson-emu-eap-tls-psk" to="EAP-TLS-PSK"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+
+<reference anchor="RFC9258" target="https://www.rfc-editor.org/info/rfc9258">
+<front>
+<title>Importing External Pre-Shared Keys (PSKs) for TLS 1.3</title>
+<author initials='D' surname='Benjamin' fullname='David Benjamin'>
+  <organization/>
+</author>
+<author initials='C. A.' surname='Wood' fullname='Christopher Wood'>
+<organization/>
+</author>
+<date month='July' year='2022'/>
+</front>
+<seriesInfo name="RFC" value="9258"/>
+<seriesInfo name="DOI" value="10.17487/RFC9258"/>
+</reference>
+      </references>
+
+      <references>
+        <name>Informative References</name>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8773.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7925.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6066.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6614.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4122.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2865.xml"/>
+
+<!-- [I-D.ietf-tls-dtls13] [RFCYYY2] is now RFC 9147 -->
+<xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.9147.xml"/>
+
+<!-- [I-D.ietf-tls-ctls] I-D Exists status as of 7/22/22-->
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.ietf-tls-ctls.xml"/>
+
+<!-- [I-D.irtf-cfrg-cpace] I-D Exists status as of 7/22/22 -->
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.draft-irtf-cfrg-cpace.xml"/>
+
+<!--  [I-D.irtf-cfrg-opaque] I-D Exists status as of 7/22/22 -->
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.draft-irtf-cfrg-opaque.xml"/>
+
+<!-- [draft-mattsson-emu-eap-tls-psk] This reference has expired -->
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.mattsson-emu-eap-tls-psk.xml"/>
+
+
+<reference anchor="Selfie" target="https://eprint.iacr.org/2019/347.pdf">
+        <front>
+          <title>Selfie: reflections on TLS 1.3 with PSK</title>
+          <author initials="N" surname="Drucker" fullname="Nir Drucker">
+            <organization />
+          </author>
+          <author initials="S" surname="Gueron" fullname="Shay Gueron">
+            <organization />
+          </author>
+          <date month="May" year="2021"/>
+        </front>
+        <seriesInfo name="DOI" value="10.1007/s00145-021-09387-y"/>
+</reference>
+
+
+<reference anchor="AASS19" target="https://eprint.iacr.org/2019/421.pdf">
+<front>
+          <title>Continuing to reflect on TLS 1.3 with external PSK</title>
+          <author initials="L" surname="Akhmetzyanova" fullname="Liliya Akhmetzyanov">
+            <organization />
+          </author>
+          <author initials="E" surname="Alekseev" fullname="Evgeny Alekseev">
+            <organization />
+          </author>
+          <author initials="E" surname="Smyshlyaeva" fullname="Ekaterina Smyshlyaeva">
+            <organization />
+          </author>
+          <author initials="A" surname="Sokolov" fullname="Alexandr Sokolov">
+            <organization />
+          </author>
+          <date month="April" year="2019"/>
+        </front>
+        </reference>
+
+
+        <reference anchor="LwM2M" target="http://www.openmobilealliance.org/release/LightweightM2M/V1_0-20170208-A/OMA-TS-LightweightM2M-V1_0-20170208-A.pdf">
+        <front>
+          <title>Lightweight Machine to Machine Technical Specification</title>
+          <author>
+            <organization>Open Mobile Alliance</organization>
+          </author>
+          <date month="February" year="2017"/>
+        </front>
+	  <refcontent>version 1.0</refcontent>
+        </reference>
+
+        <reference anchor="GAA" target="https://www.etsi.org/deliver/etsi_tr/133900_133999/133919/12.00.00_60/tr_133919v120000p.pdf">
+          <front>
+            <title>Digital cellular telecommunications system (Phase 2+); Universal Mobile Telecommunications System (UMTS); LTE; 3G Security; Generic Authentication Architecture (GAA); System description</title>
+            <author>
+              <organization showOnFrontPage="true">ETSI</organization>
+            </author>
+            <date month="October" year="2014"/>
+          </front>
+          <seriesInfo name="ETSI TR" value="133 919"/>
+          <refcontent>version 12.0.0</refcontent>
+          </reference>
+
+        <reference anchor="SmartCard" target="https://www.bsi.bund.de/SharedDocs/Downloads/DE/BSI/Publikationen/TechnischeRichtlinien/TR03112/TR-03112-api_teil7.pdf?__blob=publicationFile&amp;v=1">
+<front>
+          <title>Technical Guideline TR-03112-7 eCard-API-Framework - Protocols</title>
+          <author initials="" surname="" fullname="">
+            <organization>Bundesamt für Sicherheit in der Informationstechnik</organization>
+          </author>
+          <date month="April" year="2015"/>
+</front>
+          <refcontent>version 1.1.5</refcontent>
+        </reference>
+
+
+        <reference anchor="Krawczyk" target="https://link.springer.com/content/pdf/10.1007/978-3-540-45146-4_24.pdf">
+<front>
+          <title>SIGMA: The 'SIGn-and-MAc' Approach to Authenticated Diffie-Hellman and Its Use in the IKE Protocols</title>
+          <author initials="H" surname="Krawczyk" fullname="Hugo Krawczyk">
+            <organization />
+          </author>
+          <date year="2003"/>
+        </front>
+        <seriesInfo name="DOI" value="10.1007/978-3-540-45146-4_24"/>
+        </reference>
+
+
+        <reference anchor="Sethi" target="https://arxiv.org/pdf/1902.07550">
+        <front>
+          <title>Misbinding Attacks on Secure Device Pairing and Bootstrapping</title>
+          <author initials="M" surname="Sethi" fullname="Mohit Sethi">
+            <organization />
+          </author>
+          <author initials="A" surname="Peltonen" fullname="Aleksi Peltonen">
+            <organization />
+          </author>
+          <author initials="T" surname="Aura" fullname="Tuomas Aura">
+            <organization />
+          </author>
+          <date month="May" year="2019"/>
+        </front>
+        <seriesInfo name="DOI" value="10.1145/3321705.3329813"/>
+        </reference>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4279.xml"/>
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3748.xml"/>
+
+</references>
+    </references>
+
+    <section anchor="acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>This document is the output of the TLS External PSK Design Team, comprised of the following members:
+Benjamin Beurdouche,
+<contact fullname="Björn Haase"/>,
+<contact fullname="Christopher Wood"/>,
+<contact fullname="Colm MacCarthaigh"/>,
+<contact fullname="Eric Rescorla"/>,
+<contact fullname="Jonathan Hoyland"/>,
+<contact fullname="Martin Thomson"/>,
+<contact fullname="Mohamad Badra"/>,
+<contact fullname="Mohit Sethi"/>,
+<contact fullname="Oleg Pekar"/>,
+<contact fullname="Owen Friel"/>, and
+<contact fullname="Russ Housley"/>.</t>
+      <t>This document was improved by high-quality reviews by <contact fullname="Ben Kaduk"/> and <contact fullname="John Preuß Mattsson"/>.</t>
+    </section>
+  </back>
+</rfc>

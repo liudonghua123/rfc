@@ -1,0 +1,970 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="info"
+consensus="true" docName="draft-ietf-opsawg-service-assurance-architecture-13" number="9417" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true"
+tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.16.0 -->
+  <front>
+    <title abbrev="SAIN Architecture">Service Assurance for Intent-Based Networking Architecture</title>
+    <seriesInfo name="RFC" value="9417"/>
+    <author fullname="Benoit Claise" initials="B" surname="Claise">
+      <organization>Huawei</organization>
+      <address>
+        <email>benoit.claise@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Jean Quilbeuf" initials="J" surname="Quilbeuf ">
+      <organization>Huawei</organization>
+      <address>
+        <email>jean.quilbeuf@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Diego R. Lopez" initials="D" surname="Lopez ">
+      <organization>Telefonica I+D</organization>
+      <address>
+        <postal>
+          <street>Don Ramon de la Cruz, 82</street>
+          <city>Madrid</city>
+	  <code>28006</code>
+          <country>Spain</country>
+        </postal>
+        <email>diego.r.lopez@telefonica.com</email>
+      </address>
+    </author>
+    <author fullname="Dan Voyer" initials="D" surname="Voyer ">
+      <organization>Bell Canada</organization>
+      <address>
+        <postal>
+          <street/>
+          <city/>
+          <country>Canada</country>
+        </postal>
+        <email>daniel.voyer@bell.ca</email>
+      </address>
+    </author>
+    <author fullname="Thangavelu Arumugam" initials="T" surname="Arumugam">
+      <organization>Consultant</organization>
+      <address>
+        <postal>
+          <street/>
+          <city>Milpitas</city>
+          <region>California</region>
+          <country>United States of America</country>
+        </postal>
+        <email>thangavelu@yahoo.com</email>
+      </address>
+    </author>
+    <date year="2023" month="July"/>
+    <area>ops</area>
+    <workgroup>opsawg</workgroup>
+    <abstract>
+      <t> 
+        This document describes an architecture that provides some assurance that service instances are running as expected.
+        As services rely upon multiple subservices provided by a variety of elements, including the underlying network devices and functions,
+          getting the assurance of a healthy service is only possible with a holistic view of all involved elements.
+          This architecture not only helps to correlate the service degradation with symptoms of a specific network component but, it also lists the services impacted by the failure or degradation of a specific network component.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+        Network Service YANG Modules  <xref target="RFC8199" format="default"/> describe the configuration, state data, operations, and notifications of abstract representations of services implemented on one or multiple network elements.
+      </t>
+      <t>
+        Service orchestrators use Network Service YANG Modules that will infer network-wide configuration and, therefore, the invocation of the appropriate device modules (<xref target="RFC8969" format="default" sectionFormat="of" section="3"/>).
+           Knowing that a configuration is applied doesn't imply that the provisioned service instance is up and running as expected.
+           For instance, the service might be degraded because of a failure in the network, the service quality may be degraded, or a service function may be reachable at the IP level but does not provide its intended function.
+           Thus, the network operator must monitor the service's operational data at the same time as the configuration (<xref target="RFC8969" format="default" sectionFormat="of" section="3.3"/>).
+           To fuel that task, the industry has been standardizing on telemetry to push network element performance information (e.g., <xref target="RFC9375" format="default"/>).
+      </t>
+      <t>
+        A network administrator needs to monitor its network and services as a whole, independently of the management protocols.
+           With different protocols come different data models and different ways to model the same type of information.
+           When network administrators deal with multiple management protocols, the network management entities have to perform the difficult and time-consuming job of mapping data models,
+           e.g., the model used for configuration with the model used for monitoring when separate models or protocols are used.
+           This problem is compounded by a large, disparate set of data sources (e.g., MIB modules, YANG data models <xref target="RFC7950" format="default"/>, IP Flow Information Export (IPFIX) information elements <xref target="RFC7011" format="default"/>, syslog plain text <xref target="RFC5424" format="default"/>, Terminal Access Controller Access-Control System Plus (TACACS+) <xref target="RFC8907" format="default"/>, RADIUS <xref target="RFC2865" format="default"/>, etc.).
+           In order to avoid this data model mapping, the industry converged on model-driven telemetry to stream the service operational data, reusing the YANG data models used for configuration.
+           Model-driven telemetry greatly facilitates the notion of closed-loop automation, whereby events and updated operational states streamed from the network drive remediation change back into the network.
+      </t>
+      <t>
+        However, it proves difficult for network operators to correlate the service degradation with the network root cause,
+        for example, "Why does my layer 3 virtual private network (L3VPN) fail to connect?" or "Why is this specific service not highly responsive?"
+           The reverse, i.e., which services are impacted when a network component fails or degrades, is also important for operators,
+           for example, "Which services are impacted when this specific optic decibel milliwatt (dBm) begins to degrade?",
+             "Which applications are impacted by an imbalance in this Equal-Cost Multipath (ECMP) bundle?", or "Is that issue actually impacting any other customers?"
+           This task usually falls under the so-called "Service Impact Analysis" functional block.
+      </t>
+      <t>
+           This document defines an architecture implementing Service Assurance for Intent-based Networking (SAIN).
+           Intent-based approaches are often declarative, starting from a statement of "The service works as expected" and trying to enforce it.
+           However, some already-defined services might have been designed using a different approach.
+           Aligned with <xref target="RFC7149" format="default" sectionFormat="of" section="3.3"/>, and instead of requiring a declarative intent as a starting point,
+           this architecture focuses on already-defined services and tries to infer the meaning of "The service works as expected".
+           To do so, the architecture works from an assurance graph, deduced from the configuration pushed to the device for enabling the service instance.
+           If the SAIN orchestrator supports it, the service model (<xref target="RFC8309" format="default" sectionFormat="of" section="2"/>) or the network model (<xref target="RFC8969" format="default" sectionFormat="of" section="2.1"/>) can also be used to build the assurance graph.
+           In that case and if the service model includes the declarative intent as well, the SAIN orchestrator can rely on the declared intent instead of inferring it.
+           The assurance graph may also be explicitly completed to add an intent not exposed in the service model itself.
+      </t>
+      <t>
+           The assurance graph of a service instance is decomposed into components, which are then assured independently.
+           The top of the assurance graph represents the service instance to assure, and its children represent components identified as its direct dependencies; each component can have dependencies as well.
+            Components involved in the assurance graph of a service are called subservices.
+           The SAIN orchestrator updates the assurance graph  automatically when the service instance is modified.
+      </t>
+      <t>
+          When a service is degraded, the SAIN architecture will highlight where in the assurance service graph to look, as opposed to going hop by hop to troubleshoot the issue.
+          More precisely, the SAIN architecture will associate to each service instance a list of symptoms originating from specific subservices, corresponding to components of the network.
+          These components are good candidates for explaining the source of a service degradation.
+          Not only can this architecture help to correlate service degradation with network root cause/symptoms, but it can deduce from the assurance graph the list of service instances impacted by a component degradation/failure.
+          This added value informs the operational team where to focus its attention for maximum return.
+          Indeed, the operational team is likely to focus their priority on the degrading/failing components impacting the highest number of their customers, especially the ones with the Service-Level Agreement (SLA) contracts involving penalties in case of failure.
+      </t>
+      <t>
+        This architecture provides the building blocks to assure both physical and virtual entities and is flexible with respect to services and subservices of (distributed) graphs and components (<xref target="flexible_architecture" format="default"/>).
+      </t>
+      <t>
+            The architecture presented in this document is implemented by a set of YANG modules defined in a companion document <xref target="RFC9418" format="default"/>.
+            These YANG modules properly define the interfaces between the various components of the architecture to foster interoperability.
+      </t>
+    </section>
+    <section anchor="terminology" numbered="true" toc="default">
+      <name>Terminology</name>
+      <dl newline="false" spacing="normal">
+        <dt>SAIN agent:</dt>
+	<dd>A functional component that communicates with a device, a set of devices,
+          or another agent to build an expression graph from a received assurance graph and
+          perform the corresponding computation of the health status and symptoms. A SAIN agent might
+          be running directly on the device it monitors.</dd>
+          <dt>Assurance case:</dt>
+	  <dd>"An assurance case is a structured argument, supported by evidence, intended to justify that a system is acceptably assured relative to a concern (such as safety or security) in the intended operating environment" <xref target="Piovesan2017" format="default"/>.</dd>
+          <dt>Service instance:</dt>
+	  <dd>A specific instance of a service.</dd>
+          <dt>Intent:</dt>
+          <dd>"A set of operational goals (that a network should meet) and outcomes (that a network is supposed to deliver) defined in a declarative manner without specifying how to achieve or implement them" <xref target="RFC9315" format="default"/>.</dd>
+          <dt>Subservice:</dt>
+	  <dd>A part or functionality of the network system that can be independently assured as a single entity in an assurance graph.</dd>
+          <dt>Assurance graph:</dt>
+	  <dd>A Directed Acyclic Graph (DAG) representing the assurance case for one or several service instances.
+          The nodes (also known as vertices in the context of DAG) are the service instances themselves and the subservices; the edges indicate a dependency relation.</dd>
+          <dt>SAIN collector:</dt>
+	  <dd>A functional component that fetches or receives the computer-consumable output of the SAIN agent(s) and processes it locally (including displaying it in a user-friendly form).</dd>
+          <dt>DAG:</dt>
+	  <dd>Directed Acyclic Graph.</dd>
+          <dt>ECMP:</dt>
+	  <dd>Equal-Cost Multipath.</dd>
+          <dt>Expression graph:</dt>
+	  <dd><t>A generic term for a DAG representing a computation in SAIN. More specific terms are listed below:</t>
+      <dl newline="true" spacing="normal">
+        <dt>Subservice expressions:</dt>
+	<dd>An expression graph representing all the computations to execute for a subservice.</dd>
+        <dt>Service expressions:</dt>
+	<dd>An expression graph representing all the computations to execute for a service instance, i.e., including the computations for all dependent subservices.</dd>
+        <dt>Global computation graph:</dt>
+	<dd>An expression graph representing all the computations to execute for all services instances  (i.e., all computations performed).</dd>
+      </dl>
+	  </dd>
+	  <dt>Dependency:</dt>
+	  <dd>The directed relationship between subservice instances in the assurance graph.</dd>
+          <dt>Metric:</dt>
+	  <dd>A piece of information retrieved from the network running the assured service.</dd>
+          <dt>Metric engine:</dt>
+	  <dd>A functional component, part of the SAIN agent, that maps metrics to a list of candidate metric implementations, depending on the network element.</dd>
+          <dt>Metric implementation:</dt>
+	  <dd>The actual way of retrieving a metric from a network element.</dd>
+          <dt>Network Service YANG Module:</dt>
+	  <dd>The characteristics of a service, as agreed upon with consumers of that service <xref target="RFC8199" format="default"/>.</dd>
+          <dt>Service orchestrator:</dt>
+	  <dd>"Network Service YANG Modules describe the characteristics of a service, as agreed upon with consumers of that service. That is, a service module does not expose the detailed configuration parameters of all participating network elements and features but describes an abstract model that allows instances of the service to be decomposed into instance data according to the Network Element YANG Modules of the participating network elements. The service-to-element decomposition is a separate process; the details depend on how the network operator chooses to realize the service. For the purpose of this document, the term "orchestrator" is used to describe a system implementing such a process" <xref target="RFC8199" format="default"/>.</dd>
+          <dt>SAIN orchestrator:</dt>
+	  <dd>A functional component that is in charge of fetching the configuration specific to each service instance and converting it into an assurance graph.</dd>
+          <dt>Health status:</dt>
+	  <dd>The score and symptoms indicating whether a service instance or a subservice is "healthy". A non-maximal score must always be explained by one or more symptoms.</dd>
+          <dt>Health score:</dt>
+	  <dd>An integer ranging from 0 to 100 that indicates the health of a subservice.
+          A score of 0 means that the subservice is broken, a score of 100 means that the subservice in question is operating as expected, and
+          the special value -1 can be used to specify that no value could be computed for that health score, for instance, if some metric needed for that computation could not be collected.</dd>
+          <dt>Strongly connected component:</dt>
+	  <dd>A subset of a directed graph such that there
+          is a (directed) path from any node of the subset to any other node. A
+          DAG does not contain any strongly connected component.</dd>
+          <dt>Symptom:</dt>
+	  <dd>A reason explaining why a service instance or a subservice is not completely healthy.</dd>
+      </dl>
+    </section>
+    <section anchor="architecture" numbered="true" toc="default">
+      <name>A Functional Architecture</name>
+      <t>
+        The goal of SAIN is to assure that service instances are operating as expected (i.e., the observed service is matching the expected service) and, if not, to pinpoint what is wrong.
+          More precisely, SAIN computes a score for each service instance and outputs symptoms explaining that score.
+          The only valid situation where no symptoms are returned is when the score is maximal, indicating that no issues were detected for that service instance.
+          The score augmented with the symptoms is called the health status. The exact meaning of the health score value is out of scope of this document. However, the following constraints should be followed: the higher the score, the better the service health is and the two extrema are 0 meaning the service is completely broken, and 100 meaning the service is completely operational.
+      </t>
+      <t>
+        The SAIN architecture is a generic architecture, which generates an assurance graph from service instance(s), as specified in <xref target="inferring" format="default"/>.
+          This architecture is applicable to not only multiple environments (e.g., wireline and wireless)
+          but also different domains (e.g., 5G network function virtualization (NFV) domain with a virtual infrastructure manager (VIM), etc.)
+          and, as already noted, for physical or virtual devices, as well as virtual functions.
+          Thanks to the distributed graph design principle, graphs from different environments and orchestrators can be combined to obtain the graph of a service instance that spans over multiple domains.
+      </t>
+      <t>
+        As an example of a service, let us consider a point-to-point layer 2 virtual private network (L2VPN).
+        <xref target="RFC8466" format="default"/> specifies the parameters for such a service.
+          Examples of symptoms might be symptoms reported by specific subservices, including "Interface has high error rate", "Interface flapping", or "Device almost out of memory", as well as symptoms more specific to the service (such as "Site disconnected from VPN").
+      </t>
+      <t>
+          To compute the health status of an instance of such a service, the service definition is decomposed into an assurance graph formed by subservices linked through dependencies. Each subservice is then turned into an expression graph that details how to fetch metrics from the devices and compute the health status of the subservice. The subservice expressions are combined according to the dependencies between the subservices in order to obtain the expression graph that computes the health status of the service instance.
+      </t>
+      <t>
+         The overall SAIN architecture is presented in <xref target="figure_1" format="default"/>.
+          Based on the service configuration provided by the service orchestrator, the SAIN orchestrator decomposes the assurance graph.
+          It then sends to the SAIN agents the assurance graph along with some other configuration options.
+          The SAIN agents are responsible for building the expression graph and computing the health statuses in a distributed manner.
+          The collector is in charge of collecting and displaying the current inferred health status of the service instances and subservices.
+   The
+   collector also detects changes in the assurance graph structures (e.g., an
+   occurrence of a switchover from primary to backup path) and
+   forwards the information to the orchestrator, which reconfigures the agents.
+          Finally, the automation loop is closed by having the SAIN collector provide feedback to the network/service orchestrator.
+      </t>
+      <t>
+    In order to make agents, orchestrators, and collectors from different vendors interoperable, their interface is defined as a YANG module in a companion document <xref target="RFC9418" format="default"/>.
+          In <xref target="figure_1" format="default"/>, the communications that are normalized by this YANG module are tagged with a "Y".
+          The use of this YANG module is further explained in <xref target="open_interfaces_with_YANG_modules" format="default"/>.
+      </t>
+      <figure anchor="figure_1">
+        <name>SAIN Architecture</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+     +-----------------+
+     | Service         |
+     | Orchestrator    |<----------------------+
+     |                 |                       |
+     +-----------------+                       |
+        |            ^                         |
+        |            | Network                 |
+        |            | Service                 | Feedback
+        |            | Instance                | Loop
+        |            | Configuration           |
+        |            |                         |
+        |            V                         |
+        |        +-----------------+  Graph  +-------------------+
+        |        | SAIN            | Updates | SAIN              |
+        |        | Orchestrator    |<--------| Collector         |
+        |        +-----------------+         +-------------------+
+        |            |                          ^
+        |           Y| Configuration            | Health Status
+        |            | (Assurance Graph)       Y| (Score + Symptoms)
+        |            V                          | Streamed
+        |     +-------------------+             | via Telemetry
+        |     |+-------------------+            |
+        |     ||+-------------------+           |
+        |     +|| SAIN              |-----------+
+        |      +| Agent             |
+        |       +-------------------+
+        |               ^ ^ ^
+        |               | | |
+        |               | | |  Metric Collection
+        V               V V V
+    +-------------------------------------------------------------+
+    |           (Network) System                                  |
+    |                                                             |
+    +-------------------------------------------------------------+
+        ]]></artwork>
+      </figure>
+      <t>
+        In order to produce the score assigned to a service instance, the various involved components perform the following tasks:
+      </t>
+      <ul spacing="normal">
+        <li>
+              Analyze the configuration pushed to the network device(s) for configuring the service instance.
+              From there, determine which information (called a metric) must be collected from the device(s) and which operations to apply to the metrics to compute the health status.
+        </li>
+        <li>
+            Stream (via telemetry, such as YANG-Push <xref target="RFC8641" format="default"/>) operational and config metric values when possible, else continuously poll.
+          </li>
+        <li>
+            Continuously compute the health status of the service instances based on the metric values.
+          </li>
+      </ul>
+      <t>
+          The SAIN architecture requires time synchronization, with the Network Time Protocol (NTP) <xref target="RFC5905" format="default"/> as a candidate, between all elements: monitored entities, SAIN agents, service orchestrator, the SAIN collector, as well as the SAIN orchestrator. This guarantees the correlations of all symptoms in the system, correlated with the right assurance graph version.
+      </t>
+      <section anchor="inferring" numbered="true" toc="default">
+        <name>Translating a Service Instance Configuration into an Assurance Graph</name>
+        <t>
+          In order to structure the assurance of a service instance, the SAIN orchestrator decomposes the service instance into so-called subservice instances.
+            Each subservice instance focuses on a specific feature or subpart of the service.
+        </t>
+        <t>
+          The decomposition into subservices is an important function of the architecture for the following reasons:
+        </t>
+        <ul spacing="normal">
+          <li>
+              The result of this decomposition provides a relational picture of a service instance, which can be represented as a graph (called an assurance graph) to the operator.
+            </li>
+          <li>
+              Subservices provide a scope for particular expertise and thereby enable contribution from external experts.
+                For instance, the subservice dealing with the optic's health should be reviewed and extended by an expert in optical interfaces.
+            </li>
+          <li>
+              Subservices that are common to several service instances are reused for reducing the amount of computation needed.
+                For instance, the subservice assuring a given interface is reused by any service instance relying on that interface.
+            </li>
+        </ul>
+        <t>
+          The assurance graph of a service instance is a DAG representing the structure of the assurance case for the service instance. The nodes of this graph are service instances or subservice instances. Each edge of this graph indicates a dependency between the two nodes at its extremities, i.e., the service or subservice at the source of the edge depends on the service or subservice at the destination of the edge.
+        </t>
+        <t>
+          <xref target="figure_2" format="default"/> depicts a simplistic example of the assurance graph for a tunnel service. The node at the top is the service instance; the nodes below are its dependencies. In the example, the tunnel service instance depends on the "peer1" and "peer2" tunnel interfaces (the tunnel interfaces created on the peer1 and peer2 devices, respectively), which in turn depend on the respective physical interfaces, which finally depend on the respective "peer1" and "peer2" devices. The tunnel service instance also depends on the IP connectivity that depends on the IS-IS routing protocol.
+        </t>
+        <figure anchor="figure_2">
+          <name>Assurance Graph Example</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+                         +------------------+
+                         | Tunnel           |
+                         | Service Instance |
+                         +------------------+
+                                   |
+              +--------------------+-------------------+
+              |                    |                   |
+              v                    v                   v
+         +-------------+    +--------------+    +-------------+
+         | Peer1       |    | IP           |    | Peer2       |
+         | Tunnel      |    | Connectivity |    | Tunnel      |
+         | Interface   |    |              |    | Interface   |
+         +-------------+    +--------------+    +-------------+
+                |                  |                  |
+                |    +-------------+--------------+   |
+                |    |             |              |   |
+                v    v             v              v   v
+         +-------------+    +-------------+     +-------------+
+         | Peer1       |    | IS-IS       |     | Peer2       |
+         | Physical    |    | Routing     |     | Physical    |
+         | Interface   |    | Protocol    |     | Interface   |
+         +-------------+    +-------------+     +-------------+
+                |                                     |
+                v                                     v
+         +-------------+                        +-------------+
+         |             |                        |             |
+         | Peer1       |                        | Peer2       |
+         | Device      |                        | Device      |
+         +-------------+                        +-------------+
+         ]]></artwork>
+        </figure>
+        <t>
+          Depicting the assurance graph helps the operator to understand (and assert) the decomposition.
+            The assurance graph shall be maintained during normal operation with addition, modification, and removal of service instances.
+            A change in the network configuration or topology shall automatically be reflected in the assurance graph.
+            As a first example, a change of the routing protocol from IS-IS to OSPF would change the assurance graph accordingly.
+            As a second example, assume that the ECMP is in place for the source router for that specific tunnel; in that case, multiple interfaces must now be monitored, in addition to monitoring the ECMP health itself.
+        </t>
+        <section anchor="circular_dependencies" numbered="true" toc="default">
+          <name>Circular Dependencies</name>
+          <t>
+            The edges of the assurance graph represent dependencies. An
+            assurance graph is a DAG if and only if there are no circular
+            dependencies among the subservices, and every assurance
+            graph should avoid circular dependencies. However, in some cases,
+            circular dependencies might appear in the assurance graph.
+          </t>
+          <t>
+            First, the assurance graph of a whole system is obtained by
+            combining the assurance graph of every service running on that
+            system. Here, combining means that two subservices having the
+            same type and the same parameters are in fact the same
+            subservice and thus a single node in the graph. For instance,
+            the subservice of type "device" with the only parameter
+            (the device ID) set to "PE1" will appear only once in the
+            whole assurance graph, even if several service instances rely
+            on that device. Now, if two engineers design assurance graphs for
+            two different services, and Engineer A decides that an interface
+            depends on the link it is connected to, but Engineer B decides that
+            the link depends on the interface it is connected to, then when
+            combining the two assurance graphs, we will have a circular
+            dependency interface -&gt; link -&gt; interface.
+          </t>
+          <t>
+              Another case possibly resulting in circular dependencies is when subservices are not properly identified.
+              Assume that we want to assure a cloud-based computing cluster that runs containers.
+              We could represent the cluster by a subservice and the network service connecting containers on the cluster by another subservice.
+              We would likely model that as the network service depending on the cluster, because the network service runs in a container supported by the cluster.
+              Conversely, the cluster depends on the network service for connectivity between containers, which creates a circular dependency.
+              A finer decomposition might distinguish between the resources for executing containers (a part of our cluster subservice) and the communication between the containers (which could be modeled in the same way as communication between routers).
+          </t>
+          <t>
+            In any case, it is likely that circular dependencies will show up in
+            the assurance graph. A first step would be to detect
+            circular dependencies as soon as possible in the SAIN
+            architecture. Such a detection could be carried out by
+            the SAIN orchestrator. Whenever a circular dependency
+            is detected, the newly added service would not be
+            monitored until more careful modeling or alignment
+            between the different teams (Engineers A and B) remove the circular
+            dependency.
+          </t>
+          <t>
+            As a more elaborate solution, we could consider a graph transformation:
+          </t>
+          <ul spacing="normal">
+            <li>Decompose the graph into strongly connected components.</li>
+            <li>
+              <t>
+               For each strongly connected component:
+              </t>
+              <ul spacing="normal">
+                <li>remove all edges between nodes of the strongly connected component;</li>
+                <li>add a new "synthetic" node for the strongly connected component;</li>
+                <li>for each edge pointing to a node in the strongly connected component, change the destination to the "synthetic" node; and</li>
+                <li>add a dependency from the "synthetic" node to every node in the strongly connected component.</li>
+              </ul>
+            </li>
+          </ul>
+          <t>
+            Such an algorithm would include all symptoms detected by any
+            subservice in one of the strongly connected components and make it
+          available to any subservice that depends on it.
+         <xref target="graph_transformation" format="default"/> shows an example
+            of such a transformation. On the left-hand side, the nodes c, d, e,
+            and f form a strongly connected component. The status of node a should
+         depend on the status of nodes c, d, e, f, g, and h, but this is hard to
+            compute because of the circular dependency. On the right-hand side,
+            node a depends on all these nodes as well, but the circular
+            dependency has been removed.
+          </t>
+          <figure anchor="graph_transformation">
+            <name>Graph Transformation</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+      +---+    +---+          |                +---+    +---+
+      | a |    | b |          |                | a |    | b |
+      +---+    +---+          |                +---+    +---+
+        |        |            |                  |        |
+        v        v            |                  v        v
+      +---+    +---+          |                +------------+
+      | c |--->| d |          |                |  synthetic |
+      +---+    +---+          |                +------------+
+        ^        |            |               /   |      |   \
+        |        |            |              /    |      |    \
+        |        v            |             v     v      v     v
+      +---+    +---+          |          +---+  +---+  +---+  +---+
+      | f |<---| e |          |          | f |  | c |  | d |  | e |
+      +---+    +---+          |          +---+  +---+  +---+  +---+
+        |        |            |            |                    |
+        v        v            |            v                    v
+      +---+    +---+          |          +---+                +---+
+      | g |    | h |          |          | g |                | h |
+      +---+    +---+          |          +---+                +---+
+
+         Before                                     After
+      Transformation                           Transformation
+          ]]></artwork>
+          </figure>
+          <t>
+            We consider a concrete example to illustrate this transformation.
+            Let's assume that Engineer A is building an assurance graph dealing with IS-IS and Engineer B is building an assurance graph dealing with OSPF.
+            The graph from Engineer A could contain the following:
+          </t>
+          <figure anchor="is-is_link">
+            <name>Fragment of the Assurance Graph from Engineer A</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+                +------------+
+                | IS-IS Link |
+                +------------+
+                      |
+                      v
+                +------------+
+                | Phys. Link |
+                +------------+
+                  |       |
+                  v       v
+       +-------------+  +-------------+
+       | Interface 1 |  | Interface 2 |
+       +-------------+  +-------------+
+          ]]></artwork>
+          </figure>
+          <t>
+            The graph from Engineer B could contain the following:
+          </t>
+          <figure anchor="ospf_link">
+            <name>Fragment of the Assurance Graph from Engineer B</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+                +------------+
+                | OSPF Link  |
+                +------------+
+                  |   |   |
+                  v   |   v
+     +-------------+  |  +-------------+
+     | Interface 1 |  |  | Interface 2 |
+     +-------------+  |  +-------------+
+                   |  |   |
+                   v  v   v
+                +------------+
+                | Phys. Link |
+                +------------+
+           ]]></artwork>
+          </figure>
+          <t>
+            The Interface subservices and the Physical Link subservice are common to both fragments above.
+            Each of these subservices appear only once in the graph merging the two fragments.
+            Dependencies from both fragments are included in the merged graph, resulting in a circular dependency:
+          </t>
+          <figure anchor="ospf_isis_circ_dep">
+            <name>Merging Graphs from Engineers A and B</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+      +------------+      +------------+
+      | IS-IS Link |      | OSPF Link  |---+
+      +------------+      +------------+   |
+            |               |     |        |
+            |     +-------- +     |        |
+            v     v               |        |
+      +------------+              |        |
+      | Phys. Link |<-------+     |        |
+      +------------+        |     |        |
+        |  ^     |          |     |        |
+        |  |     +-------+  |     |        |
+        v  |             v  |     v        |
+      +-------------+  +-------------+     |
+      | Interface 1 |  | Interface 2 |     |
+      +-------------+  +-------------+     |
+            ^                              |
+            |                              |
+            +------------------------------+
+          ]]></artwork>
+          </figure>
+          <t>
+            The solution presented above would result in a graph looking as follows, where a new "synthetic" node is included.
+            Using that transformation, all dependencies are indirectly satisfied for the nodes outside the circular dependency, in the sense that both IS-IS and OSPF links have indirect dependencies to the two interfaces and the link.
+  However, the dependencies between the link and the
+  interfaces are lost since they were causing the circular dependency.	    
+          </t>
+          <figure anchor="ospf_isis_no_circ_dep">
+            <name>Removing Circular Dependencies after Merging Graphs from Engineers A and B</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+            +------------+      +------------+
+            | IS-IS Link |      | OSPF Link  |
+            +------------+      +------------+
+                       |          |
+                       v          v
+                      +------------+
+                      |  synthetic |
+                      +------------+
+                            |
+                +-----------+-------------+
+                |           |             |
+                v           v             v
+      +-------------+ +------------+ +-------------+
+      | Interface 1 | | Phys. Link | | Interface 2 |
+      +-------------+ +------------+ +-------------+
+          ]]></artwork>
+          </figure>
+        </section>
+      </section>
+      <section anchor="intent" numbered="true" toc="default">
+        <name>Intent and Assurance Graph</name>
+        <t>
+          The SAIN orchestrator analyzes the configuration of a service instance to do the following: 
+        </t>
+        <ul spacing="normal">
+          <li>
+              Try to capture the intent of the service instance, i.e., What is the service instance trying to achieve?
+                At a minimum, this requires the SAIN orchestrator to know the YANG modules that are being configured on the devices to enable the service.
+                Note that, if the service model or the network model is known to the SAIN orchestrator, the latter can exploit it.
+                In that case, the intent could be directly extracted and include more details, such as the notion of sites for a VPN, which is out of scope of the device configuration.
+            </li>
+          <li>
+              Decompose the service instance into subservices representing the network features on which the service instance relies.
+            </li>
+        </ul>
+<t>
+   The SAIN orchestrator must be able to analyze the configuration pushed to
+   various devices of a service instance and produce the
+   assurance graph for that service instance.  
+        </t>
+        <t>
+   To schematize what a SAIN orchestrator does, assume that 
+   a service instance touches two devices and
+   configures a virtual tunnel interface on each device. Then:
+        </t>
+        <ul spacing="normal">
+          <li>Capturing the intent would start by detecting that the service
+     instance is actually a tunnel between the two devices and stating
+     that this tunnel must be operational.
+                This solution is minimally invasive, as it does not require modifying nor knowing the service model.
+                If the service model or network model is known by the SAIN orchestrator, it can be used to further capture the intent and include more information, such as Service-Level Objectives (e.g., 
+                the latency and bandwidth requirements for the tunnel) if present in the service model.
+            </li>
+          <li>
+              Decomposing the service instance into subservices would result in the assurance graph depicted in <xref target="figure_2" format="default"/>, for instance.
+            </li>
+        </ul>
+        <t>
+            The assurance graph, or more precisely the subservices and dependencies that a SAIN orchestrator can instantiate, should be curated.
+              The organization of such a process (i.e., ensure that existing subservices are reused as much as possible
+  and avoid circular dependencies) is out-of-scope for this
+  document.
+        </t>
+        <t>
+          To be applied, SAIN requires a mechanism mapping a service instance to the configuration actually required on the devices for that service instance to run.
+            While <xref target="figure_1" format="default"/> makes a distinction between the SAIN orchestrator and a different component providing the service instance configuration, in practice those two components are most likely combined.
+            The internals of the orchestrator are out of scope of this document.
+        </t>
+      </section>
+      <section anchor="subservices" numbered="true" toc="default">
+        <name>Subservices</name>
+        <t>
+          A subservice corresponds to a subpart or a feature of the network system that is needed for a service instance to function properly.
+            In the context of SAIN, a subservice is associated to its assurance, which is the method for assuring that a subservice behaves correctly.
+        </t>
+        <t> 
+          Subservices, just as with services, have high-level parameters that specify the instance to be assured.
+            The needed parameters depend on the subservice type.
+            For example, assuring a device requires a specific deviceId as a parameter and
+            assuring an interface requires a specific combination of deviceId and interfaceId.
+        </t>
+        <t>
+          When designing a new type of subservice, one should carefully define what is the assured object or functionality.
+   Then, the parameters
+   must be chosen as a minimal set that completely identifies the object
+   (see examples from the previous paragraph).	  
+            Parameters cannot change during the life cycle of a subservice.
+            For instance, an IP address is a good parameter when assuring a connectivity towards that address (i.e., a given device can reach a given IP address); however, it's not a good parameter to identify an interface, as the IP address assigned to that interface can be changed.
+        </t>
+        <t>
+          A subservice is also characterized by a list of metrics to fetch and a list of operations to apply to these metrics in order to infer a health status.
+        </t>
+      </section>
+      <section anchor="building_the_expression_graph_from_the_assurance_graph" numbered="true" toc="default">
+        <name>Building the Expression Graph from the Assurance Graph</name>
+        <t>
+          From the assurance graph, a so-called global computation graph is derived.
+            First, each subservice instance is transformed into a set of subservice expressions that take metrics and constants as input (i.e., sources of the DAG) and produce the status of the subservice based on some heuristics.
+            For instance, the health of an interface is 0 (minimal score) with the symptom "interface admin-down" if the interface is disabled in the configuration.
+            Then, for each service instance, the service expressions are constructed by combining the subservice expressions of its dependencies.
+            The way service expressions are combined depends on the dependency types (impacting or informational).
+            Finally, the global computation graph is built by combining the service expressions to get a global view of all subservices.
+            In other words, the global computation graph encodes all the operations needed to produce health statuses from the collected metrics.
+        </t>
+        <t>
+          The two types of dependencies for combining subservices are:
+        </t>
+        <dl newline="true" spacing="normal">
+          <dt>Informational Dependency:</dt>
+	  <dd>The type of dependency whose health score does not impact the health score of its parent subservice or service instance(s) in the assurance graph. However, the symptoms should be taken into account in the parent service instance or subservice instance(s) for informational reasons.</dd>
+          <dt>Impacting Dependency:</dt>
+	  <dd>The type of dependency whose health score impacts the health score of its parent subservice or service instance(s) in the assurance graph.
+              The symptoms are taken into account in the parent service instance or subservice instance(s) as the impacting reasons.</dd>
+        </dl>
+        <t>
+          The set of dependency types presented here is not exhaustive.
+          More specific dependency types can be defined by extending the YANG module.
+          For instance, a connectivity subservice depending on several path subservices is partially impacted if only one of these paths fails.
+          Adding these new dependency types requires defining the corresponding operation for combining statuses of subservices.
+        </t>
+        <t>
+          Subservices shall not be dependent on the protocol used to retrieve the metrics.
+            To justify this, let's consider the interface operational status.
+            Depending on the device capabilities, this status can be collected by an industry-accepted YANG module (e.g., IETF or Openconfig <xref target="OpenConfig" format="default"/>), by a vendor-specific YANG module, or even by a MIB module.
+            If the subservice was dependent on the mechanism to collect the operational status, then we would need multiple subservice definitions in order to support all different mechanisms.
+            This also implies that, while waiting for all the metrics to be available via standard YANG modules, SAIN agents might have to retrieve metric values via nonstandard YANG data models, MIB modules, the Command-Line Interface (CLI), etc., effectively implementing a normalization layer between data models and information models.
+        </t>
+        <t>
+             In order to keep subservices independent of metric collection method 
+   (or, expressed differently, to support multiple combinations of
+   platforms, OSes, and even vendors), the architecture introduces the
+   concept of "metric engine".
+          The metric engine maps each device-independent metric used in the subservices to a list of device-specific metric implementations that precisely define how to fetch values for that metric.
+          The mapping is parameterized by the characteristics (i.e., model, OS version, etc.) of the device from which the metrics are fetched.
+          This metric engine is included in the SAIN agent.
+        </t>
+      </section>
+      <section anchor="open_interfaces_with_YANG_modules" numbered="true" toc="default">
+        <name>Open Interfaces with YANG Modules</name>
+        <t>
+            The interfaces between the architecture components are open thanks to the YANG modules specified in <xref target="RFC9418" format="default"/>;
+            they specify objects for assuring network services based on their decomposition into so-called subservices, according to the SAIN  architecture.
+        </t>
+        <t>
+          These modules are intended for the following use cases:
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>
+              Assurance graph configuration: 
+            </t>
+            <ul spacing="normal">
+              <li>
+                  Subservices: Configure a set of subservices to assure by specifying their types and parameters.
+                </li>
+              <li>
+                  Dependencies: Configure the dependencies between the subservices, along with their types.
+                </li>
+            </ul>
+          </li>
+          <li>
+              Assurance telemetry: Export the health status of the subservices, along with the observed symptoms.
+            </li>
+        </ul>
+        <t>
+          Some examples of YANG instances can be found in <xref target="RFC9418" format="default" sectionFormat="of" section="A"/>.
+        </t>
+      </section>
+      <section anchor="maintenance" numbered="true" toc="default">
+        <name>Handling Maintenance Windows</name>
+        <t>
+              Whenever network components are under maintenance, the operator wants to inhibit the emission of symptoms from those components.
+              A typical use case is device maintenance, during which the device is not supposed to be operational.
+              As such, symptoms related to the device health should be ignored.
+              Symptoms related to the device-specific subservices, such as the interfaces, might also be ignored because their state changes are probably the consequence of the maintenance.
+        </t>
+        <t>
+              The ietf-service-assurance model described in <xref target="RFC9418" format="default"/> enables flagging subservices as under maintenance and, in that case, requires a string that identifies the person or process that requested the maintenance.
+              When a service or subservice is flagged as under maintenance, it must report a generic "Under Maintenance" symptom for propagation towards subservices that depend on this specific subservice.
+              Any other symptom from this service or by one of its impacting dependencies must not be reported.
+        </t>
+        <t>
+             We illustrate this mechanism on three independent examples based on the assurance graph depicted in <xref target="figure_2" format="default"/>:
+        </t>
+        <ul spacing="normal">
+          <li>  Device maintenance, for instance, upgrading the device OS. The operator
+                 flags the subservice "Peer1" device as under maintenance.
+                 This inhibits the emission of symptoms, except "Under Maintenance" from "Peer1
+                 Physical Interface", "Peer1 Tunnel Interface", and "Tunnel Service
+                 Instance". All other subservices are unaffected.
+               </li>
+          <li>
+                 Interface maintenance, for instance, replacing a broken optic.
+                 The operator flags the subservice "Peer1 Physical Interface" as under maintenance.
+                 This inhibits the emission of symptoms, except "Under Maintenance"
+                 from "Peer 1 Tunnel Interface" and "Tunnel Service Instance". All
+               other subservices are unaffected.
+               </li>
+          <li>
+                 Routing protocol maintenance, for instance, modifying parameters or
+               redistribution. The operator marks the subservice "IS-IS Routing Protocol" as under maintenance.
+               This inhibits the emission of symptoms, except "Under Maintenance" from "IP connectivity" and "Tunnel Service Instance".
+               All other subservices are unaffected.
+               </li>
+        </ul>
+        <t>
+              In each example above, the subservice under maintenance is completely impacting the service instance, putting it under maintenance as well.
+              There are use cases where the subservice under maintenance only partially impacts the service instance.
+              For instance, consider a service instance  supported by both a primary and backup path.
+              If a subservice impacting the primary path is under maintenance, the service instance might still be functional but degraded.
+              In that case, the status of the service instance might include "Primary path Under Maintenance", "No redundancy", as well as other symptoms from the backup path to explain the lower health score.
+              In general, the computation of the service instance status from the subservices is done in the SAIN collector whose implementation is out of scope for this document.
+        </t>
+        <t>
+              The maintenance of a subservice might modify or hide modifications of the structure of the assurance graph.
+              Therefore, unflagging a subservice as under maintenance should trigger an update of the assurance graph.
+        </t>
+      </section>
+      <section anchor="flexible_architecture" numbered="true" toc="default">
+        <name>Flexible Functional Architecture</name>
+        <t>
+          The SAIN architecture is flexible in terms of components. While the 
+          SAIN architecture in <xref target="figure_1" format="default"/> makes a distinction between two components,
+            the service orchestrator and the SAIN orchestrator, in practice the two components are most likely combined.
+          Similarly, the SAIN agents are displayed in <xref target="figure_1" format="default"/> as being separate components. In practice, the SAIN agents could be either independent 
+          components or directly integrated in monitored entities.
+          A practical example is an agent in a router.
+        </t>
+        <t>
+            The SAIN architecture is also flexible in terms of services and subservices.
+            In the defined architecture, the SAIN orchestrator is coupled to a service orchestrator, which defines the kinds of services that the architecture handles.
+            Most examples in this document deal with the notion of Network Service YANG Modules with well-known services, such as L2VPN or tunnels.
+            However, the concept of services is general enough to cross into different domains.
+            One of them is the domain of service management on network elements, which also require their own assurance.
+            Examples include a DHCP server on a Linux server, a data plane, an IPFIX export, etc.
+            The notion of "service" is generic in this architecture and depends on the service orchestrator and underlying network system, as illustrated by the following examples:
+        </t>
+        <ul spacing="normal">
+          <li>If a main service orchestrator coordinates several lower-level controllers, a service for the controller can be a subservice from the point of view of the orchestrator.</li>
+          <li>A DHCP server / data plane / IPFIX export can be considered subservices for a device.</li>
+          <li>A routing instance can be considered a subservice for an L3VPN.</li>
+          <li>A tunnel can be considered a subservice for an application in the cloud.</li>
+          <li>A service function can be considered a subservice for a service function chain <xref target="RFC7665" format="default"/>.</li>
+        </ul>
+        <t>
+            The assurance graph is created to be flexible and open, regardless of the subservice types, locations, or domains.
+        </t>
+        <t>
+          The SAIN architecture is also flexible in terms of distributed graphs. 
+          As shown in  <xref target="figure_1" format="default"/>, the architecture comprises several agents.
+          Each agent is responsible for handling a subgraph of the assurance graph.  
+          The collector is responsible for fetching the subgraphs from the different
+          agents and gluing them together.  As an example, in the graph from  <xref target="figure_2" format="default"/>, the subservices relative to Peer 1 might be handled by a 
+          different agent than the subservices relative to Peer 2, and the Connectivity 
+          and IS-IS subservices might be handled by yet another agent.  The agents will 
+          export their partial graph, and the collector will stitch them together as 
+          dependencies of the service instance.
+        </t>
+        <t>
+          And finally, the SAIN architecture is flexible in terms of what it monitors. 
+          Most, if not all, examples in this document refer to physical components, but
+          this is not a constraint. Indeed, the assurance of virtual components would
+          follow the same principles, and an assurance graph composed of virtualized 
+          components (or a mix of virtualized and physical ones) is supported by
+          this architecture.
+        </t>
+      </section>
+      <section anchor="garbage_collection" numbered="true" toc="default">
+        <name>Time Window for Symptoms' History</name>
+        <t>
+              The health status reported via the YANG modules contains, for each subservice, the list of symptoms.
+              Symptoms have a start and end date, making it is possible to report symptoms that are no longer occurring.
+        </t>
+        <t>
+          The SAIN agent might have to remove some symptoms for specific subservice symptoms because 
+          they are outdated and no longer relevant or simply because the SAIN agent needs to
+          free up some space. Regardless of the reason, it's important for a SAIN collector 
+          connecting/reconnecting to a SAIN agent to understand the effect of this garbage collection. 
+        </t>
+        <t>
+            Therefore, the SAIN agent contains a YANG object specifying the date and time at which
+            the symptoms' history starts for the subservice instances.
+            The subservice reports only symptoms that are occurring or that have been occurring after the history start date.
+        </t>
+      </section>
+      <section anchor="new_assurance_graph_generation" numbered="true" toc="default">
+        <name>New Assurance Graph Generation</name>
+        <t>
+          The assurance graph will change over time, because services and subservices come and go (changing the dependencies between subservices) or as a result of resolving maintenance issues. Therefore, an assurance graph version must be maintained, along with the date and time of its last generation. The date and time of a particular subservice instance (again dependencies or under maintenance) might be kept. From a client point of view, an assurance graph change is triggered by the value of the assurance-graph-version and assurance-graph-last-change YANG leaves. At that point in time, the client (collector) follows the following process:
+        </t>
+        <ul spacing="normal">
+          <li>
+              Keep the previous assurance-graph-last-change value (let's call it time T).
+            </li>
+          <li>
+              Run through all the subservice instances and process the subservice instances for which the last-change is newer than the time T.
+            </li>
+          <li>
+              Keep the new assurance-graph-last-change as the new referenced date and time.
+            </li>
+        </ul>
+      </section>
+    </section>
+    <section anchor="iana" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.
+      </t>
+    </section>
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The SAIN architecture helps operators to reduce the mean time to detect and the mean time to repair.
+         However, the SAIN agents must be secured; a compromised SAIN agent may be sending incorrect root causes or symptoms to the management systems.
+         Securing the agents falls back to ensuring the integrity and confidentiality of the assurance graph.
+          This can be partially achieved by correctly setting permissions of each node in the YANG data model, as described in <xref target="RFC9418" format="default" sectionFormat="of" section="6"/>.
+      </t>
+      <t> 
+         Except for the configuration of telemetry, the agents do not need "write access" to the devices they monitor.
+          This configuration is applied with a YANG module, whose protection is covered by Secure Shell (SSH) <xref target="RFC6242" format="default"/> for the Network Configuration Protocol (NETCONF) or  TLS <xref target="RFC8446" format="default"/> for RESTCONF.
+          Devices should be configured so that agents have their own credentials with write access only for the YANG nodes configuring the telemetry.
+      </t>
+      <t> 
+         The data collected by SAIN could potentially be compromising to the network or provide more insight into how the network is designed.
+          Considering the data that SAIN requires (including CLI access in some cases), one should weigh data access concerns with the impact that reduced visibility will have on being able to rapidly identify root causes.
+      </t>
+      <t>
+          For building the assurance graph, the SAIN orchestrator needs to obtain the configuration from the service orchestrator.
+          The latter should restrict access of the SAIN orchestrator to information needed to build the assurance graph.
+      </t>
+      <t> 
+        If a closed loop system relies on this architecture, then the well-known issue of those systems also applies, i.e., a lying device or compromised agent could trigger partial reconfiguration of the service or network.
+          The SAIN architecture neither augments nor reduces this risk.
+          An extension of SAIN, which is out of scope for this document, could detect discrepancies between symptoms reported by different agents, and thus detect anomalies if an agent or a device is lying.
+      </t>
+      <t>
+         If NTP service goes down, the devices clocks might lose their synchronization.
+          In that case, correlating information from different devices, such as detecting symptoms about a link or correlating symptoms from different devices, will give inaccurate results.
+      </t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<reference anchor='RFC9418' target='https://www.rfc-editor.org/info/rfc9418'>
+<front>
+<title>A YANG Data Model for Service Assurance</title>
+<author initials="B." surname="Claise" fullname="Benoit Claise">
+</author>
+<author initials="J." surname="Quilbeuf" fullname="Jean Quilbeuf">
+</author>
+<author initials="P." surname="Lucente" fullname="Paolo Lucente">
+</author>
+<author initials="P." surname="Fasano" fullname="Paolo Fasano">
+</author>
+<author initials="T." surname="Arumugam" fullname="Thangavelu Arumugam">
+</author>
+<date month="July" year="2023"/>
+</front>
+<seriesInfo name="RFC" value="9418"/>
+<seriesInfo name="DOI" value="10.17487/RFC9418"/>
+</reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8309.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8969.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2865.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5424.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5905.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6242.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7011.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7149.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7665.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7950.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8199.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8466.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8641.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8907.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9315.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9375.xml"/>
+      <reference anchor="Piovesan2017" target="https://doi.org/10.1016/B978-0-12-803773-7.00007-3">
+          <front>
+            <title>7 - Reasoning About Safety and Security: The Logic of Assurance</title>
+            <author initials="A." surname="Piovesan" fullname="A.  Piovesan">
+              <organization/>
+            </author>
+            <author initials="E." surname="Griffor" fullname="E.  Griffor">
+              <organization/>
+            </author>
+            <date year="2017"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1016/B978-0-12-803773-7.00007-3"/>
+        </reference>
+
+        <reference anchor="OpenConfig" target="https://openconfig.net">
+          <front>
+            <title>OpenConfig</title>
+            <author/>
+          </front>
+        </reference>
+      </references>
+    </references>
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>
+          The authors would like to thank <contact fullname="Stephane Litkowski"/>, <contact fullname="Charles Eckel"/>, <contact fullname="Rob Wilton"/>, <contact fullname="Vladimir Vassiliev"/>, <contact fullname="Gustavo Alburquerque"/>, <contact fullname="Stefan Vallin"/>, <contact fullname="Éric Vyncke"/>, <contact fullname="Mohamed Boucadair"/>, <contact fullname="Dhruv Dhody"/>, <contact fullname="Michael Richardson"/>, and <contact fullname="Rob Wilton"/> for their reviews and feedback.
+      </t>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Contributors</name>
+      <ul spacing="normal">
+        <li><t><contact fullname="Youssef El Fathi"/></t></li>
+        <li><t><contact fullname="Éric Vyncke"/></t></li>
+      </ul>
+    </section>
+  </back>
+</rfc>

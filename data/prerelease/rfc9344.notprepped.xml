@@ -1,0 +1,1527 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IRTF" category="exp" consensus="true" docName="draft-irtf-icnrg-ccninfo-15" number="9344" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.15.0 -->
+  <!-- ***** FRONT MATTER ***** -->
+  <front>
+    <title abbrev="CCNinfo">
+      CCNinfo: Discovering Content and Network Information in Content-Centric Networks
+    </title>
+    <seriesInfo name="RFC" value="9344"/>
+    <author initials="H" surname="Asaeda" fullname="Hitoshi Asaeda">
+      <organization abbrev="NICT">National Institute of Information and Communications Technology</organization>
+      <address>
+        <postal>
+          <street>4-2-1 Nukui-Kitamachi, Koganei</street>
+          <code>184-8795</code>
+	  <region>Tokyo</region>
+          <country>Japan</country>
+        </postal>
+        <email>asaeda@nict.go.jp</email>
+      </address>
+    </author>
+    <author initials="A" surname="Ooka" fullname="Atsushi Ooka">
+      <organization abbrev="NICT">National Institute of Information and Communications Technology</organization>
+      <address>
+        <postal>
+          <street>4-2-1 Nukui-Kitamachi, Koganei</street>
+          <code>184-8795</code>
+	  <region>Tokyo</region>
+          <country>Japan</country>
+        </postal>
+        <email>a-ooka@nict.go.jp</email>
+      </address>
+    </author>
+    <author initials="X" surname="Shao" fullname="Xun Shao">
+      <organization>Toyohashi University of Technology</organization>
+      <address>
+        <postal>
+          <street>1-1 Hibarigaoka Tempaku-cho, Toyohashi</street>
+          <region>Aichi</region>
+          <code>441-8580</code>
+          <country>Japan</country>
+        </postal>
+        <email>shao.xun.ls@tut.jp</email>
+      </address>
+    </author>
+    <date year="2023" month="February" />
+    <!-- Meta-data Declarations -->
+
+    <workgroup>Information-Centric Networking</workgroup>
+
+    <keyword>ICN</keyword>
+    <keyword>CCNx</keyword>
+    <keyword>NDN</keyword>
+    <keyword>CCNinfo</keyword>
+    <abstract>
+      <t>
+   This document describes a mechanism named "CCNinfo" that discovers
+   information about the network topology and in-network cache in
+   Content-Centric Networks (CCNs). CCNinfo investigates 1) the CCN
+   routing path information per name prefix, 2) the Round-Trip Time
+   (RTT) between the content forwarder and the consumer, and 3) the states
+   of in-network cache per name prefix. CCNinfo is useful to understand
+   and debug the behavior of testbed networks and other experimental
+   deployments of CCN systems.</t>
+      <t>
+   This document is a product of the IRTF Information-Centric Networking
+   Research Group (ICNRG). This document represents the consensus view of
+   ICNRG and has been reviewed extensively by several members of the ICN
+   community and the RG. The authors and RG
+   chairs approve of the contents.  The document is sponsored under the IRTF,
+   is not issued by the IETF, and is not an IETF standard. This is an
+   experimental protocol and the specification may change in the future.</t>
+    </abstract>
+  </front>
+  <middle>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>In Content-Centric Networks (CCNs), publishers provide the content through the network, and receivers retrieve it by name. In this network architecture, routers forward content requests through their Forwarding Information Bases (FIBs), which are populated by name-based routing protocols. CCN also enables receivers to retrieve content from an in-network cache.</t>
+      <t>In CCN, while consumers do not generally need to know the content forwarder that is transmitting the content to them, the operators and developers may want to identify the content forwarder and observe the routing path information per name prefix for troubleshooting or investigating the network conditions.</t>
+      <t>IP traceroute
+      is a useful tool for discovering the routing conditions in IP networks because it provides intermediate router addresses along the path between the source and the destination, and the Round-Trip Time (RTT) for the path. However, this IP-based network tool cannot trace the name prefix paths used in CCN.
+      Moreover, such IP-based network tools do not obtain the states of the in-network cache to be discovered.</t>
+      <t>Contrace <xref target="Contrace" format="default"/> enables end users (i.e., consumers) to investigate path and in-network cache conditions in CCN. Contrace is implemented as an external daemon process running over TCP/IP that can interact with a previous CCNx forwarding daemon (CCNx-0.8.2) to retrieve the caching information on the forwarding daemon. This solution is flexible, but it requires defining the common APIs used for global deployment in TCP/IP networks. ICN (Information-Centric Networking) ping <xref target="ICN-PING" format="default"/> and traceroute <xref target="I-D.irtf-icnrg-icntraceroute" format="default"/> are lightweight operational tools that enable a user to explore the path(s) that reach a publisher or a cache storing the named content. ICN ping and traceroute, however, do not expose detailed information about the forwarders deployed by a network operator.</t>
+      <t>This document describes the specifications of "CCNinfo", an active networking tool for discovering the path and content-caching information in CCN.
+      CCNinfo defines the protocol messages to investigate path and in-network cache conditions in CCN. It is embedded in the CCNx forwarding process and can facilitate with non-IP networks as with the basic CCN concept.</t>
+      <t>The two message types, Request and Reply messages, are encoded in the CCNx TLV format <xref target="RFC8609" format="default"/>. The Request-and-Reply message flow, walking up the tree from a consumer toward a publisher, is similar to the behavior of the IP multicast traceroute facility <xref target="RFC8487" format="default"/>.</t>
+      <t>CCNinfo facilitates the tracing of a routing path and provides 1) the RTT between the content forwarder (i.e., caching router or first-hop router) and consumer, 2) the states of the in-network cache per name prefix, and 3) the routing path information per name prefix.</t>
+      <t>In addition, CCNinfo identifies the states of the cache, such as the metrics for Content Store (CS) in the content forwarder as follows: 1) size of cached Content Objects, 2) number of cached Content Objects, 3) number of accesses (i.e., received Interests) per content, and 4) elapsed cache time and remaining cache lifetime of content.</t>
+      <t>CCNinfo supports multipath forwarding. The Request messages can be forwarded to multiple neighbor routers. When the Request messages are forwarded to multiple routers, the different Reply messages are forwarded from different routers or publishers.</t>
+      <t>Furthermore, CCNinfo implements policy-based information provisioning that enables administrators to "hide" secure or private information but does not disrupt message forwarding. This policy-based information provisioning reduces the deployment barrier faced by operators in installing and running CCNinfo on their routers.</t>
+      <t>The document represents the consensus of the Information-Centric Networking Research Group (ICNRG). This document was read and reviewed by the active research group members. It is not an IETF product and is not a standard.</t>
+      <section anchor="sec.intro.exp" numbered="true" toc="default">
+        <name>CCNinfo as an Experimental Tool</name>
+        <t>In order to carry out meaningful experimentation with CCNx protocols, comprehensive instrumentation and management information is needed to take measurements and explore both the performance and robustness characteristics of the protocols and of the applications using them. CCNinfo's primary goal is to gather and report this information. As experience is gained with both the CCNx protocols and CCNinfo itself, we can refine the instrumentation capabilities and discover what additional capabilities might be needed in CCNinfo and conversely which features wind up not being of sufficient value to justify the implementation complexity and execution overhead.</t>
+        <t>CCNinfo is intended as a comprehensive experimental tool for CCNx-based networks. It provides a wealth of information from forwarders, including on-path in-network cache conditions as well as forwarding path instrumentation of multiple paths toward content forwarders. As an experimental capability that exposes detailed information about the forwarders deployed by a network operator, CCNinfo employs more granular authorization policies than those required of ICN ping or ICN traceroute.</t>
+        <t>CCNinfo uses two message types: Request and Reply. A CCNinfo user, e.g., consumer, initiates a CCNinfo Request message when they want to obtain routing path and cache information. When an adjacent neighbor router receives the Request message, it examines its own cache information. If the router does not cache the specified content, it inserts its Report block into the hop-by-hop header of the Request message and forwards the message to its upstream neighbor router(s) decided by its FIB. In <xref target="fig_request" format="default"/>, CCNinfo user and routers (Routers A, B, C) insert their own Report blocks into the Request message and forward the message toward the content forwarder.</t>
+        <figure anchor="fig_request">
+          <name>Request Message Invoked by the CCNinfo User and Forwarded by Routers</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+       1. Request    2. Request    3. Request
+          (U)           (U+A)         (U+A+B)
+         +----+        +----+        +----+
+         |    |        |    |        |    |
+         |    v        |    v        |    v
++--------+    +--------+    +--------+    +--------+    +---------+
+| CCNinfo|----| Router |----| Router |----| Router |----|Publisher|
+|  user  |    |   A    |    |   B    |    |   C    |    |         |
++--------+    +--------+    +--------+    +--------+    +---------+
+                                     \
+                                      \          +-------+
+                            3. Request \         | Cache |
+                               (U+A+B)  \ +---------+    |
+                                         v| Caching |----+
+                                          |  router |
+                                          +---------+
+]]></artwork>	
+        </figure>
+        <t>When the Request message reaches the content forwarder, the content forwarder forms the Reply message; it inserts its own Reply block TLV and Reply sub-block TLV(s) to the Request message. The Reply message is then forwarded back toward the user in a hop-by-hop manner along the Pending Interest Table (PIT) entries. In <xref target="fig_reply" format="default"/>, each router (Routers C, B, and A) forwards the Reply message along its PIT entry, and finally, the CCNinfo user receives a Reply message from Router C, which is the first-hop router for the publisher. Another Reply message from the caching router (i.e., Reply(C)) is discarded at Router B if the other Reply message (i.e., Reply(P)) was already forwarded by Router B.</t>
+        <figure anchor="fig_reply">
+          <name>Reply Messages Forwarded by Routers, and One Reply Message is Received by the CCNinfo User</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+       3. Reply(P)   2. Reply(P)   1. Reply(P)
+         +----+        +----+        +----+
+         |    |        |    |        |    |
+         v    |        v    |        v    |
++--------+    +--------+    +--------+    +--------+    +---------+
+| CCNinfo|----| Router |----| Router |----| Router |----|Publisher|
+|  user  |    |   A    |    |   B    |    |   C    |    |         |
++--------+    +--------+    +--------+    +--------+    +---------+
+                                     ^
+                                      \          +-------+
+                           1. Reply(C) \         | Cache |
+                                        \ +---------+    |
+                                         \| Caching |----+
+                                          |  router |
+                                          +---------+
+]]></artwork>
+        </figure>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section numbered="true" toc="default">
+      <name>Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <section numbered="true" toc="default">
+        <name>Definitions</name>
+        <t>This document follows the basic terminologies and definitions described in <xref target="RFC8609" format="default"/>. Although CCNinfo requests flow in the opposite direction to the data flow, we refer to "upstream" and "downstream" with respect to data, unless explicitly specified.</t>
+        <dl newline="true" spacing="normal">
+          <dt>Scheme name:</dt>
+          <dd>
+	    A scheme name indicates a URI and protocol. This document only considers "ccnx:/" as the scheme name.
+	  </dd>
+          <dt>Prefix name:</dt>
+          <dd>
+	    A prefix name, which is defined in <xref target="RFC8569" format="default"/>, is a name that does not uniquely identify a single Content Object, but rather a namespace or prefix of an existing Content Object name.
+	  </dd>
+          <dt>Exact name:</dt>
+          <dd>
+	    An exact name, which is defined in <xref target="RFC8569" format="default"/>, is one that uniquely identifies the name of a Content Object.
+	  </dd>
+          <dt>Node:</dt>
+          <dd>
+	    A node within a CCN network can fulfill the role of a data publisher, a data consumer, and/or a forwarder for Interest and Content Object, as described in <xref target="RFC8793" format="default"/>.
+	  </dd>
+          <dt>Consumer:</dt>
+          <dd>
+	    A node that requests Content Objects by generating and sending out Interests. It is the same definition of ICN Consumer, as given in <xref target="RFC8793" format="default"/>.
+	  </dd>
+          <dt>Publisher:</dt>
+          <dd>
+	    A node that creates Content Objects and makes them available for retrieval. It is the same definition of ICN Producer, as given in <xref target="RFC8793" format="default"/>.
+	  </dd>
+          <dt>Router:</dt>
+          <dd>
+	    A node that implements stateful forwarding in the path between consumer and publisher.
+	  </dd>
+          <dt>Caching router:</dt>
+          <dd>
+	    A node that temporarily stores and potentially carries Interests or Content Objects before forwarding it to the next node.
+	  </dd>
+          <dt>Content forwarder:</dt>
+          <dd>
+	    A content forwarder is either a caching router or a first-hop router that forwards Content Objects to consumers.
+	  </dd>
+          <dt>CCNinfo user:</dt>
+          <dd>
+	    A node that initiates the CCNinfo Request, which is either a consumer or a router that invokes the CCNinfo user program with the name prefix of the content. The CCNinfo user program, such as "ccninfo" command described in <xref target="sec.command" format="default"/> or other similar commands, initiates the Request message to obtain routing path and cache information. 
+	  </dd>
+          <dt>Incoming face:</dt>
+          <dd>
+	    The face on which data are expected to arrive from the specified name prefix.
+	  </dd>
+          <dt>Outgoing face:</dt>
+          <dd>
+	    The face to which data from the publisher or router are expected to transmit for the specified name prefix. It is also the face on which the Request messages is received.
+	  </dd>
+          <dt>Upstream router:</dt>
+          <dd>
+	    The router that connects to an Incoming face of a router.
+	  </dd>
+          <dt>Downstream router:</dt>
+          <dd>
+	    The router that connects to an Outgoing face of a router.
+	  </dd>
+          <dt>First-hop router (FHR):</dt>
+          <dd>
+	    The router that matches a FIB entry with an Outgoing face referring to a local application or a publisher.
+	  </dd>
+          <dt>Last-hop router (LHR):</dt>
+          <dd>
+	    The router that is directly connected to a consumer.
+	  </dd>
+        </dl>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section numbered="true" toc="default">
+      <name>CCNinfo Message Formats</name>
+      <t>CCNinfo Request and Reply messages are encoded in the CCNx TLV format (see <xref target="RFC8609" format="default"/> and <xref target="CCNx_Hdr" format="default"/>). The Request message consists of a fixed header, Request block TLV (<xref target="Req_block" format="default"/>), and Report block TLV(s) (<xref target="Rpt_block" format="default"/>). The Reply message consists of a fixed header, Request block TLV, Report block TLV(s), Reply block TLV (<xref target="Reply_block" format="default"/>), and Reply sub-block TLV(s) (<xref target="Reply_subblock" format="default"/>).</t>
+      <figure anchor="CCNx_Hdr">
+        <name>Packet Format <xref target="RFC8609" format="default"/></name>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|    Version    |  PacketType   |         PacketLength          |
++---------------+---------------+---------------+---------------+
+|           PacketType specific fields          | HeaderLength  |
++---------------+---------------+---------------+---------------+
+/ Optional Hop-by-hop header TLVs                               /
++---------------+---------------+---------------+---------------+
+/ PacketPayload TLVs                                            /
++---------------+---------------+---------------+---------------+
+/ Optional CCNx ValidationAlgorithm TLV                         /
++---------------+---------------+---------------+---------------+
+/ Optional CCNx ValidationPayload TLV (ValidationAlg required)  /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+      </figure>
+      <t>The PacketType values in the fixed header shown in <xref target="CCNx_Hdr" format="default"/> are PT_CCNINFO_REQUEST and PT_CCNINFO_REPLY (see <xref target="Type_val" format="default"/>). CCNinfo Request and Reply messages are forwarded in a hop-by-hop manner. When the Request message reaches the content forwarder, the content forwarder turns it into a Reply message by changing the Type field value in the fixed header from PT_CCNINFO_REQUEST to PT_CCNINFO_REPLY and forwards it back toward the node that initiated the Request message.</t>
+
+ <table anchor="Type_val">
+<name>CCNx Packet Types</name>
+  <thead>
+    <tr>
+<th>Type</th>
+<th>Name</th>
+</tr>
+</thead>
+<tbody>
+  <tr>
+<td>0x00</td>
+<td>PT_INTEREST <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+<td>0x01</td> 
+<td>PT_CONTENT <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+<td>0x02</td> 
+<td>PT_RETURN <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+<td>0x03</td> 
+<td>PT_CCNINFO_REQUEST</td>
+</tr>
+<tr>
+<td>0x04</td> 
+<td>PT_CCNINFO_REPLY</td>
+</tr>
+</tbody>
+</table>
+
+
+      <t>Following a fixed header, there can be a sequence of optional hop-by-hop header TLV(s) for a Request message. In the case of a Request message, it is followed by a sequence of Report blocks, each from a router on the path toward the publisher or caching router.</t>
+      <t>At the beginning of PacketPayload TLVs, a top-level TLV type, T_DISCOVERY (<xref target="Top-level_Type" format="default"/>), exists at the outermost level of a CCNx protocol message. This TLV indicates that the Name segment TLV(s) and Reply block TLV(s) would follow in the Request or Reply message.</t>
+   
+<table anchor="Top-level_Type">
+<name>CCNx Top-Level Types</name>
+<thead>
+<tr>
+<th>Type</th>
+<th>Name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>0x0000</td>
+<td>Reserved <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+  <td>0x0001</td>
+<td>T_INTEREST <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+  <td>0x0002</td>
+<td>T_OBJECT <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+  <td>0x0003</td>
+<td>T_VALIDATION_ALG <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+  <td>0x0004</td>
+<td>T_VALIDATION_PAYLOAD <xref target="RFC8609" format="default"/></td>
+</tr>
+<tr>
+  <td>0x0005</td>
+<td>T_DISCOVERY</td>
+</tr>
+</tbody>
+</table>
+
+      <!-- ========================================================== -->
+
+      <section anchor="sec.request" numbered="true" toc="default">
+        <name>Request Message</name>
+        <t>When a CCNinfo user initiates a discovery request (e.g., via the ccninfo command described in <xref target="sec.command" format="default"/>), a CCNinfo Request message is created and forwarded to its upstream router through the Incoming face(s) determined by its FIB.</t>
+        <t>The Request message format is shown in <xref target="Req_message" format="default"/>. It consists of a fixed header, Request header block TLV (<xref target="Req_block" format="default"/>), Report block TLV(s) (<xref target="Rpt_block" format="default"/>), Name TLV, and Request block TLV. Request header block TLV and Report block TLV(s) are contained in the hop-by-hop header, as those might change from hop to hop.
+Request block TLV is encoded in the PacketPayload TLV by content forwarder as the protocol message itself.
+The PacketType value of the Request message is PT_CCNINFO_REQUEST (<xref target="Type_val" format="default"/>). The Type value of the CCNx Top-Level type is T_DISCOVERY (<xref target="Top-level_Type" format="default"/>).</t>
+        <figure anchor="Req_message">
+          <name>Request Message</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|    Version    |  PacketType   |         PacketLength          |
++---------------+---------------+---------------+---------------+
+|    HopLimit   |   ReturnCode  | Reserved(MBZ) | HeaderLength  |
++===============+===============+===============+===============+
+/                    Request header block TLV                   /
++---------------+---------------+---------------+---------------+
+/                      Report block TLV 1                       /
++---------------+---------------+---------------+---------------+
+/                      Report block TLV 2                       /
++---------------+---------------+---------------+---------------+
+/                               .                               /
+/                               .                               /
++---------------+---------------+---------------+---------------+
+/                      Report block TLV n                       /
++===============+===============+===============+===============+
+|      Type (=T_DISCOVERY)      |         MessageLength         |
++---------------+---------------+---------------+---------------+
+|            T_NAME             |             Length            |
++---------------+---------------+---------------+---------------+
+/   Name segment TLVs (name prefix specified by CCNinfo user)   /
++---------------+---------------+---------------+---------------+
+/                       Request block TLV                       /
++---------------+---------------+---------------+---------------+
+/ Optional CCNx ValidationAlgorithm TLV                         /
++---------------+---------------+---------------+---------------+
+/ Optional CCNx ValidationPayload TLV (ValidationAlg required)  /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+        </figure>
+<dl>
+        <dt>HopLimit:</dt>
+<dd><t>8 bits</t>
+
+          <t>HopLimit is a counter that is decremented with each hop whenever a Request packet is forwarded. It is specified by the CCNinfo user program. The HopLimit value <bcp14>MUST</bcp14> be decremented by 1 prior to forwarding the Request packet. The packet is discarded if HopLimit is decremented to zero. HopLimit limits the distance that a Request may travel on the network. Only the specified number of hops from the CCNinfo user traces the Request. The last router stops the trace and sends the Reply message back to the CCNinfo user.</t></dd>
+
+        <dt>ReturnCode:</dt>
+<dd><t>8 bits</t>
+
+          <t>ReturnCode is used for the Reply message. This value is replaced by the content forwarder when the Request message is returned as the Reply message (see <xref target="sec.reply" format="default"/>). Until then, this field <bcp14>MUST</bcp14> be transmitted as zeros and ignored on receipt.</t>
+
+
+<table>
+<name>ReturnCode Used for the Reply Message</name>
+<thead>
+<tr>
+
+<th>Value</th>
+<th>Name</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0x00</td>
+<td>NO_ERROR</td>
+<td>No error</td>
+</tr>
+<tr>
+<td>0x01</td>
+<td>WRONG_IF</td>
+<td>CCNinfo Request arrived on an interface to which this router would not forward for the specified name and/or function toward the publisher.</td>
+</tr>
+<tr>
+<td>0x02</td>
+<td>INVALID_REQUEST</td><td>Invalid CCNinfo Request is received.</td>
+</tr>
+<tr>
+<td>0x03</td>
+<td>NO_ROUTE </td>
+<td>This router has no route for the name prefix and no way to determine a route.</td>
+</tr>
+<tr>
+<td>0x04</td>
+<td>NO_INFO</td>
+<td>This router has no cache information for the specified name prefix.</td>
+</tr>
+<tr>
+<td>0x05</td>
+<td>NO_SPACE</td>
+<td>There was not enough room to insert another Report block in the packet.</td>
+</tr>
+<tr>
+<td>0x06</td>
+<td>INFO_HIDDEN</td><td>Information is hidden from this discovery owing to some policy.</td>
+</tr>
+<tr>
+<td>0x0E</td>
+<td>ADMIN_PROHIB</td>
+<td>CCNinfo Request is administratively prohibited.</td>
+</tr>
+<tr>
+<td>0x0F</td>
+<td>UNKNOWN_REQUEST</td>
+<td>This router does not support or recognize the Request message.</td>
+</tr>
+<tr>
+<td>0x80</td>
+<td>FATAL_ERROR</td>
+<td>In a fatal error, the router may know the upstream router but cannot forward the message to it.</td>
+</tr>
+</tbody>
+</table>
+</dd>
+
+	<dt>Reserved (MBZ):</dt>
+	<dd><t>8 bits</t>
+        <t>The reserved fields in the Value field <bcp14>MUST</bcp14> be transmitted as zeros and ignored on receipt.</t></dd>
+        </dl>
+        <!-- ======================================================== -->
+
+	<section anchor="sec.request_blk" numbered="true" toc="default">
+          <name>Request Header Block and Request Block</name>
+          <t>When a CCNinfo user transmits the Request message, they <bcp14>MUST</bcp14> insert their Request header block TLV (<xref target="Req_block" format="default"/>) into the hop-by-hop header and Request block TLV (<xref target="Req_nodeblock" format="default"/>) into the message before sending it through the Incoming face(s).</t>
+          <figure anchor="Req_block">
+            <name>Request Header Block TLV (Hop-by-Hop Header)</name>
+            <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|     Type (=T_DISC_REQHDR)     |             Length            |
++---------------+---------------+-------+-------+-------+-+-+-+-+
+|           Request ID          |SkipHop|      Flags    |V|F|O|C|
++---------------+---------------+-------+-------+-------+-+-+-+-+
+]]></artwork>
+          </figure>
+   
+ <table anchor="Hop-by-hop_Type">
+ <name>CCNx Hop-by-Hop Types</name>
+<thead>
+<tr>
+<th>Type</th>
+<th>Name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+   <td>0x0000</td>
+<td>Reserved <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+   <td>0x0001</td>
+<td>T_INTLIFE <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+   <td>0x0002</td>
+<td>T_CACHETIME <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+   <td>0x0003</td>
+<td>T_MSGHASH <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+<td>0x0004-0x0007</td>
+<td>Reserved <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+   <td>0x0008</td>
+<td>T_DISC_REQHDR</td>
+</tr><tr>
+   <td>0x0009</td>
+<td>T_DISC_REPORT</td>
+</tr><tr>
+   <td>0x0FFE</td>
+<td>T_PAD <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+   <td>0x0FFF</td>
+<td>T_ORG <xref target="RFC8609" format="default"/></td>
+</tr><tr>
+<td>0x1000-0x1FFF</td>
+<td>Reserved <xref target="RFC8609" format="default"/></td>
+</tr>
+</tbody>
+</table>
+
+<dl>       
+<dt>Type:</dt>
+<dd><t>16 bits</t>
+
+ <t>Format of the Value field. The type value of the Request header block TLV <bcp14>MUST</bcp14> be T_DISC_REQHDR.</t></dd>
+
+          <dt>Length:</dt>
+<dd><t>16 bits</t>
+  
+            <t>Length of the Value field in octets.</t></dd>
+
+          <dt>Request ID:</dt>
+<dd><t>16 bits</t>
+<t>This field is used as a unique identifier for the CCNinfo Request so that the duplicate or delayed Reply messages can be detected.</t></dd>
+      
+          <dt>SkipHop (Skip Hop Count):</dt>
+<dd><t>4 bits</t>
+ 
+            <t>Number of skipped routers for a Request. It is specified by the CCNinfo user program. The number of routers corresponding to the value specified in this field are skipped, and the CCNinfo Request messages are forwarded to the next router without the addition of Report blocks; the next upstream router then starts the trace.
+The maximum value of this parameter is 15. This value <bcp14>MUST</bcp14> be lower than that of HopLimit at the fixed header.</t></dd>
+
+	  <dt>Flags:</dt>
+<dd><t>12 bits</t>
+<t>The Flags field is used to indicate the types of the content or path discoveries. Currently, as shown in <xref target="FlagVal" format="default"/>, four bits ("C", "O", "F", and "V") are assigned, and the other 8 bits are reserved (MBZ) for the future use. Each flag can be mutually specified with other flags. These flags are set by the CCNinfo user program when they initiate Requests (see <xref target="sec.command" format="default"/>), and the routers that receive the Requests deal with the flags and change the behaviors (see <xref target="sec.router" format="default"/> for details). The Flag values defined in this Flags field correspond to the Reply sub-blocks.</t>
+
+<table anchor="FlagVal">
+<name>Codes and Types Specified in Flags Field</name>
+<thead>
+<tr>      
+<th>Flag</th>
+<th>Value</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+ <td>C</td>
+<td>0</td>
+<td>Path discovery (i.e., no cache information retrieved) (default)</td>
+</tr><tr>
+ <td>C</td>
+<td>1</td>
+<td>Path and cache information retrieval</td>
+</tr><tr>
+ <td>O</td>
+<td>0</td>
+<td>Request to any content forwarder (default)</td>
+</tr><tr>
+ <td>O</td>
+<td>1</td>
+<td>Publisher discovery (i.e., only FHR can reply)</td>
+</tr><tr>
+ <td>F</td>
+<td>0</td>
+<td>Request based on FIB's forwarding strategy (default)</td>
+</tr><tr>
+<td>F</td>
+<td>1</td>
+<td>Full discovery request. Request to possible multiple upstream routers specified in FIB simultaneously</td>
+</tr><tr>
+<td>V</td>
+<td>0</td><td>No reply validation (default)</td>
+</tr><tr>
+<td>V</td>
+<td>1</td>
+<td>Reply sender validates Reply message</td>
+</tr>
+</tbody>
+</table>
+</dd></dl>
+          <figure anchor="Req_nodeblock">
+            <name>Request Block TLV (Packet Payload)</name>
+            <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|       Type (=T_DISC_REQ)      |             Length            |
++---------------+---------------+---------------+---------------+
+|                     Request Arrival Time                      |
++---------------+---------------+---------------+---------------+
+/                        Node Identifier                        /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+          </figure>
+ <table anchor="CCNx_Type">
+<name>CCNx Message Types</name>
+<thead>
+  <tr>
+    <th>Type</th>
+    <th>Name</th>
+  </tr>
+</thead>
+<tbody>
+  <tr>
+    <td>0x0000</td>
+    <td>T_NAME <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0001</td>
+    <td>T_PAYLOAD <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0002</td>
+    <td>T_KEYIDRESTR <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0003</td>
+    <td>T_OBJHASHRESTR <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0005</td>
+    <td>T_PAYLDTYPE <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0006</td>
+    <td>T_EXPIRY <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0007-0x000C</td>
+    <td>Reserved <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x000D</td>
+    <td>T_DISC_REQ</td>
+    </tr><tr>
+    <td>0x000E</td>
+    <td>T_DISC_REPLY</td>
+    </tr><tr>
+    <td>0x0FFE</td>
+    <td>T_PAD <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x0FFF</td>
+    <td>T_ORG <xref target="RFC8609" format="default"/></td>
+    </tr><tr>
+    <td>0x1000-0x1FFF</td>
+    <td>Reserved <xref target="RFC8609" format="default"/></td>
+  </tr>
+  </tbody>
+ </table>
+
+ <dl>
+   <dt>Type:</dt>
+   <dd><t>16 bits</t>
+
+            <t>Format of the Value field. For the Request block TLV, the type value(s) <bcp14>MUST</bcp14> be T_DISC_REQ (see <xref target="CCNx_Type" format="default"/>) in the current specification.</t></dd>
+
+            <dt>Length:</dt>
+	    <dd><t>16 bits</t>
+            <t>Length of the Value field in octets.</t></dd>
+	    
+            <dt>Request Arrival Time:</dt>
+	    <dd><t>32 bits</t>
+
+	<t>The Request Arrival Time is a 32-bit NTP timestamp specifying the
+      arrival time of the CCNinfo Request message at the router.  The
+      32-bit form of an NTP timestamp consists of the middle 32 bits of
+      the full 64-bit form, that is, the low 16 bits of the integer part
+	    and the high 16 bits of the fractional part.</t>
+	  
+        
+              <t>The following formula converts from a timespec (fractional part in nanoseconds) to a 32-bit NTP timestamp:</t>
+  
+
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+request_arrival_time
+= ((tv.tv_sec + 32384) << 16) + ((tv.tv_nsec << 7) / 1953125)
+]]></artwork>
+        
+    <t> The constant 32384 is the number of seconds from Jan 1, 1900 to
+      Jan 1, 1970 truncated to 16 bits.  ((tv.tv_nsec &lt;&lt; 7) / 1953125) is a reduction of ((tv.tv_nsec / 1000000000) &lt;&lt; 16), where "&lt;&lt;" denotes a logical left shift.</t>
+
+       
+     <t> Note that it is <bcp14>RECOMMENDED</bcp14> for all the routers on the path to
+      have synchronized clocks to measure one-way latency per hop;
+      however, even if they do not have synchronized clocks, CCNinfo
+      measures the RTT between the content forwarder and the consumer.</t></dd>
+
+      <dt>Node Identifier:</dt>
+      <dd><t>variable length</t>
+            <t>This field specifies the node identifier (e.g., node name or hash-based self-certifying name <xref target="DCAuth" format="default"/>) or all-zeros if unknown. This document assumes that the Name TLV defined in the CCNx TLV format <xref target="RFC8609" format="default"/> can be used for this field and the node identifier is specified in it.</t></dd>
+          </dl>
+        </section>
+        <!-- ======================================================== -->
+
+	<section anchor="sec.report_blk" numbered="true" toc="default">
+          <name>Report Block TLV</name>
+          <t>A CCNinfo user and each upstream router along the path would insert their own Report block TLV without changing the Type field of the fixed header of the Request message until one of these routers is ready to send a Reply. In the Report block TLV (<xref target="Rpt_block" format="default"/>), the Request Arrival Time and Node Identifier values <bcp14>MUST</bcp14> be inserted.</t>
+          <figure anchor="Rpt_block">
+            <name>Report Block TLV (Hop-by-Hop Header)</name>
+            <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|     Type (=T_DISC_REPORT)     |             Length            |
++---------------+---------------+---------------+---------------+
+|                     Request Arrival Time                      |
++---------------+---------------+---------------+---------------+
+/                        Node Identifier                        /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+          </figure>
+	  <dl>
+            <dt>Type:</dt>
+	    <dd><t>16 bits</t>
+            <t>Format of the Value field. For the Report block TLV, the type value(s) <bcp14>MUST</bcp14> be T_DISC_REPORT in the current specification. For all the available types of the CCNx hop-by-hop types, please see <xref target="Hop-by-hop_Type" format="default"/>.</t></dd>
+
+            <dt>Length:</dt>
+	    <dd><t>16 bits</t>
+
+            <t>Length of the Value field in octets.</t></dd>
+ 
+            <dt>Request Arrival Time:</dt>
+	    <dd><t>32 bits</t>
+            <t>Same definition as given in <xref target="sec.request_blk" format="default"/>.</t></dd>
+
+            <dt>Node Identifier:</dt>
+	    <dd><t>variable length</t>
+            <t>Same definition as given in <xref target="sec.request_blk" format="default"/>.</t></dd>
+	  </dl>
+        </section>
+        <!-- Report Block -->
+
+	<section anchor="sec.namespec" numbered="true" toc="default">
+          <name>Content Name Specification</name>
+          <t>Specifications of the Name TLV (whose type value is T_NAME) and the Name Segment TLVs are described in <xref target="RFC8609" format="default"/>, which is followed by CCNinfo. CCNinfo enables the specification of the content name with either a prefix name without chunk number (such as "ccnx:/news/today") or an exact name (such as "ccnx:/news/today/Chunk=10"). When a CCNinfo user specifies a prefix name, they will obtain the summary information of the matched Content Objects in the content forwarder. In contrast, when a CCNinfo user specifies an exact name, they will obtain information only about the specified Content Object in the content forwarder. A CCNinfo Request message <bcp14>MUST NOT</bcp14> be sent only with a scheme name, ccnx:/. It will be rejected and discarded by routers.</t>
+        </section>
+        <!-- Name -->
+
+      </section>
+      <!-- Request Message -->
+
+      <!-- ========================================================== -->
+
+      <section anchor="sec.reply" numbered="true" toc="default">
+        <name>Reply Message</name>
+        <t>When a content forwarder receives a CCNinfo Request message from an appropriate adjacent neighbor router, it inserts its own Reply block TLV and Reply sub-block TLV(s) to the Request message and turns the Request into the Reply by changing the Type field of the fixed header of the Request message from PT_CCNINFO_REQUEST to PT_CCNINFO_REPLY. The Reply message (see <xref target="Reply_message" format="default"/>) is then forwarded back toward the CCNinfo user in a hop-by-hop manner.</t>
+
+        <figure anchor="Reply_message">
+          <name>Reply Message</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|    Version    |  PacketType   |         PacketLength          |
++---------------+---------------+-------------+-+---------------+
+|    HopLimit   |   ReturnCode  | Reserved(MBZ) | HeaderLength  |
++===============+===============+=============+=+===============+
+/                    Request header block TLV                   /
++---------------+---------------+---------------+---------------+
+/                               .                               /
+/                               .                               /
+/                      n Report block TLVs                      /
+/                               .                               /
+/                               .                               /
++===============+===============+===============+===============+
+|      Type (=T_DISCOVERY)      |         MessageLength         |
++---------------+---------------+---------------+---------------+
+|            T_NAME             |             Length            |
++---------------+---------------+---------------+---------------+
+/   Name segment TLVs (name prefix specified by CCNinfo user)   /
++---------------+---------------+---------------+---------------+
+/                       Request block TLV                       /
++---------------+---------------+---------------+---------------+
+/                        Reply block TLV                        /
++---------------+---------------+---------------+---------------+
+/                     Reply sub-block TLV 1                     /
++---------------+---------------+---------------+---------------+
+/                               .                               /
+/                               .                               /
++---------------+---------------+---------------+---------------+
+/                     Reply sub-block TLV k                     /
++---------------+---------------+---------------+---------------+
+/ Optional CCNx ValidationAlgorithm TLV                         /
++---------------+---------------+---------------+---------------+
+/ Optional CCNx ValidationPayload TLV (ValidationAlg required)  /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+        </figure>
+        <!-- ======================================================== -->
+
+	<section anchor="sec.reply_blk" numbered="true" toc="default">
+          <name>Reply Block TLV</name>
+          <t>The Reply block TLV is an envelope for the Reply sub-block TLV(s) (explained in the next section).</t>
+          <figure anchor="Reply_block">
+            <name>Reply Block TLV (Packet Payload)</name>
+            <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|      Type (=T_DISC_REPLY)     |             Length            |
++---------------+---------------+---------------+---------------+
+|                     Request Arrival Time                      |
++---------------+---------------+---------------+---------------+
+/                        Node Identifier                        /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+          </figure>
+	  <dl>
+            <dt>Type:</dt>
+	    <dd><t>16 bits</t>
+
+            <t>Format of the Value field. For the Reply block TLV, the type value <bcp14>MUST</bcp14> be T_DISC_REPLY shown in <xref target="CCNx_Type" format="default"/> in the current specification.</t></dd>
+
+            <dt>Length:</dt>
+	    <dd><t>16 bits</t>
+            <t>Length of the Value field in octets. This length is the total length of the Reply sub-block(s).</t>
+          </dd>
+          <dt>Request Arrival Time:</dt>
+	  <dd><t>32 bits</t>
+
+            <t>Same definition as given in <xref target="sec.request_blk" format="default"/>.</t>
+          </dd>
+          <dt>Node Identifier:</dt>
+	  <dd><t>variable length</t>
+            <t>Same definition as given in <xref target="sec.request_blk" format="default"/>.</t>
+          </dd>
+	  </dl>
+          <!-- ======================================================== -->
+
+	<section anchor="sec.reply_subblk" numbered="true" toc="default">
+            <name>Reply Sub-Block TLV</name>
+            <t>The router on the traced path will add one or multiple Reply sub-blocks followed by the Reply block TLV before sending the Reply to its neighbor router. This section describes the Reply sub-block TLV for informing various cache states and conditions as shown in <xref target="Reply_subblock" format="default"/>. (Other Reply sub-block TLVs will be discussed in separate document(s).)</t>
+
+            <t>Note that some routers may not be capable of reporting the following values: Object Size, Object Count, # Received Interest, First Seqnum, Last Seqnum, Elapsed Cache Time, and Remain Cache Lifetime (shown in <xref target="Reply_subblock" format="default"/>). Or, some routers do not report these values due to their policy. In that case, the routers <bcp14>MUST</bcp14> set these fields to a value of all ones (i.e., 0xFFFFFFFF). The value of each field <bcp14>MUST</bcp14> be also all-one when the value is equal to or bigger than the maximum size expressed by the 32-bit field. The CCNinfo user program <bcp14>MUST</bcp14> inform that these values are not valid if the fields received are set to the value of all ones.</t>
+            <t>If the cache is refreshed after reboot, the value in each field <bcp14>MUST</bcp14> be refreshed (i.e., <bcp14>MUST</bcp14> be set to 0). If the cache remains after reboot, the value <bcp14>MUST NOT</bcp14> be refreshed (i.e., <bcp14>MUST</bcp14> be reflected as it is).</t>
+            <figure anchor="Reply_subblock">
+              <name>Reply Sub-Block TLV for T_DISC_CONTENT and T_DISC_CONTENT_PUBLISHER (Packet Payload)</name>
+              <artwork align="center" name="" type="" alt=""><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++---------------+---------------+---------------+---------------+
+|             Type              |             Length            |
++---------------+---------------+---------------+---------------+
+|                          Object Size                          |
++---------------+---------------+---------------+---------------+
+|                         Object Count                          |
++---------------+---------------+---------------+---------------+
+|                      # Received Interest                      |
++---------------+---------------+---------------+---------------+
+|                         First Seqnum                          |
++---------------+---------------+---------------+---------------+
+|                          Last Seqnum                          |
++---------------+---------------+---------------+---------------+
+|                       Elapsed Cache Time                      |
++---------------+---------------+---------------+---------------+
+|                      Remain Cache Lifetime                    |
++---------------+---------------+---------------+---------------+
+|            T_NAME             |             Length            |
++---------------+---------------+---------------+---------------+
+/                       Name Segment TLVs                       /
++---------------+---------------+---------------+---------------+
+]]></artwork>
+            </figure>
+ <table anchor="Sub_Type">
+ <name>CCNx Reply Types</name>
+<thead>
+<tr>
+<th>Type</th>
+<th>Name</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>0x0000</td>
+  <td>T_DISC_CONTENT</td>
+  </tr><tr>
+  <td>0x0001</td>
+  <td>T_DISC_CONTENT_PUBLISHER</td>
+  </tr><tr>
+  <td>0x0FFF</td>
+  <td>T_ORG</td>
+  </tr><tr>
+  <td>0x1000-0x1FFF</td>
+  <td>Reserved for Experimental Use</td>
+</tr>
+</tbody>
+
+ </table>
+
+ <dl>
+   
+   <dt>Type:</dt>
+   <dd><t>16 bits</t>
+
+              <t>Format of the Value field. For the Reply sub-block TLV, the type value <bcp14>MUST</bcp14> be either T_DISC_CONTENT or T_DISC_CONTENT_PUBLISHER defined in the CCNx Reply Types (<xref target="Sub_Type" format="default"/>).
+
+ T_DISC_CONTENT is specified when a content forwarder replies with the cache information. T_DISC_CONTENT_PUBLISHER is specified when a FHR attached to a publisher replies with the original content information.</t></dd>
+       
+              <dt>Length:</dt>
+	      <dd><t>16 bits</t>
+
+              <t>Length of the Value field in octets.</t>
+            </dd>
+            <dt>Object Size:</dt>
+	    <dd><t>32 bits</t>
+              <t>The total size (KB) of the unexpired Content Objects. Values less than 1 KB are truncated. Note that the maximum size expressed by the 32-bit field is approximately 4.29 TB.
+	    </t>
+            </dd>
+            <dt>Object Count:</dt>
+	    <dd><t>32 bits</t>
+              <t>The number of the unexpired Content Objects. Note that the maximum count expressed by the 32-bit field is approximately 4.29 billion.</t></dd>
+
+              <dt># Received Interest:</dt>
+	      <dd><t>32 bits</t>
+
+	    <t>The total number of the received Interest messages to retrieve the cached Content Objects.</t>
+            </dd>
+            <dt>First Seqnum:</dt>
+	    <dd><t>32 bits</t>
+
+              <t>The first sequential number of the unexpired Content Objects.</t>
+            </dd>
+            <dt>Last Seqnum:</dt>
+	    <dd><t>32 bits</t>
+
+              <t>The last sequential number of the unexpired Content Objects. The First Seqnum and Last Seqnum do not guarantee the consecutiveness of the cached Content Objects; however, knowing these values may help in the analysis of consecutive or discontinuous chunks such as <xref target="CONSEC-CACHING" format="default"/>.</t></dd>
+
+              <dt>Elapsed Cache Time:</dt>
+	      <dd><t>32 bits</t>
+
+              <t>The elapsed time (seconds) after the oldest Content Object of the content is cached.</t>
+            </dd>
+
+	    <dt>Remain Cache Lifetime:</dt>
+	    <dd><t>32 bits</t>
+
+              <t>The lifetime (seconds) of a Content Object, which is lastly cached.
+</t>
+            </dd>
+	  </dl>
+          </section>
+          <!-- Reply Sub-Block -->
+
+	</section>
+        <!-- Reply Block -->
+
+      </section>
+      <!-- Reply Message -->
+
+    </section>
+    <!-- CCNinfo Message Formats -->
+
+<!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.user" numbered="true" toc="default">
+      <name>CCNinfo User Behavior</name>
+      <!-- ========================================================== -->
+
+      <section numbered="true" toc="default">
+        <name>Sending CCNinfo Request</name>
+        <t>A CCNinfo user invokes a CCNinfo user program (e.g., ccninfo command) that initiates a CCNinfo Request message and sends it to the user's adjacent neighbor router(s) of interest. The user later obtains both the routing path information and in-network cache information in the single Reply.</t>
+        <t>When the CCNinfo user program initiates a Request message, it <bcp14>MUST</bcp14> insert the necessary values, i.e., the "Request ID" and the "Node Identifier", in the Request block. The Request ID <bcp14>MUST</bcp14> be unique for the CCNinfo user until they receive the corresponding Reply message(s) or the Request is timed out.</t>
+        <t>Owing to some policies, a router may want to validate the CCNinfo Requests using the CCNx ValidationPayload TLV (whether it accepts the Request or not) especially when the router receives the "full discovery request" (see <xref target="sec.forward.full-request" format="default"/>). Accordingly, the CCNinfo user program <bcp14>MAY</bcp14> require validating the Request message and appending the user's signature into the CCNx ValidationPayload TLV. The router then forwards the Request message. If the router does not approve the Request, it rejects the Request message as described in <xref target="sec.admin_prohibit" format="default"/>.</t>
+
+<t>After the CCNinfo user program sends the Request message, until the
+   Reply is timed out or the expected numbers of Replies or a Reply
+   message with a non-zero ReturnCode in the fixed header is received,
+   the CCNinfo user program <bcp14>MUST</bcp14> keep the following information:
+   HopLimit (specified in the fixed header), Request ID and Flags
+   (specified in the Request header block), and Node Identifier and 
+   Request Arrival Time (specified in the Request block).</t>
+
+        <!-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
+
+	<section anchor="sec.usr.path" numbered="true" toc="default">
+          <name>Routing Path Information</name>
+          <t>A CCNinfo user can send a CCNinfo Request for investigating the routing path information for the specified named content. Using the Request, a legitimate user can obtain 1) the node identifiers of the intermediate routers, 2) the node identifier of the content forwarder, 3) the number of hops between the content forwarder and the consumer, and 4) the RTT between the content forwarder and the consumer, per name prefix. This CCNinfo Request is terminated when it reaches the content forwarder.</t>
+        </section>
+        <!-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
+
+	<section anchor="sec.usr.cache" numbered="true" toc="default">
+          <name>In-Network Cache Information</name>
+          <t>A CCNinfo user can send a CCNinfo Request for investigating in-network cache information. Using the Request, a legitimate user can obtain 1) the size of cached Content Objects, 2) the number of cached Content Objects, 3) the number of accesses (i.e., received Interests) per content, and 4) the lifetime and expiration time of the cached Content Objects, for Content Store (CS) in the content forwarder, unless the content forwarder is capable of reporting them (see <xref target="sec.reply_subblk" format="default"/>). This CCNinfo Request is terminated when it reaches the content forwarder.</t>
+        </section>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.receiving_reply" numbered="true" toc="default">
+        <name>Receiving CCNinfo Reply</name>
+        <t>A CCNinfo user program will receive one or multiple CCNinfo Reply messages from the adjacent neighbor router(s). When the program receives the Reply, it <bcp14>MUST</bcp14> compare the kept Request ID and Node Identifier values to identify the Request and Reply pair.
+	If they do not match, the Reply message <bcp14>MUST</bcp14> be silently discarded.</t>
+        <t>If the number of Report blocks in the received Reply is more than the initial HopLimit value (which was inserted in the original Request), the Reply <bcp14>MUST</bcp14> be silently ignored.</t>
+        <t>After the CCNinfo user has determined that they have traced the whole path or the maximum path that they can be expected to, they might collect statistics by waiting for a timeout. Useful statistics provided by CCNinfo are stated in <xref target="sec.diag" format="default"/>.</t>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.router" numbered="true" toc="default">
+      <name>Router Behavior</name>
+      <!-- ========================================================== -->
+
+      <section numbered="true" toc="default">
+        <name>User and Neighbor Verification</name>
+        <t>Upon receiving a CCNinfo Request message, a router <bcp14>MAY</bcp14> examine whether a valid CCNinfo user has sent the message. If the router recognizes that the Request sender's signature specified in the Request is invalid, it <bcp14>SHOULD</bcp14> terminate the Request, as defined in <xref target="sec.terminate.invalid" format="default"/>.</t>
+        <t>Upon receiving a CCNinfo Request or Reply message, a router <bcp14>MAY</bcp14> examine whether the message comes from a valid adjacent neighbor node. If the router recognizes that the Request or Reply sender is invalid, it <bcp14>SHOULD</bcp14> silently ignore the message, as specified in <xref target="sec.adjacency" format="default"/>.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.receive.req" numbered="true" toc="default">
+        <name>Receiving CCNinfo Request</name>
+        <t>After a router accepts the CCNinfo Request message, it performs the following steps.</t>
+        <ol spacing="normal" type="1"><li>The value of "HopLimit" in the fixed header and the value of "SkipHop (Skip Hop Count)" in the Request block are counters that are decremented with each hop. If the HopLimit value is zero, the router terminates the Request, as defined in <xref target="sec.terminate.no_route" format="default"/>. If the SkipHop value is equal to or more than the HopLimit value, the router terminates the Request, as defined in <xref target="sec.terminate.invalid" format="default"/>; otherwise, until the SkipHop value becomes zero, the router forwards the Request message to the upstream router(s) without adding its own Report block and without replying to the Request. If the router does not know the upstream router(s) regarding the specified name prefix, it terminates the Request, as defined in <xref target="sec.terminate.no_route" format="default"/>. It should be noted that the Request messages are terminated at the FHR; therefore, although the maximum value for the HopLimit is 255 and that for SkipHop is 15, if the Request messages reach the FHR before the HopLimit or SkipHop value becomes 0, the FHR silently discards the Request message and the Request is timed out.</li>
+          <li>The router examines the Flags field (specified in <xref target="FlagVal" format="default"/>) in the Request block of the received CCNinfo Request. If the "C" flag is not set, it is categorized as the "routing path information discovery". If the "C" flag is set, it is the "cache information discovery". If the "O" flag is set, it is the "publisher discovery".</li>
+          <li>If the Request is either "cache information discovery" or "routing path information discovery", the router examines its FIB and CS. If the router caches the specified content, it sends the Reply message with its own Reply block and sub-block(s). If the router cannot insert its own Reply block or sub-block(s) because of no space, it terminates the Request, as specified in <xref target="sec.terminate.no_space" format="default"/>.
+	  If the router does not cache the specified content but knows the upstream neighbor router(s) for the specified name prefix, it creates the PIT entry, inserts its own Report block in the hop-by-hop header, and forwards the Request to the upstream neighbor(s). If the router cannot insert its own Report block because of no space, or if the router does not cache the specified content and does not know the upstream neighbor router(s) for the specified name prefix, it terminates the Request, as defined in <xref target="sec.terminate.no_route" format="default"/>.</li>
+          <li>If the Request is the "publisher discovery", the router examines whether it is the FHR for the requested content. If the router is the FHR, it sends the Reply message with its own Report block and sub-blocks (in the case of cache information discovery) or the Reply message with its own Report block without adding any Reply sub-blocks (in the case of routing path information discovery). If the router is not the FHR but knows the upstream neighbor router(s) for the specified name prefix, it creates the PIT entry, inserts its own Report block, and forwards the Request to the upstream neighbor(s). If the router cannot insert its own Report block in the hop-by-hop header because of no space, it terminates the Request, as specified in <xref target="sec.terminate.no_space" format="default"/>. If the router is not the FHR and does not know the upstream neighbor router(s) for the specified name prefix, it terminates the Request, as defined in <xref target="sec.terminate.no_route" format="default"/>. Note that in Cefore <xref target="Cefore-site" format="default"/>, there is an API by which a publisher informs the application prefix to the FHR, and the FHR registers it into the FIB. The prefix entry then can be statically configured on other routers or announced by a routing protocol.</li>
+        </ol>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.forward.request" numbered="true" toc="default">
+        <name>Forwarding CCNinfo Request</name>
+        <!-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
+
+	<section anchor="sec.forward.regular" numbered="true" toc="default">
+          <name>Regular Request</name>
+          <t>When a router decides to forward a Request message with its Report block to its upstream router(s), it specifies the Request Arrival Time and Node Identifier values in the Report block of the Request message. The router then forwards the Request message upstream toward the publisher or caching router based on the FIB entry like the ordinary Interest-Data exchanges in CCN.</t>
+          <t>When the router forwards the Request message, it <bcp14>MUST</bcp14> record the F flag and Request ID in the Request block of the Request message and exploiting path labels (specified in <xref target="sec.intro" format="default"/>) at the corresponding PIT entry.
+	  The router can later check the PIT entry to correctly forward the Reply message(s) back.</t>
+          <t>CCNinfo supports multipath forwarding. The Request messages can be forwarded to multiple neighbor routers.
+Some routers may have a strategy for multipath forwarding; when a router sends Interest messages to multiple neighbor routers, it may delay or prioritize to send the message to the upstream routers. The CCNinfo Request, as the default, complies with such strategies; a CCNinfo user could trace the actual forwarding path based on the forwarding strategy and will receive a single Reply message such as a Content Object.</t>
+        </section>
+        <!-- ++++++++++++++++++++++++++++++++++++++++++++++++++++++++ -->
+
+	<section anchor="sec.forward.full-request" numbered="true" toc="default">
+          <name>Full Discovery Request</name>
+          <t>There may be a case wherein a CCNinfo user wants to discover all possible forwarding paths and content forwarders based on the routers' FIBs. The "full discovery request" enables this functionality.
+	If a CCNinfo user sets the F flag in the Request block of the Request message (as seen in <xref target="FlagVal" format="default"/>) to request the full discovery, the upstream routers simultaneously forward the Requests to all multiple upstream routers based on the FIBs. Then, the CCNinfo user can trace all possible forwarding paths. As seen in <xref target="fig_reply_force" format="default"/>, each router forwards the Reply message along its PIT entry, and finally, the CCNinfo user receives two Reply messages: one from the FHR (Router C) and the other from the Caching router.</t>
+          <figure anchor="fig_reply_force">
+            <name>Full Discovery Request: Reply Messages Forwarded by the Publisher and Routers</name>
+            <artwork align="center" name="" type="" alt=""><![CDATA[
+       3. Reply(C)   2. Reply(C)
+       3. Reply(P)   2. Reply(P)   1. Reply(P)
+         +----+        +----+        +----+
+         |    |        |    |        |    |
+         v    |        v    |        v    |
++--------+    +--------+    +--------+    +--------+    +---------+
+| CCNinfo|----| Router |----| Router |----| Router |----|Publisher|
+|  user  |    |   A    |    |   B    |    |   C    |    |         |
++--------+    +--------+    +--------+    +--------+    +---------+
+                                     ^
+                                      \          +-------+
+                           1. Reply(C) \         | Cache |
+                                        \ +---------+    |
+                                         \| Caching |----+
+                                          |  router |
+                                          +---------+
+]]></artwork>
+          </figure>
+          <t>To receive different Reply messages forwarded from different routers, the PIT entries initiated by CCNinfo remain until the configured CCNinfo Reply Timeout (<xref target="sec.timer" format="default"/>) is expired. In other words, unlike the ordinary Interest-Data exchanges in CCN, if routers that accept the full discovery request receive the full discovery request, the routers <bcp14>SHOULD NOT</bcp14> remove the PIT entry created by the full discovery request until the CCNinfo Reply Timeout value expires.</t>
+          <t>Note that the full discovery request is an <bcp14>OPTIONAL</bcp14> implementation of CCNinfo; it may not be implemented on routers. Even if it is implemented on a router, it may not accept the full discovery request from non-validated CCNinfo users or routers or because of its policy. If a router does not accept the full discovery request, it rejects the full discovery request as described in <xref target="sec.admin_prohibit" format="default"/>. Routers that enable the full discovery request <bcp14>MAY</bcp14> rate-limit Replies, as described in <xref target="sec.rate_limit.reply" format="default"/> as well.</t>
+        </section>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.send.reply" numbered="true" toc="default">
+        <name>Sending CCNinfo Reply</name>
+        <t>If there is a caching router or FHR for the specified content within the specified hop count along the path, the caching router or FHR sends back the Reply message toward the CCNinfo user and terminates the Request.</t>
+        <t>When a router decides to send a Reply message to its downstream neighbor router or the CCNinfo user with a NO_ERROR return code, it inserts a Report block with the Request Arrival Time and Node Identifier values to the Request message. Then, the router inserts the corresponding Reply sub-block(s) (<xref target="Reply_subblock" format="default"/>) to the payload. The router finally changes the Type field in the fixed header from PT_CCNINFO_REQUEST to PT_CCNINFO_REPLY and forwards the message back as the Reply toward the CCNinfo user in a hop-by-hop manner.</t>
+
+        <t>If a router cannot continue the Request, the router <bcp14>MUST</bcp14> put an appropriate ReturnCode in the Request message, change the Type field value in the fixed header from PT_CCNINFO_REQUEST to PT_CCNINFO_REPLY, and forward the Reply message back toward the CCNinfo user to terminate the Request (see <xref target="sec.terminate" format="default"/>).</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section numbered="true" toc="default">
+        <name>Forwarding CCNinfo Reply</name>
+        <t>When a router receives a CCNinfo Reply whose Request ID and Node Identifier values match those in the PIT entry, which is sent from a valid adjacent neighbor router, it forwards the CCNinfo Reply back toward the CCNinfo user. If the router does not receive the corresponding Reply within the [CCNinfo Reply Timeout] period, then it removes the corresponding PIT entry and terminates the trace.</t>
+        <t>The Flags field in the Request block TLV is used to indicate whether the router keeps the PIT entry during the CCNinfo Reply Timeout even after one or more corresponding Reply messages are forwarded. When the CCNinfo user does not set the F flag (i.e., "0"), the intermediate routers immediately remove the PIT entry whenever they forward the corresponding Reply message. When the CCNinfo user sets the F flag (i.e., "1"), which means the CCNinfo user chooses the "full discovery request" (see <xref target="sec.forward.full-request" format="default"/>), the intermediate routers keep the PIT entry within the [CCNinfo Reply Timeout] period. After this timeout, the PIT entry is removed.</t>
+        <t>CCNinfo Replies <bcp14>MUST NOT</bcp14> be cached in routers upon the transmission of Reply messages.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section numbered="true" toc="default">
+        <name>PIT Entry Management for Multipath Support</name>
+        <t>Within a network with a multipath condition, there is a case (<xref target="fig_multi-replies" format="default"/>) wherein a single CCNinfo Request is split into multiple Requests (e.g., at Router A), which are injected into a single router (Router D). In this case, multiple Replies with the same Request ID and Node Identifier values, including different Report blocks, are received by the router (Router D).</t>
+
+        <figure anchor="fig_multi-replies">
+	  <name>An Example of Multipath Network Topology</name>
+          <artwork align="center" name="" type="" alt=""><![CDATA[
+                          +--------+
+                          | Router |
+                          |   B    |
+                          +--------+
+                         /          \
+                        /            \
++--------+    +--------+              +--------+     +---------+
+| CCNinfo|----| Router |              | Router | ... |Publisher|
+|  user  |    |   A    |              |   D    |     |         |
++--------+    +--------+              +--------+     +---------+
+                        \            /
+                         \          /
+                          +--------+
+                          | Router |
+                          |   C    |
+                          +--------+
+]]></artwork>
+        </figure>
+        <t>To recognize different CCNinfo Reply messages, the routers <bcp14>MUST</bcp14> distinguish the PIT entries by the Request ID and exploiting path labels, which could be a hash value of the concatenation information of the cumulate node identifiers in the hop-by-hop header and the specified content name. For example, when Router D in <xref target="fig_multi-replies" format="default"/> receives a CCNinfo Request from Router B, its PIT includes the Request ID and value such as H((Router_A|Router_B)|content_name), where "H" indicates some hash function and "|" indicates concatenation. When Router D receives a CCNinfo Request from Router C, its PIT includes the same Request ID and value of H((Router_A|Router_C)|content_name). Two different Replies are later received on Router D, and each Reply is appropriately forwarded to Router B and Router C, respectively.
+      Note that two Reply messages coming from Router B and Router C are reached at Router A, but the CCNinfo user can only receive the first Reply message either from Router B or Router C as Router A removes the corresponding PIT entry after it forwards the first Reply.</t>
+        <t>To avoid routing loops, when a router seeks the cumulate node identifiers of the Report blocks in the hop-by-hop header, it <bcp14>MUST</bcp14> examine whether its own node identifier is not previously inserted. If a router detects its own node identifier in the hop-by-hop header, the router inserts its Report block and terminates the Request as will be described in <xref target="sec.terminate.fatal" format="default"/>.</t>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.terminate" numbered="true" toc="default">
+      <name>CCNinfo Termination</name>
+      <t>When performing a hop-by-hop trace, it is necessary to determine when to stop the trace. There are several cases when an intermediate router might return a Reply before a Request reaches the caching router or the FHR.</t>
+      <section numbered="true" toc="default">
+        <name>Arriving at First-Hop Router</name>
+        <t>A CCNinfo Request can be determined to have arrived at the FHR. To ensure that a router recognizes that it is the FHR for the specified content, it needs to have a FIB entry (or to attach) to the corresponding publisher or the content.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Arriving at Router Having Cache</name>
+        <t>A CCNinfo Request can be determined to have arrived at the router having the specified content cache within the specified HopLimit.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Arriving at Last Router</name>
+
+        <t>A CCNinfo Request can be determined to have arrived at the last router of the specified HopLimit. If the last router does not have the corresponding cache, it <bcp14>MUST</bcp14> insert its Report block and send the Reply message with a NO_INFO return code without appending any Reply block or sub-block TLVs.</t>
+      </section>
+      <section anchor="sec.terminate.invalid" numbered="true" toc="default">
+        <name>Invalid Request</name>
+        <t>If the router does not validate the Request or the Reply even it is required, the router <bcp14>MUST</bcp14> note a ReturnCode of INVALID_REQUEST in the fixed header of the message, insert its Report block, and forward the message as the Reply back to the CCNinfo user. The router <bcp14>MAY</bcp14>, however, randomly ignore the received invalid messages. (See <xref target="sec.rate_limit.request" format="default"/>.)</t>
+      </section>
+      <section anchor="sec.terminate.no_route" numbered="true" toc="default">
+        <name>No Route</name>
+        <t>If the router cannot determine the routing paths or neighbor routers for the specified name prefix within the specified HopLimit,
+	it <bcp14>MUST</bcp14> note a ReturnCode of NO_ROUTE in the fixed header of the message, insert its Report block, and forward the message as the Reply back to the CCNinfo user.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>No Information</name>
+        <t>If the router does not have any information about the specified name prefix within the specified HopLimit,
+	it <bcp14>MUST</bcp14> note a ReturnCode of NO_INFO in the fixed header of the message, insert its Report block, and forward the message as the Reply back to the CCNinfo user.</t>
+      </section>
+      <section anchor="sec.terminate.no_space" numbered="true" toc="default">
+        <name>No Space</name>
+        <t>If appending the Report block, the Reply block, or Reply sub-block would make the hop-by-hop header longer than 247 bytes or the Request packet longer than the MTU of the Incoming face, the router <bcp14>MUST</bcp14> note a ReturnCode of NO_SPACE in the fixed header of the message and forward the message as the Reply back to the CCNinfo user.</t>
+      </section>
+      <section anchor="sec.terminate.fatal" numbered="true" toc="default">
+        <name>Fatal Error</name>
+        <t>If a CCNinfo Request has encountered a fatal error,
+	the router <bcp14>MUST</bcp14> note a ReturnCode of FATAL_ERROR in the fixed header of the message and forward the message as the Reply back to the CCNinfo user. This may happen, for example, when the router detects some routing loop in the Request blocks (see <xref target="sec.intro" format="default"/>). The fatal error can be encoded with another error: if a router detects routing loop but cannot insert its Report block, it <bcp14>MUST</bcp14> note NO_SPACE and FATAL_ERROR ReturnCodes (i.e., 0x85) in the fixed header and forward the message back to the CCNinfo user.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>CCNinfo Reply Timeout</name>
+        <t>If a router receives the Request or Reply message that expires its own [CCNinfo Reply Timeout] value (<xref target="sec.timer" format="default"/>), the router will silently discard the Request or Reply message.</t>
+      </section>
+      <section anchor="sec.nonsupport" numbered="true" toc="default">
+        <name>Non-Supported Node</name>
+        <t>Cases will arise in which a router or a FHR along the path does not support CCNinfo. In such cases, a CCNinfo user and routers that forward the CCNinfo Request will time out the CCNinfo request.</t>
+      </section>
+      <section anchor="sec.admin_prohibit" numbered="true" toc="default">
+        <name>Administratively Prohibited</name>
+        <t>If CCNinfo is administratively prohibited, the router rejects the Request message and <bcp14>MUST</bcp14> send the CCNinfo Reply with the ReturnCode of ADMIN_PROHIB. The router <bcp14>MAY</bcp14>, however, randomly ignore the Request messages to be rejected (see <xref target="sec.rate_limit.request" format="default"/>).</t>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.config" numbered="true" toc="default">
+      <name>Configurations</name>
+      <section anchor="sec.timer" numbered="true" toc="default">
+        <name>CCNinfo Reply Timeout</name>
+        <t>The [CCNinfo Reply Timeout] value is used to time out a CCNinfo Reply. The value for a router can be statically configured by the router's administrators and/or operators. The default value is 3 (seconds). The [CCNinfo Reply Timeout] value <bcp14>SHOULD NOT</bcp14> be larger than 4 (seconds) and <bcp14>SHOULD NOT</bcp14> be lower than 2 (seconds).</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>HopLimit in Fixed Header</name>
+        <t>If a CCNinfo user does not specify the HopLimit value in the fixed header for a Request message as the HopLimit, the HopLimit is set to 32. Note that 0 HopLimit is an invalid Request; hence, the router in this case follows the way defined in <xref target="sec.terminate.invalid" format="default"/>.</t>
+      </section>
+      <section anchor="sec.acl.config" numbered="true" toc="default">
+        <name>Access Control</name>
+        <t>A router <bcp14>MAY</bcp14> configure the valid or invalid networks to enable an access control. The access control <bcp14>MAY</bcp14> be defined per name prefix, such as "who can retrieve which name prefix" (see <xref target="sec.acl" format="default"/>).</t>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.diag" numbered="true" toc="default">
+      <name>Diagnosis and Analysis</name>
+      <section numbered="true" toc="default">
+        <name>Number of Hops and RTT</name>
+        <t>A CCNinfo Request message is forwarded in a hop-by-hop manner and each forwarding router appends its own Report block. We can then verify the number of hops to reach the content forwarder or publisher and the RTT between the content forwarder or publisher.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Caching Router Identification</name>
+        <t>While some routers may hide their node identifiers with all-zeros in the Report blocks (as seen in <xref target="sec.policy" format="default"/>), the routers in the path from the CCNinfo user to the content forwarder can be identified.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>TTL or Hop Limit</name>
+        <t>By taking the HopLimit from the content forwarder and
+	forwarding the TTL threshold over all hops, it is possible to
+	discover the TTL or hop limit required for the content forwarder to reach the CCNinfo user.</t>
+      </section>
+      <section anchor="sec.delay" numbered="true" toc="default">
+        <name>Time Delay</name>
+        <t>If the routers have synchronized clocks, it is possible to estimate the propagation and queuing delays from the differences between the timestamps at the successive hops. However, this delay includes the control processing overhead; therefore, it is not necessarily indicative of the delay that would be experienced by the data traffic.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Path Stretch</name>
+        <t>By obtaining the path stretch "d / P", where "d" is the hop count of the data and "P" is the hop count from the consumer to the publisher, we can measure the improvements in path stretch in various cases, such as in different caching and routing algorithms. We can then facilitate the investigation of the performance of the protocol.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Cache Hit Probability</name>
+        <t>CCNinfo can show the number of received Interests per cache or chunk on a router. Accordingly, CCNinfo measures the content popularity (i.e., the number of accesses for each content and/or cache), thereby enabling the investigation of the routing/caching strategy in networks.</t>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.iana" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This section details each kind of CCNx protocol value that has been registered. As per <xref target="RFC8126" format="default"/>, four assignments have been made in existing registries, and a new Reply Type registry has been created in the "Content-Centric Networking (CCNx)" registry group.</t>
+      <section anchor="sec.iana.pt" numbered="true" toc="default">
+        <name>Packet Type Registry</name>
+        <t>As shown in <xref target="Type_val" format="default"/>, CCNinfo defines two packet types, PT_CCNINFO_REQUEST and PT_CCNINFO_REPLY, whose values are 0x03 and 0x04, respectively.</t>
+      </section>
+      <section anchor="sec.iana.tlt" numbered="true" toc="default">
+        <name>Top-Level Type Registry</name>
+        <t>As shown in <xref target="Top-level_Type" format="default"/>, CCNinfo defines one top-level type, T_DISCOVERY, whose value is 0x0005.</t>
+      </section>
+      <section anchor="sec.iana.hbh" numbered="true" toc="default">
+        <name>Hop-by-Hop Type Registry</name>
+        <t>As shown in <xref target="Hop-by-hop_Type" format="default"/>, CCNinfo defines two hop-by-hop types, T_DISC_REQHDR and T_DISC_REPORT, whose values are 0x0008 and 0x0009, respectively.</t>
+      </section>
+      <section anchor="sec.iana.msg" numbered="true" toc="default">
+        <name>Message Type Registry</name>
+        <t>As shown in <xref target="CCNx_Type" format="default"/>, CCNinfo defines two message types, T_DISC_REQ and T_DISC_REPLY, whose values are 0x000D and 0x000E, respectively.</t>
+      </section>
+
+      <section anchor="sec.iana.reply" numbered="true" toc="default">
+        <name>Reply Type Registry</name>
+        <t>IANA has created the "CCNx Reply Types" registry and allocated the reply types. The registration procedure is "RFC Required" <xref target="RFC8126"/>.  The Type value is 2 octets. The range is 0x0000-0xFFFF. As shown in <xref target="Sub_Type" format="default"/>, CCNinfo defines three reply types, T_DISC_CONTENT, T_DISC_CONTENT_PUBLISHER, and T_ORG, whose values are 0x0000, 0x0001, and 0x0FFF, respectively.</t>
+      </section>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.sec" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This section addresses some of the security considerations.</t>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.policy" numbered="true" toc="default">
+        <name>Policy-Based Information Provisioning for Request</name>
+        <t>Although CCNinfo gives excellent troubleshooting cues, some network administrators or operators may not want to disclose everything about their network to the public or may wish to securely transmit private information to specific members of their networks. CCNinfo provides policy-based information provisioning, thereby allowing network administrators to specify their response policy for each router.</t>
+        <t>The access policy regarding "who is allowed to retrieve" and/or "what kind of cache information" can be defined for each router. For the former type of access policy, routers with the specified content <bcp14>MAY</bcp14> examine the signature enclosed in the Request message and decide whether they should notify the content information in the Reply. If the routers decide to not notify the content information, they <bcp14>MUST</bcp14> send the CCNinfo Reply with the ReturnCode of ADMIN_PROHIB without appending any Reply block or sub-block TLVs.
+For the latter type of policy, the permission, whether (1) All (all cache information is disclosed), (2) Partial (cache information with a particular name prefix can (or cannot) be disclosed), or (3) Deny (no cache information is disclosed), is defined at the routers.</t>
+        <t>In contrast, we entail that each router does not disrupt the forwarding of CCNinfo Request and Reply messages. When a Request message is received, the router <bcp14>SHOULD</bcp14> insert the Report block if the ReturnCode is NO_ERROR. Here, according to the policy configuration, the Node Identifier field in the Report block <bcp14>MAY</bcp14> be null (i.e., all-zeros), but the Request Arrival Time field <bcp14>SHOULD NOT</bcp14> be null. Finally, the router <bcp14>SHOULD</bcp14> forward the Request message to the upstream router toward the content forwarder if the ReturnCode is kept with NO_ERROR.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.acl" numbered="true" toc="default">
+        <name>Filtering CCNinfo Users Located in Invalid Networks</name>
+        <t>A router <bcp14>MAY</bcp14> support an access control mechanism to filter out Requests from invalid CCNinfo users. To accomplish this, invalid networks (or domains) could, for example, be configured via a list of allowed or disallowed networks (as observed in <xref target="sec.acl.config" format="default"/>). If a Request is received from a disallowed network (according to the node identifier in the Request block), the Request <bcp14>MUST NOT</bcp14> be processed and the Reply with the ReturnCode of INFO_HIDDEN <bcp14>SHOULD</bcp14> be used to note that. The router <bcp14>MAY</bcp14>, however, perform rate-limited logging of such events.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section numbered="true" toc="default">
+        <name>Topology Discovery</name>
+        <t>CCNinfo can be used to discover actively used topologies. If a network topology is not disclosed, CCNinfo Requests <bcp14>SHOULD</bcp14> be restricted at the border of the domain using the ADMIN_PROHIB return code.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section numbered="true" toc="default">
+        <name>Characteristics of Content</name>
+        <t>CCNinfo can be used to discover the type of content being sent by publishers. If this information is a secret, CCNinfo Requests <bcp14>SHOULD</bcp14> be restricted at the border of the domain, using the ADMIN_PROHIB return code.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.compute" numbered="true" toc="default">
+        <name>Computational Attacks</name>
+        <t>CCNinfo may impose heavy tasks at content forwarders because it makes content forwarders seek their internal cache states reported in the Reply messages whenever they form the Reply messages. The current CCNinfo specification allows to return null values for several fields, such as First/Last Seqnum or Elapsed Cache Time fields in the Reply sub-block. As mentioned in <xref target="sec.reply_subblk" format="default"/>, these values <bcp14>MAY</bcp14> be null. This means that the content forwarder cannot only hide these values owing to privacy and security policies but also skip the implementations of the complex functions to report these values.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.timeout" numbered="true" toc="default">
+        <name>Longer or Shorter CCNinfo Reply Timeout</name>
+        <t>Routers can configure CCNinfo Reply Timeout (<xref target="sec.timer" format="default"/>), which is the allowable timeout value to keep the PIT entry. If routers configure a longer timeout value, there may be an attractive attack vector against the PIT memory. Moreover, especially when the full discovery request option (<xref target="sec.forward.request" format="default"/>) is specified for the CCNinfo Request, several Reply messages may be returned and cause a response storm. (See <xref target="sec.rate_limit.reply" format="default"/> for rate-limiting to avoid the storm).
+	To avoid DoS attacks, routers <bcp14>MAY</bcp14> configure the timeout value, which is shorter than the user-configured CCNinfo timeout value. However, if it is too short, the Request may be timed out and the CCNinfo user does not receive all Replies; they only retrieve the partial path information (i.e., information about a part of the tree).</t>
+        <t>There may be a way to enable incremental exploration (i.e., to explore the part of the tree that was not explored by the previous operation); however, discussing such mechanisms is out of scope of this document.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.rate_limit.request" numbered="true" toc="default">
+        <name>Limiting Request Rates</name>
+        <t>A router <bcp14>MAY</bcp14> rate-limit CCNinfo Requests by ignoring some of the consecutive messages. The router <bcp14>MAY</bcp14> randomly ignore the received messages to minimize the processing overhead, i.e., to keep fairness in processing requests or to prevent traffic amplification. In such a case, no error message is returned. The rate limit function is left to the router's implementation.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.rate_limit.reply" numbered="true" toc="default">
+        <name>Limiting Reply Rates</name>
+        <t>CCNinfo supporting multipath forwarding may result in one Request returning multiple Reply messages. To prevent abuse, the routers in the traced path <bcp14>MAY</bcp14> need to rate-limit the Replies. In such a case, no error message is returned. The rate limit function is left to the router's implementation.</t>
+      </section>
+      <!-- ========================================================== -->
+
+      <section anchor="sec.adjacency" numbered="true" toc="default">
+        <name>Adjacency Verification</name>
+        <t>It is assumed that the CCNinfo Request and Reply messages are forwarded by adjacent neighbor nodes or routers. The CCNx message format or semantics do not define a secure way to verify the node and/or router adjacency, while a hop-by-hop authentication such as <xref target="DCAuth" format="default"/> provides a possible method for an adjacency verification and defines the corresponding message format for adjacency verification as well as the router behaviors. CCNinfo <bcp14>MAY</bcp14> use a similar method for node adjacency verification.
+        </t>
+      </section>
+    </section>
+  </middle>
+  <!--  *****BACK MATTER ***** -->
+
+  <back>
+
+<displayreference target="I-D.irtf-icnrg-icntraceroute" to="ICN-TRACEROUTE" />
+
+<references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+   <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8609.xml"/>
+   <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8569.xml"/>
+   <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+   <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+   <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+   <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8793.xml"/>
+
+        <reference anchor="Contrace">
+          <front>
+            <title>Contrace: A tool for measuring and tracing content-centric networks</title>
+            <author initials="H" surname="Asaeda"/>
+            <author initials="K" surname="Matsuzono"/>
+            <author initials="T" surname="Turletti"/>
+            <date month="March" year="2015"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1109/MCOM.2015.7060502"/>
+          <refcontent>IEEE Communications Magazine, Vol. 53, No. 3, pp. 182-188</refcontent>
+        </reference>
+
+<!-- [I-D.irtf-icnrg-icnping] IESG state I-D Exists as of 1/31/23-->
+<reference anchor="ICN-PING" target="https://datatracker.ietf.org/doc/html/draft-irtf-icnrg-icnping-07">
+<front>
+<title>ICN Ping Protocol Specification</title>
+<author fullname="Spyridon Mastorakis" initials="S." surname="Mastorakis">
+<organization>University of Nebraska at Omaha</organization>
+</author>
+<author fullname="David R. Oran" initials="D." surname="Oran">
+<organization>Network Systems Research and Design</organization>
+</author>
+<author fullname="Jim Gibson" initials="J." surname="Gibson">
+<organization>Unaffiliated</organization>
+</author>
+<author fullname="Ilya Moiseenko" initials="I." surname="Moiseenko">
+<organization>Apple Inc</organization>
+</author>
+<author fullname="Ralph Droms" initials="R." surname="Droms">
+<organization>Unaffiliated</organization>
+</author>
+<date day="16" month="October" year="2022"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-irtf-icnrg-icnping-07"/>
+</reference>
+
+
+
+<!-- [I-D.irtf-icnrg-icntraceroute] IESG state I-D Exists as of 1/31/23-->
+<reference anchor="I-D.irtf-icnrg-icntraceroute" target="https://datatracker.ietf.org/doc/html/draft-irtf-icnrg-icntraceroute-07">
+<front>
+<title>ICN Traceroute Protocol Specification</title>
+<author initials="S." surname="Mastorakis" fullname="Spyridon Mastorakis">
+<organization>University of Nebraska at Omaha</organization>
+</author>
+<author initials="D." surname="Oran" fullname="David R. Oran">
+<organization>Network Systems Research and Design</organization>
+</author>
+<author initials="I." surname="Moiseenko" fullname="Ilya Moiseenko">
+<organization>Apple Inc</organization>
+</author>
+<author initials="J." surname="Gibson" fullname="Jim Gibson">
+<organization>Unaffiliated</organization>
+</author>
+<author initials="R." surname="Droms" fullname="Ralph Droms">
+<organization>Unaffiliated</organization>
+</author>
+<date month="October" day="16" year="2022"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-irtf-icnrg-icntraceroute-07"/>
+</reference>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8487.xml"/>
+
+    <reference anchor="DCAuth">
+	<front>
+	  <title>DCAuth: Data-Centric Authentication for Secure In-Network Big-Data Retrieval</title>
+	  <author initials="R" surname="Li"/>
+	  <author initials="H" surname="Asaeda"/>
+	  <author initials="J" surname="Wu"/>
+	  <date month="October" year="2018"/>
+	</front>
+        <seriesInfo name="DOI" value="10.1109/TNSE.2018.2872049"/>
+        <refcontent>IEEE Transactions on Network Science and Engineering, Vol. 7, No. 1, pp. 15-27</refcontent>
+    </reference>
+
+<!-- [I-D.li-icnrg-hopauth] IESG state Expired -->
+
+<!--<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.li-icnrg-hopauth.xml"/> [HA] replaced by above journal as hopauth is expired and not maintained.-->
+
+        <reference anchor="CONSEC-CACHING">
+          <front>
+            <title>Consecutive Caching and Adaptive Retrieval for In-Network Big Data Sharing</title>
+            <author initials="R" surname="Li"/>
+            <author initials="K" surname="Matsuzono"/>
+            <author initials="H" surname="Asaeda"/>
+            <author initials="X" surname="Fu"/>
+            <date month="May" year="2018"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1109/ICC.2018.8422233"/>
+          <refcontent>Proc. IEEE ICC, Kansas City, MO, USA</refcontent>
+        </reference>
+
+        <reference anchor="Cefore">
+          <front>
+            <title>Cefore: Software Platform Enabling Content-Centric Networking and Beyond</title>
+            <author initials="H" surname="Asaeda"/>
+            <author initials="A" surname="Ooka"/>
+            <author initials="K" surname="Matsuzono"/>
+            <author initials="R" surname="Li"/>
+            <date month="September" year="2019"/>
+          </front>
+	  <seriesInfo name="DOI" value="10.1587/transcom.2018EII0001"/>
+          <refcontent>IEICE Transaction on Communications, Volume E102-B, Issue 9, pp. 1792-1803</refcontent>
+        </reference>
+
+        <reference anchor="Cefore-site" target="https://cefore.net/">
+          <front>
+            <title>Cefore</title>
+            <author/>
+            <date/>
+          </front>
+        </reference>
+
+    </references>
+    </references>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+    <section anchor="sec.command" numbered="true" toc="default">
+      <name>ccninfo Command and Options</name>
+      <t>
+   CCNinfo is implemented in Cefore <xref target="Cefore" format="default"/> <xref target="Cefore-site" format="default"/>. The command invoked by the CCNinfo user (e.g., consumer) is named "ccninfo". The ccninfo command sends the Request message and receives the Reply message(s). There are several options that can be specified with ccninfo, while the content name prefix (e.g., ccnx:/news/today) is the mandatory parameter.</t>
+      <t>The usage of the ccninfo command is as follows:</t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+ccninfo [-c] [-f] [-o] [-V] [-r hop_count] [-s hop_count]
+   [-v algorithm] name_prefix
+]]></artwork>
+      <dl newline="true" spacing="normal" indent="3">
+        <dt>name_prefix:</dt>
+        <dd>
+      The prefix name of content (e.g., ccnx:/news/today) or exact name of
+      content (e.g., ccnx:/news/today/Chunk=10) the CCNinfo user wants
+      to trace.</dd>
+        <dt>c option:</dt>
+        <dd>
+	This option can be specified if a CCNinfo user needs the cache
+      information as well as the routing path information for the
+      specified content/cache and RTT between the CCNinfo user and
+      content forwarder.
+	</dd>
+        <dt>f option:</dt>
+        <dd>
+	This option enables the "full discovery request"; routers send
+      CCNinfo Requests to multiple upstream faces based on their FIBs
+      simultaneously.  The CCNinfo user can then trace all possible
+      forwarding paths.
+	</dd>
+        <dt>o option:</dt>
+        <dd>
+      This option enables the tracing of the path to the content publisher.
+      Each router along the path to the publisher inserts each Report
+      block and forwards the Request message.  It does not send Reply
+      even if it caches the specified content.  FHR that attaches the
+      publisher (who has the complete set of content and is not a
+      caching router) sends the Reply message.
+        </dd>
+        <dt>V option:</dt>
+        <dd>
+	This option requests the Reply sender to validate the Reply
+      message with the Reply sender's signature.  The Reply message will
+      then include the CCNx ValidationPayload TLV.  The validation
+      algorithm is selected by the Reply sender.
+	</dd>
+        <dt>r option:</dt>
+        <dd>
+	The number of traced routers.  This value is set in the "HopLimit"
+      field located in the fixed header of the Request.  For example,
+      when the CCNinfo user invokes the ccninfo command with this
+      option, such as "-r 3", only three routers along the path examine
+      their path and cache information.
+	</dd>
+        <dt>s option:</dt>
+        <dd>
+	The number of skipped routers.  This value is set in the "SkipHop"
+	field located in the Request block TLV.  For example, when the CCNinfo
+	user invokes the ccninfo command with this option, such as "-s 3",
+	three upstream routers along the path only forward the Request message
+	but do not append their Report blocks in the hop-by-hop header and do
+	not send Reply messages despite having the corresponding cache.
+	</dd>
+        <dt>v option:</dt>
+        <dd>
+	This option enables the CCNinfo user to validate the Request
+      message with their signature.  The Request message will include
+      the CCNx ValidationPayload TLV.  The validation algorithm is
+      specified by the CCNinfo user.
+	</dd>
+      </dl>
+    </section>
+    <!-- %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% -->
+
+
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The authors would like to thank <contact fullname="Jérôme François"/>, <contact fullname="Erik Kline"/>, <contact fullname="Spyridon Mastorakis"/>, <contact fullname="Paulo Mendes"/>, <contact fullname="Ilya Moiseenko"/>, <contact fullname="David Oran"/>, and <contact fullname="Thierry Turletti"/> for their valuable comments and suggestions on this document.</t>
+    </section>
+    
+  </back> 
+
+</rfc>

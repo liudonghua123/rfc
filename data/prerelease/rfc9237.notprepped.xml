@@ -1,0 +1,764 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" xml:lang="en" ipr="trust200902" docName="draft-ietf-ace-aif-07" number="9237" submissionType="IETF" category="std" consensus="true" tocDepth="4" tocInclude="true" sortRefs="true" symRefs="true" updates=""
+obsoletes="" version="3">
+
+<!-- xml2rfc v2v3 conversion 3.12.1 -->
+  <front>
+    <title abbrev="ACE AIF">An Authorization Information Format (AIF) for Authentication and Authorization for Constrained Environments (ACE)</title>
+    <seriesInfo name="RFC" value="9237"/>
+    <author initials="C." surname="Bormann" fullname="Carsten Bormann">
+      <organization>Universität Bremen TZI</organization>
+      <address>
+        <postal>
+          <street>Postfach 330440</street>
+          <city>Bremen</city>
+          <code>D-28359</code>
+          <country>Germany</country>
+        </postal>
+        <phone>+49-421-218-63921</phone>
+        <email>cabo@tzi.org</email>
+      </address>
+    </author>
+    <date year="2022" month="August"/>
+    <area>sec</area>
+    <workgroup>ACE</workgroup>
+
+
+    <abstract>
+      <t>Information about which entities are authorized to perform what
+operations on which constituents of other entities is a crucial
+component of producing an overall system that is secure.  Conveying
+precise authorization information is especially critical in highly
+automated systems with large numbers of entities, such as the
+Internet of Things.</t>
+      <t>This specification provides a generic information model and format for
+representing such authorization information, as well as two variants
+of a specific instantiation of that format for use with Representational State Transfer (REST) resources
+identified by URI path.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>Constrained devices, as they are used in the Internet of Things, need
+security in order to operate correctly and prevent misuse.
+One important element of this security is that devices in the Internet
+of Things need to be able to decide which operations requested of them
+should be considered authorized, ascertain that the
+authorization to request the operation does apply to the actual
+requester as authenticated,
+and ascertain that other devices they make
+requests of are the ones they intended.</t>
+      <t>To transfer detailed authorization information from an authorization manager
+(such as an ACE-OAuth authorization server <xref target="RFC9200"/>) to a device, a
+compact representation format is needed.
+This document defines such a format -- the
+Authorization Information Format (AIF).
+AIF is defined both as a general structure that can be used for many
+different applications and
+as a specific instantiation tailored to REST resources and the permissions
+on them, including some provision for dynamically created resources.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+
+	<t>This memo uses terms from the Constrained Application Protocol (CoAP) <xref target="RFC7252"/> and the Internet Security Glossary <xref target="RFC4949"/>; CoAP is used for
+the explanatory examples as it is a good fit for constrained devices.</t>
+        <t>The shape of data is specified in Concise Data Definition Language (CDDL) <xref target="RFC8610"/> <xref target="RFC9165"/>.
+Terminology for constrained devices is defined in <xref target="RFC7228"/>.</t>
+<t>The term "byte", abbreviated by "B", is used in its now customary
+sense as a synonym for "octet".</t>
+<t>
+The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+"<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+"<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+"<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+"<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+target="RFC8174"/> when, and only when, they appear in all capitals, as shown
+here.
+        </t>
+      </section>
+    </section>
+    <section anchor="information-model">
+      <name>Information Model</name>
+      <t>Authorizations are generally expressed through some data structures
+that are cryptographically secured (or transmitted in a secure way).
+This section discusses the information model underlying the payload of
+that data (as opposed to the cryptographic armor around it).</t>
+      <t>The semantics of the authorization information defined in this
+document are that of an <em>allow-list</em>:
+everything is denied until it is explicitly allowed.</t>
+      <t>For the purposes of this specification, the underlying access control model
+will be that of an access matrix, which gives a set of permissions for
+each possible combination of a subject and an object.
+We are focusing the AIF data item on a single row in the access matrix
+(such a row has often been called a "capability list") without
+concern to the subject for which the data item is issued.
+As a consequence, AIF <bcp14>MUST</bcp14> be used in a way that the subject of the
+authorizations is unambiguously identified (e.g., as part of the armor
+around it).</t>
+      <t>The generic model of such a capability list is a list of pairs of
+object identifiers (of type <tt>Toid</tt>) and the permissions (of type <tt>Tperm</tt>) that the subject has on the
+object(s) identified.</t>
+      <figure anchor="genaif">
+        <name>Definition of Generic AIF</name>
+        <sourcecode type="cddl"><![CDATA[
+AIF-Generic<Toid, Tperm> = [* [Toid, Tperm]]
+]]></sourcecode>
+      </figure>
+      <t>In a specific data model (such as the one specified in
+this document), the object identifier (<tt>Toid</tt>) will often be
+a text string, and the set of permissions (<tt>Tperm</tt>) will be represented
+by a bit set, which in turn is represented as a number (see <xref target="data-model"/>).</t>
+      <figure anchor="specaif">
+        <name>Commonly Used Shape of a Specific AIF</name>
+        <sourcecode type="cddl"><![CDATA[
+AIF-Specific = AIF-Generic<tstr, uint>
+]]></sourcecode>
+      </figure>
+      <section anchor="rest-model">
+        <name>REST-Specific Model</name>
+      <t>In the specific instantiation of the REST resources and the
+      permissions on them, we use the URI of a resource on a CoAP server for
+      the object identifier (<tt>Toid</tt>).  More specifically, since the
+      parts of the URI that identify the server ("authority" in <xref
+      target="RFC3986"/>) are authenticated during REST resource access (<xref
+      section="4.2.2" sectionFormat="of" target="RFC9110"/> and <xref
+      section="6.2" sectionFormat="of" target="RFC7252"/>), they naturally
+      fall into the realm handled by the cryptographic armor; we therefore
+      focus on the "path" ("path-abempty") and "query" parts of the URI
+      (<em>URI-local-part</em> in this specification, as expressed by the
+      Uri-Path and Uri-Query options in CoAP).
+As a consequence, AIF <bcp14>MUST</bcp14> be used in a way that it is clear
+who is the target (enforcement point) of these authorizations
+(note that there may be more than one target that the same
+authorization applies to, e.g., in a situation with homogeneous
+devices).</t>
+        <t>For the permissions (<tt>Tperm</tt>), we use a simple permissions model that
+lists the subset of the REST (CoAP or HTTP) methods permitted.
+This model is summarized in <xref target="im-example"/>.</t>
+      <table anchor="im-example">
+          <name>An Authorization Instance in the REST-Specific AIF Information Model</name>
+          <thead>
+            <tr>
+              <th align="left">URI-local-part</th>
+              <th align="left">Permission Set</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">/s/temp</td>
+              <td align="left">GET</td>
+            </tr>
+            <tr>
+              <td align="left">/a/led</td>
+              <td align="left">PUT, GET</td>
+            </tr>
+            <tr>
+              <td align="left">/dtls</td>
+              <td align="left">POST</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>In this example, a device offers a temperature sensor <tt>/s/temp</tt> for
+read-only access, a LED actuator <tt>/a/led</tt> for read/write, and a
+<tt>/dtls</tt> resource for POST access.</t>
+        <t>As shown in the data model (<xref target="data-model"/>), the representations
+of REST methods provided are limited to those that have a CoAP method
+number assigned; an extension to the model may be necessary to represent
+permissions for exotic HTTP methods.</t>
+      </section>
+      <section anchor="limitations">
+        <name>Limitations</name>
+        <t>This simple information model only allows granting permissions for
+statically identifiable objects, e.g., URIs for the REST-specific
+instantiation.  One might be tempted to extend the model towards URI
+templates <xref target="RFC6570"/> (for instance, to open up an
+authorization for many parameter values as in
+ <tt>/s/temp{?any*}</tt>).
+However, that requires some considerations of
+the ease and unambiguity of matching a given URI against a set of
+templates in an AIF data item.</t>
+<t>This simple information model also does not allow expressing
+conditionalized access based on state outside the identification of
+objects (e.g., "opening a door is allowed if it is not locked").</t>
+        <t>Finally, the model does not provide any special access for a set of
+resources that are specific to a subject, e.g., that the subject
+created itself by previous operations (PUT, POST, or PATCH/iPATCH <xref target="RFC8132"/>) or that were
+specifically created for the subject by others.</t>
+      </section>
+      <section anchor="ext-rest-model">
+        <name>REST-Specific Model with Dynamic Resource Creation</name>
+        <t>The <em>REST-specific model with dynamic resource creation</em> addresses
+        the need to provide defined access to dynamic resources that were
+        created by the subject itself, specifically, a resource that is made
+        known to the subject by providing Location-* options in a CoAP
+        response or using the Location header field in HTTP <xref
+        target="RFC9110"/> (the Location-indicating mechanisms).  (The concept
+        is somewhat comparable to "Access Control List (ACL) inheritance" in
+        the Network File System version 4 (NFSv4) protocol <xref
+        target="RFC8881"/>, except that it does not use a containment
+        relationship but rather the fact that the dynamic resource was created
+        from a resource to which the subject had access.)  In other words, it
+        addresses an important subset of the third limitation mentioned in
+        <xref target="limitations"/>.</t>
+        <table anchor="im-example-dynamic">
+          <name>An Authorization Instance in the REST-Specific AIF Information Model with Dynamic Resource Creation</name>
+          <thead>
+            <tr>
+              <th align="left">URI-local-part</th>
+              <th align="left">Permission Set</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">/a/make-coffee</td>
+              <td align="left">POST, Dynamic-GET, Dynamic-DELETE</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>For a method X, the presence of a Dynamic-X permission means that the subject
+holds permission to exercise the method X on resources that have been
+returned in a 2.01 (201 Created) response by a Location-indicating mechanism to a request that the
+subject made to the resource listed.
+In the example shown in <xref target="im-example-dynamic"/>, POST operations on
+<tt>/a/make-coffee</tt> might return the location of a resource dynamically
+created on the coffee machine that allows GET to find
+out about the status of, and DELETE to cancel, the coffee-making
+operation.</t>
+        <t>Since the use of the extension defined in this section can be detected
+by the mentioning of the Dynamic-X permissions, there is no need for
+another explicit switch between the basic and the model extended by
+dynamic resource creation; the
+extended model is always presumed once a Dynamic-X permission is present.</t>
+      </section>
+    </section>
+    <section anchor="data-model">
+      <name>Data Model</name>
+      <t>Different data model specializations can be defined for the generic
+information model given above.</t>
+      <t>In this section, we will give the data model for simple REST
+authorization as per Sections <xref target="rest-model" format="counter"/> and <xref target="ext-rest-model" format="counter"/>.
+As discussed, in this case the object identifier is specialized as a text string
+giving a relative URI (URI-local-part as the absolute path on the server
+serving as the enforcement point).
+The permission set is specialized to a single number <em>REST-method-set</em> by the following steps:</t>
+      <ul spacing="normal">
+        <li>The entries in the table that specify the same URI-local-part are merged
+into a single entry that specifies the union of the permission sets.</li>
+        <li>The (non-dynamic) methods in the permission sets are converted into
+their CoAP method numbers, minus 1.</li>
+<li>Dynamic-X permissions are converted into what the number would
+have been for X, plus a Dynamic-Offset that has been chosen as 32 (e.g., 35 is
+the number for Dynamic-DELETE as the number for DELETE is 3).
+</li>
+        <li>The set of numbers is converted into a single number REST-method-set by taking two to the
+power of each (decremented) method number and computing the inclusive OR of the
+binary representations of all the power values.</li>
+      </ul>
+      <t>This data model could be interchanged in the JSON
+<xref target="RFC8259"/> representation given in <xref target="dm-json"/>.</t>
+      <figure anchor="dm-json">
+        <name>An Authorization Instance Encoded in JSON (40 Bytes)</name>
+        <sourcecode type="json"><![CDATA[
+[["/s/temp",1],["/a/led",5],["/dtls",2]]
+]]></sourcecode>
+      </figure>
+      <t>In <xref target="aif-cddl"/>, a straightforward specification of the data model
+(including both the methods from <xref target="RFC7252"/> and the new ones from
+<xref target="RFC8132"/>, identified by the method code minus 1) is shown in CDDL
+<xref target="RFC8610"/> <xref target="RFC9165"/>:</t>
+      <figure anchor="aif-cddl">
+        <name>AIF in CDDL</name>
+        <sourcecode type="cddl"><![CDATA[
+AIF-REST = AIF-Generic<local-path, REST-method-set>
+local-path = tstr   ; URI relative to enforcement point
+REST-method-set = uint .bits methods
+methods = &(
+  GET: 0
+  POST: 1
+  PUT: 2
+  DELETE: 3
+  FETCH: 4
+  PATCH: 5
+  iPATCH: 6
+  Dynamic-GET: 32; 0 .plus Dynamic-Offset
+  Dynamic-POST: 33; 1 .plus Dynamic-Offset
+  Dynamic-PUT: 34; 2 .plus Dynamic-Offset
+  Dynamic-DELETE: 35; 3 .plus Dynamic-Offset
+  Dynamic-FETCH: 36; 4 .plus Dynamic-Offset
+  Dynamic-PATCH: 37; 5 .plus Dynamic-Offset
+  Dynamic-iPATCH: 38; 6 .plus Dynamic-Offset
+)
+Dynamic-Offset = 32
+]]></sourcecode>
+      </figure>
+      <t>For the information shown in <xref target="im-example"/> and <xref target="dm-json"/>, a
+representation in Concise Binary Object Representation (CBOR) <xref target="RFC8949"/> is given in <xref target="dm-cbor"/>; again,
+several optimizations and improvements are possible.</t>
+      <figure anchor="dm-cbor">
+        <name>An Authorization Instance Encoded in CBOR (28 Bytes)</name>
+        <artwork><![CDATA[
+83                        # array(3)
+   82                     # array(2)
+      67                  # text(7)
+         2f732f74656d70   # "/s/temp"
+      01                  # unsigned(1)
+   82                     # array(2)
+      66                  # text(6)
+         2f612f6c6564     # "/a/led"
+      05                  # unsigned(5)
+   82                     # array(2)
+      65                  # text(5)
+         2f64746c73       # "/dtls"
+      02                  # unsigned(2)
+]]></artwork>
+      </figure>
+      <t>Note that having chosen 32 as Dynamic-Offset means that all future CoAP
+methods that are registered can be represented both as themselves
+and in the Dynamic-X variant, but that only the dynamic forms of methods 1
+to 21 are typically usable in a JSON form <xref target="RFC7493"/>.</t>
+    </section>
+    <section anchor="media-types">
+      <name>Media Types</name>
+      <t>This specification defines media types for the generic information
+model, expressed in JSON (application/aif+json) or in CBOR (application/aif+cbor).  These media types have
+parameters for specifying <tt>Toid</tt> and <tt>Tperm</tt>; default values are the
+values "URI-local-part" for <tt>Toid</tt> and "REST-method-set" for <tt>Tperm</tt>, as
+per <xref target="data-model"/> of the present specification.</t>
+      <t>A specification that wants to use generic AIF with different <tt>Toid</tt>
+and/or <tt>Tperm</tt> is expected to request these as media type parameters
+(<xref target="registries"/>) and register a corresponding Content-Format (<xref target="content-format"/>).</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="media-types-1">
+        <name>Media Types</name>
+        <t>IANA has added the following media types to the "Media Types" registry. The registration entries are in the following subsections.</t>
+        <table align="left">
+          <name>New Media Types</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Template</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">aif+cbor</td>
+              <td align="left">application/aif+cbor</td>
+              <td align="left">RFC 9237, <xref target="media-types"/></td>
+            </tr>
+            <tr>
+              <td align="left">aif+json</td>
+              <td align="left">application/aif+json</td>
+              <td align="left">RFC 9237, <xref target="media-types"/></td>
+            </tr>
+          </tbody>
+        </table>
+      <section anchor="media-type-template1">
+        <name>application/aif+cbor</name>
+        <dl spacing="normal">
+          <dt>Type name:</dt>
+          <dd>
+            <t>application</t>
+          </dd>
+          <dt>Subtype name:</dt>
+          <dd>
+            <t>aif+cbor</t>
+          </dd>
+          <dt>Required parameters:</dt>
+          <dd>
+            <t>N/A</t>
+          </dd>
+          <dt>Optional parameters:</dt>
+          <dd>
+	    <t><br/></t>
+            <dl newline="true" spacing="normal">
+              <dt>
+                <tt>Toid</tt>:</dt><dd>the identifier for the object for which permissions are
+supplied.
+A value from the "Sub-Parameter Registry for application/aif+cbor and application/aif+json" subregistry for <tt>Toid</tt>.
+Default value: "URI-local-part" (RFC 9237).</dd>
+              <dt>
+                <tt>Tperm</tt>:</dt><dd>the data type of a permission set for the object
+identified via a <tt>Toid</tt>.
+A value from the "Sub-Parameter Registry for application/aif+cbor and application/aif+json" subregistry for <tt>Tperm</tt>.
+Default value: "REST-method-set" (RFC 9237).</dd>
+            </dl>
+          </dd>
+          <dt>Encoding considerations:</dt>
+          <dd>
+            <t>binary (CBOR)</t>
+          </dd>
+          <dt>Security considerations:</dt>
+          <dd>
+            <t><xref target="seccons"/> of RFC 9237</t>
+          </dd>
+          <dt>Interoperability considerations:</dt>
+          <dd>
+            <t>N/A</t>
+          </dd>
+          <dt>Published specification:</dt>
+          <dd>
+            <t><xref target="media-types"/> of RFC 9237</t>
+          </dd>
+          <dt>Applications that use this media type:</dt>
+          <dd>
+            <t>Applications that need to convey structured authorization data for
+identified resources, conveying sets of permissions.</t>
+          </dd>
+          <dt>Fragment identifier considerations:</dt>
+          <dd>
+            <t>The syntax and semantics of fragment identifiers is as specified for
+"application/cbor".  (At publication of RFC 9237, there is no
+fragment identification syntax defined for "application/cbor".)</t>
+          </dd>
+          <dt>Person &amp; email address to contact for further information:</dt>
+          <dd>
+            <t>ACE WG mailing list (ace@ietf.org)
+or IETF Applications and Real-Time Area (art@ietf.org)</t>
+          </dd>
+          <dt>Intended usage:</dt>
+          <dd>
+            <t>COMMON</t>
+          </dd>
+          <dt>Restrictions on usage:</dt>
+          <dd>
+            <t>N/A</t>
+          </dd>
+          <dt>Author/Change controller:</dt>
+          <dd>
+            <t>IETF</t>
+          </dd>
+          <dt>Provisional registration:</dt>
+          <dd>
+            <t>no</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="media-type-template2">
+        <name>application/aif+json</name>      
+        <dl spacing="normal">
+          <dt>Type name:</dt>
+          <dd>
+            <t>application</t>
+          </dd>
+          <dt>Subtype name:</dt>
+          <dd>
+            <t>aif+json</t>
+          </dd>
+          <dt>Required parameters:</dt>
+          <dd>
+            <t>N/A</t>
+          </dd>
+          <dt>Optional parameters:</dt>
+          <dd>
+	    <t><br/></t>
+            <dl newline="true" spacing="normal">
+              <dt>
+                <tt>Toid</tt>:</dt><dd>the identifier for the object for which permissions are
+supplied.
+A value from the media-type parameter subregistry for <tt>Toid</tt>.
+Default value: "URI-local-part" (RFC 9237).</dd>
+              <dt>
+                <tt>Tperm</tt>:</dt><dd>the data type of a permission set for the object
+identified via a <tt>Toid</tt>.
+A value from the media-type parameter subregistry for <tt>Tperm</tt>.
+Default value: "REST-method-set" (RFC 9237).</dd>
+            </dl>
+          </dd>
+          <dt>Encoding considerations:</dt>
+          <dd>
+            <t>binary (JSON is UTF-8-encoded text)</t>
+          </dd>
+          <dt>Security considerations:</dt>
+          <dd>
+            <t><xref target="seccons"/> of RFC 9237</t>
+          </dd>
+          <dt>Interoperability considerations:</dt>
+          <dd>
+            <t>N/A</t>
+          </dd>
+          <dt>Published specification:</dt>
+          <dd>
+            <t><xref target="media-types"/> of RFC 9237</t>
+          </dd>
+          <dt>Applications that use this media type:</dt>
+          <dd>
+            <t>Applications that need to convey structured authorization data for
+identified resources, conveying sets of permissions.</t>
+          </dd>
+          <dt>Fragment identifier considerations:</dt>
+          <dd>
+            <t>The syntax and semantics of fragment identifiers is as specified for
+"application/json".  (At publication of RFC 9237, there is no
+fragment identification syntax defined for "application/json".)</t>
+          </dd>
+          <dt>Person &amp; email address to contact for further information:</dt>
+          <dd>
+            <t>ACE WG mailing list (ace@ietf.org)
+or IETF Applications and Real-Time Area (art@ietf.org)</t>
+          </dd>
+          <dt>Intended usage:</dt>
+          <dd>
+            <t>COMMON</t>
+          </dd>
+          <dt>Restrictions on usage:</dt>
+          <dd>
+            <t>N/A</t>
+          </dd>
+          <dt>Author/Change controller:</dt>
+          <dd>
+            <t>IETF</t>
+          </dd>
+          <dt>Provisional registration:</dt>
+          <dd>
+            <t>no</t>
+          </dd>
+        </dl>
+      </section>
+    </section>
+      <section anchor="registries">
+        <name>Registries</name>
+        <t>For the media types application/aif+cbor and application/aif+json,
+IANA has created a subregistry within
+<xref target="IANA.media-type-sub-parameters"/> for the media-type parameters
+<tt>Toid</tt> and <tt>Tperm</tt>, populated with the following:</t>
+        <table align="left">
+          <name>New Media Type Parameters</name>
+          <thead>
+            <tr>
+              <th align="left">Parameter</th>
+              <th align="left">name</th>
+              <th align="left">Description/Specification</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">Toid</td>
+              <td align="left">URI-local-part</td>
+              <td align="left">local-part of URI</td>
+              <td align="left">RFC 9237</td>
+            </tr>
+            <tr>
+              <td align="left">Tperm</td>
+              <td align="left">REST-method-set</td>
+              <td align="left">set of REST methods represented</td>
+              <td align="left">RFC 9237</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>The registration policy is Specification Required <xref target="RFC8126"/>.
+The designated expert will engage with the submitter to ascertain whether the
+requirements of this document are addressed:</t>
+        <ul spacing="normal">
+          <li>The specifications for <tt>Toid</tt> and <tt>Tperm</tt> need to realize the
+general ideas of unambiguous object identifiers and permission lists
+in the context where the AIF data item is intended to be used, and
+their structure needs to be usable with the intended media types
+(application/aif+cbor and application/aif+json) as identified in the
+specification.</li>
+<li>The parameter names need to conform to <xref section="4.3" sectionFormat="of" target="RFC6838"/>, but preferably they are in <xref target="KebabCase"/> so they can be easily
+ translated into names used in APIs with popular programming
+languages.</li>
+        </ul>
+        <t>The designated experts will develop further criteria and guidelines as
+needed.</t>
+      </section>
+      <section anchor="content-format">
+        <name>Content-Format</name>
+        <t>IANA has registered Content-Format numbers in the "CoAP
+Content-Formats" subregistry, within the "Constrained RESTful
+Environments (CoRE) Parameters" registry <xref target="IANA.core-parameters"/>, as
+follows:</t>
+        <table align="left">
+          <name>New Content-Formats</name>
+          <thead>
+            <tr>
+              <th align="left">Media Type</th>
+              <th align="left">Encoding</th>
+              <th align="left">ID</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">application/aif+cbor</td>
+              <td align="left">-</td>
+              <td align="left">290</td>
+              <td align="left">RFC 9237</td>
+            </tr>
+            <tr>
+              <td align="left">application/aif+json</td>
+              <td align="left">-</td>
+              <td align="left">291</td>
+              <td align="left">RFC 9237</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>Note that applications that register <tt>Toid</tt> and <tt>Tperm</tt> values are
+encouraged to also register Content-Formats for the relevant
+combinations.</t>
+      </section>
+    </section>
+    <section anchor="seccons">
+      <name>Security Considerations</name>
+      <t>The security considerations of <xref target="RFC7252"/> apply when
+      AIF is used with CoAP; <xref section="11.1" sectionFormat="of"
+      target="RFC7252"/> specifically applies if complex formats such as URIs
+      are used for <tt>Toid</tt> or <tt>Tperm</tt>.  Some wider issues are
+      discussed in <xref target="RFC8576"/>.</t>
+      <t>When applying these formats, the referencing specification needs to be
+careful to ensure:</t>
+      <ul spacing="normal">
+        <li>that the cryptographic armor employed around this format
+fulfills the referencing specification's security objectives and that the armor or some
+additional information included in it with the AIF data item
+(1) unambiguously identifies the subject to which the authorizations
+shall apply and (2) provides any context information needed to derive the
+identity of the object to which authorization is being granted
+from the object identifiers (such as, for
+the data models defined in the present specification, the scheme and
+authority information that is used to construct the full URI), and</li>
+        <li>that the types used for <tt>Toid</tt> and <tt>Tperm</tt> provide the
+appropriate granularity and precision so that application requirements on the
+precision of the authorization information are fulfilled and that
+all parties have the same understanding of each <tt>Toid</tt>/<tt>Tperm</tt> pair in
+terms of specified objects (resources) and operations on those.</li>
+      </ul>
+      <t>For the data formats, the security considerations of <xref target="RFC8259"/> and
+<xref target="RFC8949"/> apply.</t>
+      <t>A plain implementation of AIF might implement just the basic REST
+model as per <xref target="rest-model"/>.  If it receives authorizations that
+include permissions that use the REST-specific model with dynamic
+resource creation (<xref target="ext-rest-model"/>), it needs to either
+reject the AIF data item entirely or act only on the
+permissions that it does understand.
+In other words, the semantics underlying an allow-list as discussed
+above need to hold here as well.</t>
+      <t>An implementation of the REST-specific model with dynamic resource
+creation (<xref target="ext-rest-model"/>) needs to carefully keep track of the
+dynamically created objects and the subjects to which the Dynamic-X
+permissions apply -- both on the server side to enforce the permissions
+and on the client side to know which permissions are available.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7252.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6838.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8610.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9165.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4949.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8259.xml"/>
+
+<reference anchor='RFC9200' target="https://www.rfc-editor.org/info/rfc9200">
+<front>
+<title>Authentication and Authorization for Constrained Environments Using the OAuth 2.0 Framework (ACE-OAuth)</title>
+<author initials='L' surname='Seitz' fullname='Ludwig Seitz'>
+<organization />
+</author>
+<author initials='G' surname='Selander' fullname='Goeran Selander'>
+<organization />
+</author>
+<author initials='E' surname='Wahlstroem' fullname='Erik Wahlstroem'>
+<organization />
+</author>
+<author initials='S' surname='Erdtman' fullname='Samuel Erdtman'>
+<organization />
+</author>
+<author initials='H' surname='Tschofenig' fullname='Hannes Tschofenig'>
+<organization />
+</author>
+<date year='2022' month='August' />
+</front>
+<seriesInfo name="RFC" value="9200"/>
+<seriesInfo name="DOI" value="10.17487/RFC9200"/>
+</reference>
+
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7493.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8949.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8132.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8576.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6570.xml"/>
+	<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7228.xml"/>
+
+        <reference anchor="IANA.core-parameters" target="https://www.iana.org/assignments/core-parameters">
+          <front>
+            <title>Constrained RESTful Environments (CoRE) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+
+        <reference anchor="IANA.media-type-sub-parameters" target="https://www.iana.org/assignments/media-type-sub-parameters">
+          <front>
+            <title>MIME Media Type Sub-Parameter Registries</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+
+        <reference anchor="KebabCase" target="http://wiki.c2.com/?KebabCase">
+          <front>
+            <title>Kebab Case</title>
+            <author>
+              <organization/>
+            </author>
+            <date year="2014" month="August" day="29"/>
+          </front>
+        </reference>
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8881.xml"/>
+
+      </references>
+    </references>
+    <section numbered="false" anchor="acknowledgements">
+      <name>Acknowledgements</name>
+      <t><contact fullname="Jim Schaad"/>,
+<contact fullname="Francesca Palombini"/>,
+<contact fullname="Olaf Bergmann"/>,
+<contact fullname="Marco Tiloca"/>,
+and
+<contact fullname="Christian Amsüss"/>
+provided comments that shaped the
+direction of this document.
+<contact fullname="Alexey Melnikov"/> pointed out that there were gaps in the media
+type specifications, and <contact fullname="Loganaden Velvindron"/> provided a shepherd
+review with further comments.
+Many thanks also to the IESG reviewers, who provided several small
+but significant observations.
+<contact fullname="Benjamin Kaduk"/> provided an extensive review as Responsible Area
+Director and indeed is responsible for much improvement in the document.</t>
+    </section>
+  </back>
+</rfc>

@@ -1,0 +1,1049 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-lisp-pubsub-15" number="9437" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="PubSub Functionality for LISP">Publish/Subscribe Functionality for the Locator/ID Separation Protocol (LISP)</title>
+    <seriesInfo name="RFC" value="9437"/>
+    <author fullname="Alberto Rodriguez-Natal" initials="A." surname="Rodriguez-Natal">
+      <organization>Cisco</organization>
+      <address>
+        <postal>
+          <street/>
+          <city>Barcelona</city>
+          <region/>
+          <code/>
+          <country>Spain</country>
+        </postal>
+        <phone/>
+        <email>natal@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Vina Ermagan" initials="V." surname="Ermagan">
+      <organization>Google</organization>
+      <address>
+        <postal>
+          <street/>
+          <city/>
+          <region/>
+          <code/>
+          <country>United States of America</country>
+        </postal>
+        <phone/>
+        <email>ermagan@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Albert Cabellos" initials="A." surname="Cabellos">
+      <organization>UPC/BarcelonaTech</organization>
+      <address>
+        <postal>
+          <street/>
+          <city>Barcelona</city>
+          <region/>
+          <code/>
+          <country>Spain</country>
+        </postal>
+        <phone/>
+        <email>acabello@ac.upc.edu</email>
+      </address>
+    </author>
+    <author fullname="Sharon Barkai" initials="S." surname="Barkai">
+      <organization>Nexar</organization>
+      <address>
+        <postal>
+          <street/>
+          <city/>
+          <region/>
+          <code/>
+          <country/>
+        </postal>
+        <phone/>
+        <email>sharon.barkai@getnexar.com</email>
+      </address>
+    </author>
+    <author fullname="Mohamed Boucadair" initials="M." surname="Boucadair">
+      <organization>Orange</organization>
+      <address>
+        <postal>
+          <street/>
+          <city>Rennes</city>
+          <region/>
+          <code/>
+          <country>France</country>
+        </postal>
+        <phone/>
+        <email>mohamed.boucadair@orange.com</email>
+      </address>
+    </author>
+    <date year="2023" month="August" />
+    <area>rtg</area>
+    <workgroup>lisp</workgroup>
+    <keyword>lisp</keyword>
+    <keyword>publish</keyword>
+    <keyword>subscribe</keyword>
+    <keyword>subscription</keyword>
+    <keyword>sdn</keyword>
+    <keyword>nfv</keyword>
+
+    <abstract>
+      <t>This document specifies an extension to the Locator/ID Separation
+      Protocol (LISP) control plane to enable
+      Publish/Subscribe (PubSub) operation.
+</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+
+      <t>The Locator/ID Separation Protocol (LISP) <xref target="RFC9300"
+      format="default"/> <xref target="RFC9301" format="default"/> splits IP
+      addresses into two different namespaces: Endpoint Identifiers (EIDs) and
+      Routing Locators (RLOCs). LISP uses a map and encapsulate (a.k.a.,
+      map-and-encap) approach that relies on (1) a Mapping System (basically a
+      distributed database) that stores and disseminates EID-RLOC mappings and
+      on (2) LISP Tunnel Routers (xTRs) that encapsulate and decapsulate data
+      packets based on the content of those mappings.</t>
+      <t>Ingress Tunnel Routers (ITRs), Re-encapsulating Tunnel Routers
+      (RTRs), and Proxy Ingress Tunnel Routers (PITRs) pull EID-to-RLOC mapping
+      information from the Mapping System by means of an explicit request
+      message. <xref target="RFC9301" sectionFormat="of" section="6.1"/>
+      indicates how Egress Tunnel Routers (ETRs) can tell ITRs/RTRs/PITRs
+      about mapping changes. This document presents a Publish/Subscribe
+      (PubSub) extension in which the Mapping System can notify
+      ITRs/RTRs/PITRs about mapping changes. When this mechanism is used,
+      mapping changes can be notified faster and can be managed in the Mapping
+      System versus the LISP sites.</t>
+      <t>In general, when an ITR/RTR/PITR wants to be notified for mapping
+      changes for a given EID-Prefix, the following main steps occur:</t>
+      <ol spacing="normal">
+	<li>The ITR/RTR/PITR builds a Map-Request for that EID-Prefix with the
+	Notification-Requested bit (N-bit) set and that also includes its
+	xTR-ID and Site-ID.</li>
+        <li>The Map-Request is forwarded to one of the Map-Servers that the
+        EID-Prefix is registered to.</li>
+        <li>The Map-Server creates subscription state for the ITR/RTR/PITR on
+        the EID-Prefix.</li>
+        <li>The Map-Server sends a Map-Notify to the ITR/RTR/PITR to confirm
+        that the subscription has been created and then waits for an
+        acknowledgement of the notification.</li>
+        <li>The ITR/RTR/PITR sends back a Map-Notify-Ack to acknowledge the
+        successful receipt of the Map-Notify.</li>
+        <li>When there is a change in the mapping of the EID-Prefix, the
+        Map-Server sends a Map-Notify message to each ITR/RTR/PITR in the
+        subscription list.</li>
+        <li>Each ITR/RTR/PITR sends a Map-Notify-Ack to acknowledge the
+        received Map-Notify.</li>
+      </ol>
+      <t>This operation is repeated for all EID-Prefixes for which ITRs/RTRs/PITRs want to be notified. An ITR/RTR/PITR can set the N-bit for several EID-Prefixes within a single Map-Request. Please note that the steps above illustrate only the simplest scenario and that details for this and other scenarios are described later in the document.</t>
+      <t>The reader may refer to <xref target="I-D.boucadair-lisp-pubsub-flow-examples" format="default"/> for sample flows to illustrate the use of the PubSub specification.</t>
+      <section anchor="app-scope" numbered="true" toc="default">
+        <name>Scope of Applicability</name>
+
+        <t>The PubSub procedure specified in this document is intended for use in contexts with controlled access to the Map-Server. How a deployment controls access to a Map-Server is deployment specific and therefore out of the scope of this document. However, the Map-Resolvers and Map-Servers need to be configured with the required information to ensure at least the following:</t>
+        <ol spacing="normal">
+	  <li>Map-Resolvers <bcp14>MUST</bcp14> verify that an xTR is allowed
+	  to (1) set the N-bit to 1 and (2) use the xTR-ID, Site-ID, and
+	  ITR-RLOCs included in a Map-Request.</li>
+          <li>Map-Servers <bcp14>MUST</bcp14> only accept subscription
+          requests from Map-Resolvers that verify Map-Requests as previously
+          described.</li>
+        </ol>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Terminology and Requirements Notation</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <t>The document uses the terms defined in <xref target="RFC9300"
+      sectionFormat="of" section="3"/>. </t>
+    </section>
+
+    <section anchor="assumptions" numbered="true" toc="default">
+      <name>Deployment Requirements</name>
+      <t>In addition to the general assumptions and expectations that <xref target="RFC9301" format="default"/> makes for LISP deployments, this document imposes the following deployment requirements: </t>
+      <ol spacing="normal">
+	<li>A unique 128-bit xTR-ID (plus a 64-bit Site-ID) identifier is
+	assigned to each xTR.</li>
+        <li>Map-Servers are configured to proxy Map-Replying (i.e., they are
+        solicited to generate and send Map-Reply messages) for the mappings
+        they are serving.</li>
+        <li>A security association (e.g., a PubSubKey) is required between the
+        ITRs and the Map-Servers (see <xref target="association"
+        format="default"/>).</li>
+      </ol>
+      <t>If a requirement is not met, a subscription cannot be established, and the network will continue operating without this enhancement. The configuration of xTR-IDs and Site-IDs is out of the scope of this document. The reader may refer to <xref target="I-D.ietf-lisp-yang" format="default"/> for an example of how these identifiers can be provisioned to LISP nodes.</t>
+    </section>
+    <section anchor="map-request" numbered="true" toc="default">
+      <name>Map-Request PubSub Additions</name>
+      <t><xref target="mrq-fig" format="default"/> shows the format of the updated Map-Request to support the PubSub functionality. In particular, this document associates a meaning with one of the reserved bits (see <xref target="IANA" format="default"/>). </t>
+      <figure anchor="mrq-fig">
+        <name>Map-Request with I-bit, N-bit, xTR-ID, and Site-ID</name>
+        <artwork align="center" name="" type="" alt=""><![CDATA[
+     0                   1                   2                   3
+     0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |Type=1 |A|M|P|S|p|s|R|I|  Rsvd   |L|D|   IRC   | Record Count  |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                         Nonce . . .                           |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                         . . . Nonce                           |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |         Source-EID-AFI        |   Source EID Address  ...     |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |         ITR-RLOC-AFI 1        |    ITR-RLOC Address 1  ...    |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                              ...                              |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |         ITR-RLOC-AFI n        |    ITR-RLOC Address n  ...    |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  / |N|   Reserved  | EID mask-len  |        EID-Prefix-AFI         |
+Rec +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  \ |                       EID-Prefix  ...                         |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                   Map-Reply Record  ...                       |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                                                               +
+    |                                                               |
+    +                            xTR-ID                             +
+    |                                                               |
+    +                                                               +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+    |                                                               |
+    +                           Site-ID                             +
+    |                                                               |
+    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      </figure>
+      <t>The following is added to the Map-Request message defined in <xref
+      target="RFC9301" sectionFormat="of" section="5.2"/>:</t>
+      <dl newline="false" spacing="normal">
+        <dt>xTR-ID bit (I-bit):</dt>
+	<dd>This bit is set to 1 to indicate that 128-bit xTR-ID and 64-bit
+	Site-ID fields are present in the Map-Request message. For PubSub
+	operation, an xTR <bcp14>MUST</bcp14> be configured with an xTR-ID and
+	Site-ID, and it <bcp14>MUST</bcp14> set the I-bit to 1 and include its
+	xTR-ID and Site-ID in the Map-Request messages it generates. If the
+	I-bit is set but the Site-ID and/or xTR-ID are not included, a
+	receiver can detect the error because, after processing that last
+	EID-Record, there are no bytes left from processing the message. In
+	this case, the receiver <bcp14>SHOULD</bcp14> log a malformed
+	Map-Request and <bcp14>MUST</bcp14> drop the message.</dd>
+        <dt>Notification-Requested bit (N-bit):</dt>
+	<dd>The N-bit of an EID-Record is set to 1 to specify that the xTR
+	wants to be notified of updates for that EID-Prefix.</dd>
+        <dt>xTR-ID field:</dt> 
+	<dd>If the I-bit is set, this field is added to the Map-Request
+	message as shown in <xref target="mrq-fig" format="default"/>,
+	starting right after the final Record in the message (or the Map-Reply
+	Record, if present). The xTR-ID is specified in <xref target="RFC9301"
+	sectionFormat="of" section="5.6"/>.</dd>
+        <dt>Site-ID field:</dt>
+	<dd>If the I-bit is set, this field is added to the Map-Request
+	message as shown in <xref target="mrq-fig" format="default"/>,
+	following the xTR-ID field.  The Site-ID is defined in <xref
+	target="RFC9301" sectionFormat="of" section="5.6"/>.</dd>
+      </dl>
+    </section>
+    <section anchor="sub" numbered="true" toc="default">
+      <name>Mapping Request Subscribe Procedures</name>
+      <t> The xTR subscribes for changes to a given EID-Prefix by sending a
+      Map-Request to the Mapping System with the N-bit set on the
+      EID-Record. The xTR builds a Map-Request according to <xref
+      target="RFC9301" sectionFormat="of" section="5.3"/> and also does the
+      following: </t>
+      <ol spacing="normal">
+	<li>The xTR <bcp14>MUST</bcp14> set the I-bit to 1 and append its
+	xTR-ID and Site-ID to the Map-Request.</li>
+        <li>The xTR <bcp14>MUST</bcp14> set the N-bit to 1 for the EID-Record
+        to which the xTR wants to subscribe.</li>
+        <li>If the xTR has a nonce associated with the EID-Prefix, it
+        <bcp14>MUST</bcp14> use this nonce increased by one in the
+        Map-Request. Otherwise, it generates a nonce as described in <xref
+        target="RFC9301" sectionFormat="of" section="5.2"/>. It is
+        <bcp14>RECOMMENDED</bcp14> that the xTR use persistent storage to
+        keep nonce state. If the xTR does not have persistent storage and does
+        not have a nonce associated with the EID-Prefix, it
+        <bcp14>MUST</bcp14> reset the nonce by using the procedure described
+        in <xref target="association" format="default"/> to successfully
+        create a new security association with the Map-Server.</li>
+      </ol>
+      <t>The Map-Request is forwarded to the appropriate Map-Server through the Mapping System. This document does not assume that a Map-Server is pre-assigned to handle the subscription state for a given xTR. The Map-Server that receives the Map-Request will be the Map-Server responsible for notifying that specific xTR about future mapping changes for the subscribed mapping records.</t>
+      <t>Upon receipt of the Map-Request, the Map-Server processes it as
+      described in <xref target="RFC9301" sectionFormat="of"
+      section="8.3"/>. In addition, unless the xTR is using the procedure
+      described in <xref target="association" format="default"/> to create a
+      new security association, the Map-Server <bcp14>MUST</bcp14> verify that
+      the nonce in the Map-Request is greater than the stored nonce (if any)
+      associated with the xTR-ID (and EID-Prefix, when applicable). Otherwise,
+      the Map-Server <bcp14>MUST</bcp14> silently drop the Map-Request message
+      and <bcp14>SHOULD</bcp14> log the event to record that a replay attack
+      could have occurred. Furthermore, upon processing, for the EID-Record
+      that has the N-bit set to 1, the Map-Server proceeds to add the xTR-ID
+      contained in the Map-Request to the list of xTRs that have requested to
+      be subscribed to that EID-Prefix. </t>
+      <t>If an xTR-ID is successfully added to the list of subscribers for an
+      EID-Prefix, the Map-Server <bcp14>MUST</bcp14> extract the nonce and
+      ITR-RLOCs present in the Map-Request and store the association between
+      the EID-Prefix, xTR-ID, ITR-RLOCs, and nonce. Any state that is already
+      present regarding ITR-RLOCs and/or nonce for the same xTR-ID
+      <bcp14>MUST</bcp14> be overwritten. When the LISP deployment has a
+      single Map-Server, the Map-Server can be configured to keep a single
+      nonce per xTR-ID for all EID-Prefixes (when used, this option
+      <bcp14>MUST</bcp14> be enabled at the Map-Server and all xTRs).</t>
+
+      <t>If the xTR-ID is added to the list, the Map-Server
+      <bcp14>MUST</bcp14> send a Map-Notify message back to the xTR to
+      acknowledge the successful subscription. The Map-Server builds the
+      Map-Notify according to Sections <xref target="RFC9301" section="5.5"
+      sectionFormat="bare"/> and <xref target="RFC9301" section="5.7"
+      sectionFormat="bare"/> of <xref target="RFC9301" format="default"/> with
+      the following considerations:</t>
+      <ol spacing="normal">
+	<li>The Map-Server <bcp14>MUST</bcp14> use the nonce from the
+	Map-Request as the nonce for the Map-Notify.</li>
+        <li>The Map-Server <bcp14>MUST</bcp14> use its security association
+        with the xTR (<xref target="association" format="default"/>) to sign
+        the authentication data of the Map-Notify. The xTR <bcp14>MUST</bcp14>
+        use the security association to verify the received authentication
+        data. </li>
+        <li>The Map-Server <bcp14>MUST</bcp14> send the Map-Notify to one of
+        the ITR-RLOCs received in the Map-Request (which one is
+        implementation specific).</li>
+      </ol>
+
+      <t>As a reminder, the initial transmission and retransmission of
+      Map-Notify messages by a Map-Server follow the procedure specified in
+      <xref target="RFC9301" sectionFormat="of" section="5.7"/>. Some state
+      changes may trigger an overload that would impact, e.g., the outbound
+      capacity of a Map-Server. A similar problem may be experienced when a
+      large number of state entries are simultaneously updated. To prevent
+      such phenomena, Map-Servers <bcp14>SHOULD</bcp14> be configured with
+      policies to control the maximum number of subscriptions and also the
+      pace of Map-Notify messages. For example, the Map-Server may be
+      instructed to limit the resources that are dedicated to unsolicited
+      Map-Notify messages to a small fraction (e.g., less than 10%) of its
+      overall processing and forwarding capacity. The exact details to
+      characterize such policies are deployment and implementation specific.
+      Likewise, this document does not specify which notifications take
+      precedence when these policies are enforced.</t>
+      <t>When the xTR receives a Map-Notify with a nonce that matches one in
+      the list of outstanding Map-Request messages sent with an N-bit set, it
+      knows that the Map-Notify is to acknowledge a successful
+      subscription. The xTR processes this Map-Notify, as described in <xref
+      target="RFC9301" sectionFormat="of" section="5.7"/> and
+      <bcp14>MUST</bcp14> use the Map-Notify to populate its Map-Cache with
+      the returned EID-Prefix and RLOC-set. As a reminder, following <xref
+      target="RFC9301" sectionFormat="of" section="5.7"/>, the xTR has to send
+      a Map-Notify-Ack back to the Map-Server. If the Map-Server does not
+      receive the Map-Notify-Ack after exhausting the Map-Notify
+      retransmissions described in <xref target="RFC9301" sectionFormat="of"
+      section="5.7"/>, the Map-Server can remove the subscription state. If
+      the Map-Server removes the subscription state, and absent explicit
+      policy, it <bcp14>SHOULD</bcp14> notify the xTR by sending a single
+      Map-Notify with the same nonce but with Loc-Count = 0 (and Loc-AFI = 0)
+      and ACT bits set to 5 "Drop/Auth-Failure". It is <bcp14>OPTIONAL</bcp14>
+      for the xTR to update its Map-Cache entry for the EID-Prefix (if any)
+      based on this Map-Notify. This message is specifically useful for cases
+      where Map-Notifies are successfully received by an xTR, but the
+      corresponding Map-Notify-Acks are lost when forwarded to the
+      Map-Server. xTR implementations can use this signal to try to reinstall
+      their subscription state instead of maintaining stale mappings.</t>
+      <t>The subscription of an xTR-ID may fail for a number of reasons. For
+      example, it fails because of local configuration policies (such as
+      accept and drop lists of subscribers), because the Map-Server has
+      exhausted the resources to dedicate to the subscription of that
+      EID-Prefix (e.g., the number of subscribers excess the capacity of the
+      Map-Server), or because the xTR was not successful tried but was not successful in
+      establishing a new security association (<xref target="association"
+      format="default"/>).</t>
+
+
+      <t>If the subscription request fails, the Map-Server sends a Map-Reply
+      to the originator of the Map-Request, as described in <xref
+      target="RFC9301" sectionFormat="of" section="8.3"/>, with the following
+      considerations:</t>
+      <ul spacing="normal">
+        <li>If the subscription request fails due to policy (e.g., for
+        explicitly configured subscriptions, as described later in this
+        section), the Map-Server <bcp14>MUST</bcp14> respond to the Map-Request
+        with a Negative Map-Reply (Loc-Count = 0 and Loc-AFI = 0) with ACT
+        bits set to 4 "Drop/Policy-Denied".</li>
+        <li>If the subscription request fails due to authentication (e.g., when
+        a new security association is being established, as described in
+        <xref target="association" format="default"/>), the Map-Server
+        <bcp14>MUST</bcp14> respond to the Map-Request with a Negative
+        Map-Reply (Loc-Count = 0 and Loc-AFI = 0) with ACT bits set to 5
+        "Drop/Auth-Failure".</li>
+        <li>If the subscription request fails due to any other reason, the
+        Map-Server <bcp14>MUST</bcp14> follow <xref target="RFC9301"
+        sectionFormat="of" section="8.3"/> with no changes.</li>
+      </ul>
+
+      <t>The xTR processes any Map-Reply or Negative Map-Reply as specified in <xref
+      target="RFC9301" sectionFormat="of" section="8.1"/>, with the following
+      considerations: if the xTR receives a Negative Map-Reply with ACT bits
+      set to 4 "Drop/Policy-Denied" or 5 "Drop/Auth-Failure" as a response to
+      a subscription request, it is <bcp14>OPTIONAL</bcp14> for the xTR to
+      update its Map-Cache entry for the EID-Prefix (if any). If the subscription request fails (for whichever
+      reason), it is up to the implementation of the xTR to try to subscribe
+      again.</t>
+      <t>If the Map-Server receives a subscription request for an EID-Prefix
+      not present in the mapping database, it <bcp14>SHOULD</bcp14> follow the
+      same logic described in <xref target="RFC9301" sectionFormat="of"
+      section="8.4"/> and create a temporary subscription state for the xTR-ID
+      to the least specific prefix that both matches the original query and
+      does not match any EID-Prefix known to exist in the LISP-capable
+      infrastructure. Alternatively, the Map-Server can determine that
+      such a subscription request fails and send a Negative Map-Reply
+      following <xref target="RFC9301" sectionFormat="of" section="8.3"/>. In
+      both cases, the TTL of the temporary subscription state or the Negative
+      Map-Reply <bcp14>SHOULD</bcp14> be configurable, with a value of
+      15 minutes being <bcp14>RECOMMENDED</bcp14>. </t>
+      <t>The subscription state can also be created explicitly by
+      configuration at the Map-Server (possible when a pre-shared security
+      association exists, see <xref target="security" format="default"/>)
+      using a variety of means that are outside the scope of this document. 
+  If there is no nonce that can be
+  used for the explicit subscription state at the time the explicit
+  subscription is configured (e.g., from a different subscription
+  already established with the same xTR when a single nonce is kept per
+  xTR-ID), then both the xTR and Map-Server <bcp14>MUST</bcp14> be configured with the initial nonce.
+      <bcp14>RECOMMENDED</bcp14> to have a configuration option to enable (or
+      disable) the xTR to accept publication information for EID-Prefixes that
+      the xTR did not explicitly subscribe to. By default, the xTR is allowed
+      to modify explicitly configured subscription state following the
+      procedures described in this section; however, this <bcp14>MAY</bcp14> be
+      disabled at the Map-Server via configuration. If the Map-Server is
+      instructed to not allow xTRs to modify explicitly configured
+      subscriptions, and an xTR tries to do so, this triggers a Negative
+      Map-Reply with ACT bits set to 4 "Drop/Policy-Denied" as described
+      earlier in this section.</t>
+      <t>The following specifies the procedure to remove a subscription:</t>
+      <ul spacing="normal">
+	<li>If a valid Map-Request with the N-bit set to 1 only has one
+	ITR-RLOC with AFI = 0 (i.e., Unknown Address), the Map-Server
+	<bcp14>MUST</bcp14> remove the subscription state for that xTR-ID
+	(unless this is disabled via configuration, see previous
+	paragraph).</li>
+	<li>If the subscription state is removed, the Map-Server
+	<bcp14>MUST</bcp14> send a Map-Notify to the source RLOC of the
+	Map-Request.</li>
+	<li><t>If the subscription removal fails due to configuration, this
+	triggers a Negative Map-Reply with ACT bits set to 4
+	"Drop/Policy-Denied" as described earlier in this section; the
+	Map-Server sends the Negative Map-Reply to the source RLOC of the
+	Map-Request in this case.</t></li>
+	<li><t>Removing subscription state at the Map-Server can lead to replay
+	attacks. To soften this, the Map-Server <bcp14>SHOULD</bcp14> keep the
+	last nonce seen per xTR-ID (and EID-Prefix, when applicable).</t></li>
+	<li>If the Map-Server does not keep the last nonces seen, then the
+	Map-Server <bcp14>MUST</bcp14> require the xTRs to subscribe using the
+	procedure described in <xref target="association" format="default"/>
+	to create a new security association with the Map-Server.</li></ul>
+
+<t>
+If the Map-Server receives a Map-Request asking to remove a
+                subscription for an EID-Prefix without subscription state for that
+                xTR-ID and the EID-Prefix is covered by a less-specific EID-Prefix for which
+                subscription state exists for the xTR-ID, the Map-Server <bcp14>SHOULD</bcp14> stop
+                publishing updates about this more-specific EID-Prefix to that xTR
+                until the xTR subscribes to the more-specific EID-Prefix. The same
+      considerations regarding authentication, integrity protection, and nonce
+      checks, which are described in this section and <xref target="security"
+      format="default"/> for Map-Requests used to update subscription state,
+      apply for Map-Requests used to remove subscription state.</t>
+      <t>When an EID-Prefix is removed from the Map-Server (either when
+      explicitly withdrawn or when its TTL expires), the Map-Server notifies
+      its subscribers (if any) via a Map-Notify with TTL equal to 0.</t>
+    </section>
+    <section anchor="publish" numbered="true" toc="default">
+      <name>Mapping Notification Publish Procedures</name>
+      <t>The publish procedure is implemented via Map-Notify messages that the
+      Map-Server sends to xTRs. The xTRs acknowledge the receipt of
+      Map-Notifies by sending Map-Notify-Ack messages back to the
+      Map-Server. The complete mechanism works as follows: </t>
+      <t> When a mapping stored in a Map-Server is updated (e.g., via a
+      Map-Register from an ETR), the Map-Server <bcp14>MUST</bcp14> notify the
+      subscribers of that mapping via sending Map-Notify messages with the
+      most up to date mapping information. If subscription state in the
+      Map-Server exists for a less-specific EID-Prefix and a more-specific
+      EID-Prefix is updated, then the Map-Notify is sent with the
+      more-specific EID-Prefix mapping to the subscribers of the less-specific
+      EID-Prefix mapping. The Map-Notify message sent to each of the
+      subscribers as a result of an update event follows the encoding and
+      logic defined in <xref target="RFC9301" sectionFormat="of"
+      section="5.7"/> for Map-Notify, except for the following:</t>
+      <ol spacing="normal">
+	<li>The Map-Notify <bcp14>MUST</bcp14> be sent to one of the ITR-RLOCs
+	associated with the xTR-ID of the subscriber (which one is
+	implementation specific). </li>
+        <li>The Map-Server increments the nonce by one every time it sends a
+        Map-Notify as publication to an xTR-ID for a particular
+        EID-Prefix. </li>
+        <li>The Map-Server <bcp14>MUST</bcp14> use its security association
+        with the xTR to compute the authentication data of the
+        Map-Notify.</li>
+      </ol>
+
+      <t>When the xTR receives a Map-Notify with an EID that is not local  to the xTR, the xTR knows that the Map-Notify is to update an entry on its Map-Cache.
+The xTR <bcp14>MUST</bcp14> keep track of the last
+      nonce seen in a Map-Notify received as a publication from the Map-Server
+      for the EID-Prefix. When the LISP deployment has a single Map-Server,
+      the xTR can be configured to keep track of a single nonce for all
+      EID-Prefixes (when used, this option <bcp14>MUST</bcp14> be enabled at
+      the Map-Server and all xTRs). If a Map-Notify that is received as a
+      publication has a nonce value that is not greater than the saved nonce,
+      the xTR drops the Map-Notify message and logs the fact a replay attack
+      could have occurred. The same considerations discussed in <xref
+      target="RFC9301" sectionFormat="of" section="5.6"/> regarding
+      Map-Register nonces apply here for Map-Notify nonces.</t>
+      <t>The xTR processes the received Map-Notify as specified in <xref
+      target="RFC9301" sectionFormat="of" section="5.7"/>, with the following
+      considerations:</t>
+      <ul spacing="normal">
+	<li>The xTR <bcp14>MUST</bcp14> use its security association with the
+	Map-Server (<xref target="association" format="default"/>) to validate
+	the authentication data on the Map-Notify.</li>
+	<li>The xTR <bcp14>MUST</bcp14> use the mapping information carried
+	in the Map-Notify to update its internal Map-Cache.</li>
+	<li>If after following <xref target="RFC9301" sectionFormat="of"
+	section="5.7"/> regarding retransmission of Map-Notify messages, the
+	Map-Server has not received the Map-Notify-Ack, it can try 
+	sending the Map-Notify to a different ITR-RLOC for that xTR-ID.</li>
+	<li>If the Map-Server tries all the ITR-RLOCs without receiving a
+	response, it may stop trying to send the
+	Map-Notify.</li></ul>
+    </section>
+
+    <section anchor="security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>Generic security considerations related to LISP control messages are
+      discussed in <xref target="RFC9301" sectionFormat="of"
+      section="9"/>. </t>
+      <t>In the particular case of PubSub, cache poisoning via malicious
+      Map-Notify messages is avoided by the use of nonce and the security
+      association between the ITRs and the Map-Servers.</t>
+      <t>It is <bcp14>RECOMMENDED</bcp14> to follow guidance from the last
+      paragraph of <xref target="RFC9301" sectionFormat="of" section="9"/> to
+      ensure integrity protection of Map-Request messages (e.g., to prevent
+      xTR-ID hijacking).</t>
+      <section anchor="association" numbered="true" toc="default">
+        <name>Security Association between ITR and Map-Server</name>
+        <t>Since Map-Notifies from the Map-Server to the ITR need to be
+        authenticated, there is a need for a soft-state or hard-state security
+        association (e.g., a PubSubKey) between the ITRs and the
+        Map-Servers. For some controlled deployments, it might be possible to
+        have a shared PubSubKey (or set of keys) between the ITRs and the
+        Map-Servers. However, if pre-shared keys are not used in the
+        deployment, LISP Security (LISP-SEC) <xref
+        target="RFC9303" format="default"/> can be used as follows to create a
+        security association between the ITR and the Map-Server.</t>
+        <t>First, when the ITR is sending a Map-Request with the N-bit set
+        as described in <xref target="sub" format="default"/>, the ITR also performs
+        the steps described in <xref target="RFC9303" sectionFormat="of"
+        section="6.4"/>. The ITR can then generate a PubSubKey by deriving a
+        key from the One-Time Key (OTK) and Map-Request's nonce as follows:
+        PubSubKey = KDF(OTK + nonce), where KDF is the Key Derivation Function
+        indicated by the OTK Wrapping ID. If the OTK Wrapping ID equals
+        NULL-KEY-WRAP-128, then the PubSubKey is the OTK. Note that, as opposed
+        to the pre-shared PubSubKey, this generated PubSubKey is different per
+        EID-Prefix to which an ITR subscribes (since the ITR will use a
+        different OTK per Map-Request).</t>
+        <t>When the Map-Server receives the Map-Request, it follows the
+        procedure specified in <xref target="sub" format="default"/> with the
+        following considerations: the Map-Server <bcp14>MUST</bcp14> verify
+        that the OTK has not been used before. If the Map-Server verifies the
+        OTK and cannot determine that the OTK has not been used before, the
+        subscription request fails due to authentication, which triggers a
+        Negative Map-Reply with ACT bits set to 5 "Drop/Auth-Failure", as
+        described in <xref target="sub" format="default"/>. The xTR might try
+        again with a different OTK upon receipt of this Negative
+        Map-Reply. Note that a Map-Server implementation may decide not to keep track
+   of all past OTKs and instead use some form of hash. In that case,
+        hash collisions are handled as if the OTK has been reused. Such an
+        implementation needs to balance the hash length with the rate of
+        collisions expected for the particular deployment; this is
+        implementation specific. If the Map-Server has to reply with a
+        Map-Reply for any other reason (e.g., if PubSub is not supported or a
+        subscription is not accepted), then it follows the normal LISP-SEC
+        procedure described in <xref target="RFC9303" sectionFormat="of"
+        section="5.7"/>. No PubSubKey, security association, or subscription
+        state is created when the Map-Server responds with any Map-Reply
+        message.</t>
+        <t>Otherwise, if the Map-Server has to reply with a Map-Notify (e.g.,
+        due to the subscription being accepted) to a received Map-Request, the
+        following extra steps take place:
+        </t>
+        <ul spacing="normal">
+          <li>The Map-Server extracts the OTK and the OTK Wrapping ID from the
+          LISP-SEC Encapsulated Control Message (ECM) Authentication Data.</li>
+          <li>The Map-Server generates a PubSubKey by deriving a key from the
+          OTK, as described before for the ITR. This is the same PubSubKey
+          derived at the ITR that is used to establish a security association
+          between the ITR and the Map-Server.</li>
+          <li>The PubSubKey can now be used to sign and authenticate any
+          Map-Notify between the Map-Server and the ITR for the subscribed
+          EID-Prefix. This includes the Map-Notify sent as a confirmation to
+          the subscription. When the ITR wants to update the security
+          association for that Map-Server and EID-Prefix, it once again
+          follows the procedure described in this section.</li>
+        </ul>
+        <t>Note that if the Map-Server replies with a Map-Notify, none of the
+        regular LISP-SEC steps regarding Map-Reply described in <xref
+        target="RFC9303" sectionFormat="of" section="5.7"/> occur.</t>
+      </section>
+      <section anchor="ddos" numbered="true" toc="default">
+        <name>DDoS Attack Mitigation</name>
+        <t>If PubSub is deployed under the scope of applicability defined in
+        <xref target="app-scope" format="default"/>, only known nodes can
+        participate on the PubSub deployment. DDoS attacks based on replayed
+        messages by unknown nodes are avoided by the use of nonce and the
+        security association between the ITRs and the Map-Servers. Misbehaving
+        known nodes may send massive subscription requests, which may lead to
+        exhausting the resources of a Map-Server. Furthermore, frequently
+        changing the state of a subscription may also be considered as an
+        attack vector. To mitigate such issues, <xref target="RFC9301"
+        sectionFormat="of" section="5.3"/> discusses rate-limiting
+        Map-Requests, and <xref target="RFC9301" sectionFormat="of"
+        section="5.7"/> discusses rate-limiting Map-Notifies. Note that when
+        the Map-Notify rate-limit threshold is met for a particular xTR-ID,
+        the Map-Server will discard additional subscription requests from that
+        xTR-ID and will fall back to the behavior described in <xref
+        target="RFC9301" format="default"/> when receiving a Map-Request from
+        that xTR-ID (i.e., the Map-Server will send a Map-Reply).</t>
+      </section>
+    </section>
+
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>IANA has assigned the following new bit from the 
+"LISP Control Plane Header Bits: Map-Request" registry within the
+      "Locator/ID Separation Protocol (LISP) Parameters" group of registries <xref target="IANA-LISP" format="default"/>:</t>
+      <table align="center">
+        <name>Addition to the Map-Request Header Bits Registry</name>
+        <thead>
+          <tr>
+            <th align="left">Spec Name</th>
+            <th align="left">IANA Name</th>
+            <th align="left">Bit Position</th>
+            <th align="left">Description</th>
+            <th align="left">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">I</td>
+            <td align="left">Map-Request-I</td>
+            <td align="left">11</td>
+            <td align="left">xTR-ID Bit</td>
+            <td align="left">RFC 9437</td>
+          </tr>
+        </tbody>
+      </table>
+      <t>IANA has also created a new registry
+      entitled "LISP Control Plane Header Bits: Map-Request-Record" within the
+      "Locator/ID Separation Protocol (LISP) Parameters" group of registries <xref target="IANA-LISP" format="default"/>.</t>
+      <t>The initial content of this registry is shown in <xref
+      target="bits-table" format="default"/>.</t>
+      <table anchor="bits-table" align="center">
+        <name>Initial Content of LISP Control Plane Header Bits: Map&nbhy;Request-Record Registry</name>
+        <thead>
+          <tr>
+            <th align="left">Spec Name</th>
+            <th align="left">IANA Name</th>
+            <th align="left">Bit Position</th>
+            <th align="left">Description</th>
+            <th align="left">Reference</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">N</td>
+            <td align="left">Map-Request-N</td>
+            <td align="left">1</td>
+            <td align="left">Notification-Requested Bit</td>
+            <td align="left">RFC 9437</td>
+          </tr>
+        </tbody>
+      </table>
+      <t>The remaining bits (i.e., bit positions 2-8) are Unassigned.</t>
+      <t>The policy for allocating new bits in this registry is
+      "Specification Required" (<xref target="RFC8126" sectionFormat="of"
+      section="4.6"/>). </t>
+
+
+<t>Allocation requests are evaluated on the advice of one or more designated
+      experts. 
+   Designated experts should consider whether the proposed registration duplicates
+   existing entries and whether the registration description is
+   sufficiently detailed and fits the purpose of this registry.  These
+   criteria are to be considered in addition to those provided in
+   <xref target="RFC8126" sectionFormat="of" section="4.6"/> (e.g., the proposed registration "must be
+   documented in a permanent and readily available public
+   specification"). The designated experts will either approve or
+      deny the registration request, and communicate their decision to
+      IANA. Denials should include an explanation and, if applicable,
+      suggestions as to how to make the request successful. </t>
+    </section>
+
+  </middle>
+  <back>
+
+<displayreference target="I-D.ietf-lisp-eid-mobility" to="EID-MOBILITY"/>	
+<displayreference target="I-D.haindl-lisp-gb-atn" to="GB-ATN"/>
+<displayreference target="I-D.moreno-lisp-uberlay" to="UBERLAY"/>
+<displayreference target="I-D.boucadair-lisp-pubsub-flow-examples" to="FLOW-EXAMPLES"/>
+<displayreference target="I-D.ietf-lisp-yang" to="LISP-YANG"/>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9300.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9301.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9303.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+
+        <reference anchor="IANA-LISP" target="https://www.iana.org/assignments/lisp-parameters/">
+          <front>
+            <title>Locator/ID Separation Protocol (LISP) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6835.xml"/>
+
+<!-- [I-D.ietf-lisp-eid-mobility] IESG state I-D Exists. Updated to long version because Portoles's name is showing as Portoles-Comeras in short version, but draft shows only one last name. -->
+
+<reference anchor="I-D.ietf-lisp-eid-mobility" target="https://datatracker.ietf.org/doc/html/draft-ietf-lisp-eid-mobility-12">
+<front>
+<title>
+LISP L2/L3 EID Mobility Using a Unified Control Plane
+</title>
+<author initials="M." surname="Portoles" fullname="Marc Portoles">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="V." surname="Ashtaputre" fullname="Vrushali Ashtaputre">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="F." surname="Maino" fullname="Fabio Maino">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="V." surname="Moreno" fullname="Victor Moreno">
+<organization>Google LLC</organization>
+</author>
+<author initials="D." surname="Farinacci" fullname="Dino Farinacci">
+<organization>lispers.net</organization>
+</author>
+<date month="July" day="4" year="2023"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-ietf-lisp-eid-mobility-12"/>
+</reference>
+
+<!-- [I-D.haindl-lisp-gb-atn] IESG state I-D Exists.  Updated to long version because Portoles's name is 
+showing as Portoles-Comeras in short version, but draft shows only one last name. -->
+
+<reference anchor="I-D.haindl-lisp-gb-atn" target="https://datatracker.ietf.org/doc/html/draft-haindl-lisp-gb-atn-09">
+<front>
+<title>
+Ground-Based LISP for the Aeronautical Telecommunications Network
+</title>
+<author initials="B." surname="Haindl" fullname="Bernhard Haindl">
+<organization>Frequentis</organization>
+</author>
+<author initials="M." surname="Lindner" fullname="Manfred Lindner">
+<organization>Frequentis</organization>
+</author>
+<author initials="V." surname="Moreno" fullname="Victor Moreno">
+<organization>Google</organization>
+</author>
+<author initials="M." surname="Portoles" fullname="Marc Portoles">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="F." surname="Maino" fullname="Fabio Maino">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="B." surname="Venkatachalapathy" fullname="Balaji Venkatachalapathy">
+<organization>Cisco Systems</organization>
+</author>
+<date month="March" day="27" year="2023"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-haindl-lisp-gb-atn-09"/>
+</reference>
+
+<!-- [I-D.moreno-lisp-uberlay] IESG state Expired -->
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.moreno-lisp-uberlay.xml"/>
+
+<!-- [I-D.boucadair-lisp-pubsub-flow-examples] IESG state I-D Exists -->
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.boucadair-lisp-pubsub-flow-examples.xml"/>
+
+<!-- [I-D.ietf-lisp-yang] IESG state I-D Exists. Updated to long version
+because Albert Cabellos prefers that his last name be listed in future
+RFCs as "Cabellos" - not "Cabellos-Aparicio". -->
+
+<reference anchor="I-D.ietf-lisp-yang" target="https://datatracker.ietf.org/doc/html/draft-ietf-lisp-yang-19">
+<front>
+<title>LISP YANG Model</title>
+<author initials="V." surname="Ermagan" fullname="Vina Ermagan">
+<organization>Google</organization>
+</author>
+<author initials="A." surname="Rodriguez-Natal" fullname="Alberto Rodriguez-Natal">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="F." surname="Coras" fullname="Florin Coras">
+<organization>Cisco Systems</organization>
+</author>
+<author initials="C." surname="Moberg" fullname="Carl Moberg">
+<organization>Avassa</organization>
+</author>
+<author initials="R." surname="Rahman" fullname="Reshad Rahman"> </author>
+<author initials="A." surname="Cabellos" fullname="Albert Cabellos">
+<organization>Technical University of Catalonia</organization>
+</author>
+<author initials="F." surname="Maino" fullname="Fabio Maino">
+<organization>Cisco Systems</organization>
+</author>
+<date month="March" day="2" year="2023"/>
+</front>
+<seriesInfo name="Internet-Draft" value="draft-ietf-lisp-yang-19"/>
+</reference>
+
+      </references>
+    </references>
+
+
+    <section anchor="deployment" numbered="true" toc="default">
+      <name>Sample PubSub Deployment Experiences</name>
+      <t>Some LISP production networks have been running different forms of PubSub for some time. The following subsections provide an inventory of some experience lessons from these deployments.</t>
+      <section anchor="deploy-monitoring" numbered="true" toc="default">
+        <name>PubSub as a Monitoring Tool</name>
+        <t>Some LISP deployments are using PubSub as a way to monitor
+        EID-Prefixes (particularly, EID-to-RLOC mappings). To that aim, some
+        LISP implementations have extended the LISP Internet Groper ('lig')
+        <xref target="RFC6835" format="default"/> tool to use PubSub. Such an
+        extension is meant to support an interactive mode with 'lig' and to
+        request subscription for the EID of interest. If there are RLOC
+        changes, the Map-Server sends a notification, and then the 'lig' client
+        displays that change to the user. </t>
+      </section>
+      <section anchor="deploy-nmr" numbered="true" toc="default">
+        <name>Mitigating Negative Map-Cache Entries</name>
+        <t><xref target="RFC9301" sectionFormat="of" section="8.1"/> suggests
+        two TTL values for Negative Map-Replies: either a 15-minute TTL (if
+        the EID-Prefix does not exist) or a 1-minute TTL (if the prefix exists
+        but has not been registered). While these values are based on the
+        original operational experience of the LISP protocol designers,
+        negative cache entries have two unintended effects that were observed
+        in production.</t>
+        <t>First, if the xTR keeps receiving traffic for a negative EID
+        destination (i.e., an EID-Prefix with no RLOCs associated with it), it
+        will try to resolve the destination again once the cached state
+        expires, even if the state has not changed in the Map-Server. It was
+        observed in production that this is happening often in networks that
+        have a significant amount of traffic addressed for outside of the LISP
+        network. This might result in excessive resolution signaling to keep
+        retrieving the same state due to the cache expiring. PubSub is used to
+        relax TTL values and cache negative mapping entries for longer periods
+        of time, avoiding unnecessary refreshes of these forwarding entries
+        and drastically reducing signaling in these scenarios. In general, a
+        TTL-based schema is a "polling mechanism" that leads to more signaling
+        where PubSub provides an "event-triggered mechanism" at the cost of
+        state.</t>
+        <t>Second, if the state does indeed change in the Map-Server, updates
+        based on TTL timeouts might prevent the cached state at the xTR from
+        being updated until the TTL expires. This behavior was observed during
+        configuration (or reconfiguration) periods on the network, where
+        EID-Prefixes that are no longer negative do not receive the traffic
+        yet, due to stale Map-Cache entries present in the network. With the
+        activation of PubSub, stale caches can be updated as soon as the state
+        changes.</t>
+      </section>
+      <section anchor="deploy-mobility" numbered="true" toc="default">
+        <name>Improved Mobility Latency</name>
+
+        <t>An improved convergence time was observed on the presence of
+        mobility events on LISP networks running PubSub as compared with
+        running LISP <xref target="RFC9301" format="default"/>. As described
+        in Section 4.1.2.1 of <xref target="I-D.ietf-lisp-eid-mobility"
+        format="default"/>, LISP can rely on data-driven Solicit-Map-Requests
+        (SMRs) to ensure eventual network convergence. Generally, PubSub offers
+        faster convergence due to (1) no need to wait for a data-triggered
+        event and (2) less signaling as compared with the SMR-based flow. Note
+        that when a Map-Server running PubSub has to update a large number of
+        subscribers at once (i.e., when a popular mapping is updated),
+        SMR-based convergence may be faster for a small subset of the
+        subscribers (those receiving PubSub updates last). Deployment
+        experience reveals that data-driven SMRs and PubSub mechanisms
+        complement each other and provide a fast and resilient network
+        infrastructure in the presence of mobility events.</t>
+        <t>Furthermore, experience showed that not all LISP entities on the
+        network need to implement PubSub for the network to get the
+        benefits. In scenarios with significant traffic coming from outside of
+        the LISP network, the experience showed that enabling PubSub in the
+        border routers significantly improves mobility latency overall. Even
+        if edge xTRs do not implement PubSub, and traffic is exchanged between
+        EID-Prefixes at the edge, xTRs still converge based on data-driven
+        events and SMR-triggered updates.</t>
+      </section>
+      <section anchor="deploy-redistribution" numbered="true" toc="default">
+        <name>Enhanced Reachability with Dynamic Redistribution of
+        Prefixes</name>
+        <t>There is a need to interconnect LISP networks with other networks
+        that might or might not run LISP. Some of those scenarios are similar
+        to the ones described in <xref target="I-D.haindl-lisp-gb-atn"
+        format="default"/> and <xref target="I-D.moreno-lisp-uberlay"
+        format="default"/>. When connecting LISP to other networks, the
+        experience revealed that in many deployments the point of interaction
+        with the other domains is not the Mapping System but rather the border
+        router of the LISP site. For those cases, the border router needs to be
+        aware of the LISP prefixes to redistribute them to the other
+        networks. Over the years, different solutions have been used.</t>
+        <t>First, Map-Servers were collocated with the border routers, but
+        this was hard to scale since border routers scale at a different pace
+        than Map-Servers. Second, decoupled Map-Servers and border routers
+        were used with static configuration of LISP entries on the border,
+        which was problematic when modifications were made. Third, a routing
+        protocol (e.g., BGP) can be used to redistribute LISP prefixes from
+        the Map-Servers to a border router, but this comes with some
+        implications; in particular, the Map-Servers need to implement an
+        additional protocol, which consumes resources and needs to be properly
+        configured. Therefore, once PubSub was available, deployments started
+        to adapt it to enable border routers to dynamically learn the prefixes
+        they need to redistribute without a need for extra protocols or extra
+        configuration on the network.</t>
+        <t>In other words, PubSub can be used to discover EID-Prefixes so they
+        can be imported into other routing domains that do not use
+        LISP. Similarly, PubSub can also be used to discover when EID-Prefixes
+        need to be withdrawn from other routing domains. That is, in a typical
+        deployment, a border router will withdraw an EID-Prefix that it has
+        been announcing to external routing domains if it receives a
+        notification that the RLOC-set for that EID-Prefix is now empty.</t>
+      </section>
+      <section anchor="deploy-service" numbered="true" toc="default">
+        <name>Better Serviceability</name>
+        <t>EID-to-RLOC mappings can have a very long TTL, sometimes on the order
+        of several hours. Upon the expiry of that TTL, the xTR checks if these
+        entries are being used and removes any entry that is not being
+        used. The problem with a very long Map-Cache TTL is that (in the
+   absence of PubSub) if a mapping changes but is not being used,
+   the cache remains but is stale. This is due to no data traffic being sent to
+        the old location to trigger an SMR-based Map-Cache update as described
+        in Section 4.1.2.1 of <xref target="I-D.ietf-lisp-eid-mobility"
+        format="default"/>. If the network operator runs a show command on a
+        router to track the state of the Map-Cache, the router will display
+        multiple entries waiting to expire but with stale RLOC
+        information. This might be confusing for operators sometimes,
+        particularly when they are debugging problems. With PubSub, the
+        Map-Cache is updated with the correct RLOC information, even when it
+        is not being used or waiting to expire, which helps with
+        debugging.</t>
+      </section>
+    </section>
+    <section numbered="false" anchor="Acknowledgments" toc="default">
+      <name>Acknowledgments</name>
+      <t> We would like to thank <contact fullname="Marc Portoles"/>, <contact
+      fullname="Balaji Venkatachalapathy"/>, <contact fullname="Bernhard
+      Haindl"/>, <contact fullname="Luigi Iannone"/>, and <contact
+      fullname="Padma Pillay-Esnault"/> for their great suggestions and help
+      regarding this document. </t>
+      <t> Many thanks to <contact fullname="Alvaro Retana"/> for the careful
+      AD review.</t>
+      <t>Thanks to <contact fullname="Chris M. Lonvick"/> for the security
+      directorate review, <contact fullname="Al Morton"/> for the OPS-DIR
+      review, <contact fullname="Roni Even"/> for the Gen-ART review, <contact
+      fullname="Mike McBride"/> for the rtg-dir review, <contact
+      fullname="Magnus Westerlund"/> for the tsv directorate review, and
+      <contact fullname="Sheng Jiang"/> for the int-dir review.</t>
+      <t> Thanks to <contact fullname="John Scudder"/>, <contact
+      fullname="Erik Kline"/>, <contact fullname="Lars Eggert"/>, <contact
+      fullname="Warren Kumari"/>, <contact fullname="Martin Duke"/>, <contact
+      fullname="Murray Kucherawy"/>, <contact fullname="Éric Vyncke"/>,
+      <contact fullname="Robert Wilton"/>, <contact fullname="Zaheduzzaman
+      Sarker"/>, and <contact fullname="Roman Danyliw"/> for the IESG
+      review.</t>
+      <t> This work was partly funded by the ANR LISP-Lab project
+      #ANR-13-INFR-009 <eref target="https://anr.fr/Projet-ANR-13-INFR-0009"
+      brackets="angle"/>.</t>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Contributors</name>
+
+      <contact fullname="Dino Farinacci">
+      <organization>lispers.net</organization>
+      <address>
+        <postal>
+	  <city>San Jose</city>
+	  <region>CA</region>
+          <country>United States of America</country>
+        </postal>
+        <email>farinacci@gmail.com</email>
+      </address>
+    </contact>
+
+      <contact fullname="Johnson Leong">
+      <address>
+        <email>johnsonleong@gmail.com</email>
+      </address>
+    </contact>
+
+      <contact fullname="Fabio Maino">
+      <organization>Cisco</organization>
+      <address>
+        <postal>
+	  <city>San Jose</city>
+	  <region>CA</region>
+          <country>United States of America</country>
+        </postal>
+        <email>fmaino@cisco.com</email>
+      </address>
+    </contact>
+
+      <contact fullname="Christian Jacquenet">
+      <organization>Orange</organization>
+      <address>
+        <postal>
+	  <city>Rennes</city>
+          <country>France</country>
+        </postal>
+        <email>christian.jacquenet@orange.com</email>
+      </address>
+    </contact>
+
+      <contact fullname="Stefano Secci">
+      <organization>Cnam</organization>
+      <address>
+        <postal>
+          <country>France</country>
+        </postal>
+        <email>stefano.secci@cnam.fr</email>
+      </address>
+    </contact>
+
+    </section>
+
+  </back> </rfc>

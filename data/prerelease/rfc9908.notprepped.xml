@@ -1,0 +1,960 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-lamps-rfc7030-csrattrs-23" number="9908" category="std" consensus="true" submissionType="IETF" updates="7030, 9148" obsoletes="" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="CSR Attributes">Clarification and Enhancement of the CSR Attributes Definition in RFC&nbsp;7030</title>
+    <seriesInfo name="RFC" value="9908"/>
+    <author initials="M." surname="Richardson" fullname="Michael Richardson" role="editor">
+      <organization>Sandelman Software Works</organization>
+      <address>
+        <email>mcr+ietf@sandelman.ca</email>
+      </address>
+    </author>
+    <author initials="O." surname="Friel" fullname="Owen Friel">
+      <organization>Cisco</organization>
+      <address>
+        <email>ofriel@cisco.com</email>
+      </address>
+    </author>
+    <author initials="D." surname="von Oheimb" fullname="Dr. David von Oheimb">
+      <organization>Siemens</organization>
+      <address>
+        <email>dev@ddvo.net</email>
+      </address>
+    </author>
+    <author initials="D." surname="Harkins" fullname="Dan Harkins">
+      <organization>The Industrial Lounge</organization>
+      <address>
+        <email>dharkins@lounge.org</email>
+      </address>
+    </author>
+    <date year="2026" month="January"/>
+    <area>SEC</area>
+    <workgroup>lamps</workgroup>
+    <keyword>SubjectAltName</keyword>
+    <keyword>SAN</keyword>
+    <keyword>Certificate Extensions</keyword>
+    <keyword>Certificate Signing Request</keyword>
+
+    <abstract>
+<t>This document updates RFC 7030, "Enrollment over Secure Transport" (EST), clarifying
+how the Certificate Signing Request (CSR) Attributes Response can be used by an EST server to specify both CSR attribute Object Identifiers (OIDs) and CSR attribute values, particularly X.509 extension values, that the server expects the client to include in a subsequent CSR request.
+RFC 9148 is derived from RFC 7030 and is also updated.</t>
+      <t>RFC 7030 is ambiguous in its specification of the CSR Attributes Response. This has resulted in implementation challenges and implementor confusion because there was no universal understanding of what was specified. This document clarifies the encoding rules.</t>
+      <t>This document also provides a new straightforward approach: using
+a template for CSR contents that may be partially filled in by the server.
+This also allows an EST server to specify a subject Distinguished Name (DN).</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>This document updates RFC 7030 and clarifies
+how the Certificate Signing Request (CSR) Attributes Response can be used by an EST server to specify both CSR attribute OIDs and CSR attribute values.
+In particular, the server needs to be able to specify X.509 extension values that it expects the client to include in the subsequent CSR.</t>
+      <t>"Enrollment over Secure Transport" <xref target="RFC7030"/> has been used in a wide variety of applications.
+In particular, <xref target="RFC8994"/> and <xref target="RFC8995"/> describe a way to use it in order to build out an Autonomic Control Plane (ACP) <xref target="RFC8368"/>.</t>
+<t>When bootstrapping the ACP, there is a requirement that each node be given a very specific subjectAltName. In <xref target="RFC8994"/>, the ACP specification, the EST server is specified to make use
+of the CSR Attributes ("/csrattrs") Request (specified in <xref section="2.6" sectionFormat="comma" target="RFC7030"/>) to convey the actual subjectAltName to the EST client that needs to go
+into its CSR and thus ultimately into its End Entity (EE) certificate.</t>
+      <t>As a result of some implementation challenges, it came to light that this particular way of using the CSR Attributes was not universally agreed upon, and it was suggested that it went contrary to <xref section="2.6" sectionFormat="comma" target="RFC7030"/>.</t>
+<!-- DNE -->
+      <t><xref section="2.6" sectionFormat="comma" target="RFC7030"/> says that the CSR Attributes "can provide additional
+descriptive information that the EST server cannot access itself".
+This is extended to describe how the EST server can provide values that it demands be used.</t>
+<!-- DNE -->
+      <t>After significant discussion, it has been determined that
+<xref section="4.5" sectionFormat="of" target="RFC7030"/> is sufficiently difficult
+to read and ambiguous to interpret, so clarification is needed.</t>
+      <t>Also, <xref section="4.5.2" sectionFormat="comma" target="RFC7030"/> is extended to clarify the use of the existing ASN.1 syntax <xref target="X.680"/> <xref target="X.690"/>.</t>
+      <t>This covers all uses and is fully backward compatible with existing use,
+including addressing the needs of <xref target="RFC8994"/> and <xref target="RFC8995"/>.</t>
+    </section>
+    <section anchor="terminology">
+      <name>Terminology</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>
+    <section anchor="csr-attributes-handling">
+      <name>CSR Attributes Handling</name>
+      <section anchor="extensions-to-rfc-7030-section-26">
+        <name>Extensions to RFC 7030, Section 2.6</name>
+        <t>This document replaces the second paragraph in <xref section="2.6" sectionFormat="of" target="RFC7030"/> with the following text:</t>
+   <blockquote>These attributes can provide additional information that
+   the EST server cannot access itself, such as the Media Access Control
+   (MAC) address of an interface of the EST client. The EST server can
+   also provide concrete values that it tells the client to include in
+   the CSR, such as a specific X.509 Subject Alternative Name extension.
+   Moreover, these attributes can indicate the type of the included
+   public key or which crypto algorithms to use for the self-signature,
+   such as a specific elliptic curve or a specific hash function that
+   the client is expected to use when generating the CSR.</blockquote>
+      </section>
+      <section anchor="csrattrs">
+        <name>Extensions to RFC 7030, Section 4.5.2</name>
+        <t>The ASN.1 syntax for CSR Attributes as defined in EST (<xref section="4.5.2" sectionFormat="comma" target="RFC7030"/>) is as follows:</t>
+        <sourcecode type="asn.1"><![CDATA[
+   CsrAttrs ::= SEQUENCE SIZE (0..MAX) OF AttrOrOID
+
+   AttrOrOID ::= CHOICE (oid OBJECT IDENTIFIER, attribute Attribute }
+
+   Attribute { ATTRIBUTE:IOSet } ::= SEQUENCE {
+        type   ATTRIBUTE.&id({IOSet}),
+        values SET SIZE(1..MAX) OF ATTRIBUTE.&Type({IOSet}{@type}) }]]></sourcecode>
+        <t>This remains unchanged, such that bits-on-the-wire compatibility is maintained.</t>
+        <t>Key parts that were unclear were which OID to use in the '<tt>type</tt>' field and
+that the '<tt>values</tt>' field can contain an entire sequence of X.509 extensions.</t>
+        <t>The OID to use for such attributes in the '<tt>type</tt>' field <bcp14>MUST</bcp14> be <tt>id-ExtensionReq</tt>,
+which has the value 1.2.840.113549.1.9.14.
+Note that this is the same as <tt>pkcs-9-at-extensionRequest</tt> defined in PKCS#9 <xref target="RFC2985"/>.
+There <bcp14>MUST</bcp14> be only one such attribute.</t>
+        <t>The '<tt>values</tt>' field of this attribute <bcp14>MUST</bcp14> contain a set with exactly one element,
+and this element <bcp14>MUST</bcp14> be of type <tt>Extensions</tt>, as per <xref section="4.1" sectionFormat="of" target="RFC5280"/>:</t>
+        <sourcecode type="asn.1"><![CDATA[
+   Extensions  ::=  SEQUENCE SIZE (1..MAX) OF Extension
+
+   Extension  ::=  SEQUENCE  {
+        extnID      OBJECT IDENTIFIER,
+        critical    BOOLEAN DEFAULT FALSE,
+        extnValue   OCTET STRING
+                    -- contains the DER encoding of an ASN.1 value
+                    -- corresponding to the extension type identified
+                    -- by extnID
+        }]]></sourcecode>
+        <t>An Extension comprises the OID of the specific X.509 extension (extnID),
+optionally the 'critical' bit, and the extension value (extnValue).</t>
+        <t>An Extensions structure, which is a sequence of elements of type Extension,
+<bcp14>MUST NOT</bcp14> include more than one element with a particular extnID.</t>
+        <t>When not using the template-based approach of <xref target="csrtemplate"/>,
+specifying the requirement for a public key of a specific type
+and optionally its size and other parameters <bcp14>MUST</bcp14> be done as follows:
+Include exactly one Attribute with the <tt>type</tt> field being the OID specifying
+the type of the key, such as <tt>ecPublicKey</tt> or <tt>rsaEncryption</tt>.
+The '<tt>values</tt>' field <bcp14>MAY</bcp14> be empty to indicate no further requirements on the key. Otherwise, it <bcp14>MUST</bcp14> contain suitable parameters for the given key type, such as a singleton set containing the OID of an elliptic curve (EC) (e.g., <tt>secp384r1</tt>) or containing an integer value for the RSA key size (e.g., 4096). Many examples for this are given in <xref target="examples"/>.</t>
+      </section>
+      <section anchor="update-to-rfc9148">
+        <name>Update to RFC 9148</name>
+<t>The updates to EST in this document equally apply when using the 
+Constrained Application Protocol (CoAP) as a transport mechanism as described in <xref target="RFC9148"/>.
+This document therefore adds the following paragraph after the second paragraph
+of <xref section="1" sectionFormat="comma" target="RFC9148"/>:</t>
+<blockquote>EST over CoAP as specified in <xref target="RFC9148"/>  applies unchanged to <xref target="RFC7030"/>, which is updated by RFC 9908.  Hence, all references to <xref target="RFC7030"/> in <xref target="RFC9148"/> are assumed to indicate that <xref target="RFC7030"/> is updated by RFC 9908.</blockquote>
+      </section>
+      <section anchor="csrtemplate">
+        <name>Use of CSR Templates</name>		
+        <t>As an alternative to the unstructured inclusion of CSR Attributes
+        specified in <xref section="4.5.2" sectionFormat="of"
+        target="RFC7030"/> with its limitations and ambiguities, <xref
+        section="B" sectionFormat="of" target="RFC8295"/> describes an
+        approach using a CSR template.  An entire CSR object is returned with
+        various fields filled out and other fields waiting to be filled in. In
+        that approach, a pKCS7PDU attribute includes a PKIData content type
+        <xref target="RFC5272"/> and that, in turn, includes a CSR <xref
+        target="RFC2986"/> or a Certificate Request Message Format (CRMF)
+        formatted request (for details, see <xref target="RFC6268"
+        sectionFormat="bare" section="5"/> or <xref target="RFC6268"
+        sectionFormat="bare" section="9"/> of <xref target="RFC6268"/>,
+        respectively).</t>
+        <t>One drawback to that approach, particularly for the CSR, is that some unused
+fields have to be included; specifically, the '<tt>signature</tt>' field on
+the CSR is faked with an empty bit string.</t>
+<t>A similar method has been defined in "Internet X.509 Public Key
+Infrastructure -- Certificate Management Protocol (CMP)" <xref target="RFC9810"/>
+and "Lightweight Certificate Management Protocol (CMP) Profile"
+(<xref section="4.3.3" sectionFormat="comma" target="RFC9483"/>) using a CSR template as defined for CRMF <xref target="RFC4211"/>. Like the approach mentioned before,
+this method does not properly deal with absent Relative Distinguished Name (RDN) values, as it would encode them as invalid empty strings.
+Also, encoding an absent '<tt>subjectPublicKey</tt>' value as an empty <tt>BIT STRING</tt>
+and an absent X.509 extension value as an empty <tt>OCTET STRING</tt>
+can cause issues with strict ASN.1 parsing and decoding.</t>
+        <t>These drawbacks are avoided as follows:</t>
+        <t>This specification defines a new Certificate Request Information Template attribute
+for <tt>CsrAttrs</tt> (as given in <xref target="csrattrs"/>) that is essentially
+a partially filled-in PKCS#10 CSR minus the signature wrapper:</t>
+        <sourcecode type=""><![CDATA[
+  CertificationRequestInfoTemplate ::= SEQUENCE {
+      version       INTEGER { v1(0) } (v1, ... ),
+      subject       NameTemplate OPTIONAL,
+      subjectPKInfo [0] SubjectPublicKeyInfoTemplate
+                                {{ PKInfoAlgorithms }} OPTIONAL,
+      attributes    [1] Attributes{{ CRIAttributes }}
+  }]]></sourcecode>
+        <t><xref target="app-asn1-module"/> contains all details.</t>
+        <t>The CertificationRequestInfoTemplate closely resembles the CertificationRequestInfo
+from <xref section="5" sectionFormat="comma" target="RFC5912"/>:</t>
+        <sourcecode type=""><![CDATA[
+  CertificationRequestInfo ::= SEQUENCE {
+    version       INTEGER { v1(0) } (v1,...),
+    subject       Name,
+    subjectPKInfo SubjectPublicKeyInfo{{ PKInfoAlgorithms }},
+    attributes    [0] Attributes{{ CRIAttributes }}
+  }]]></sourcecode>
+        <t>with the following differences:</t>
+        <ul spacing="normal">
+          <li>
+            <t>The '<tt>subject</tt>' field has been made <tt><bcp14>OPTIONAL</bcp14></tt>.
+It <bcp14>MUST</bcp14> be present if the server places any requirements on the RDNs of the subject name; otherwise, it <bcp14>MUST</bcp14> be absent.</t>
+          </li>
+          <li>
+            <t>RDNs in the '<tt>subject</tt>' fields are allowed to have no value,
+which has been achieved by adding <tt><bcp14>OPTIONAL</bcp14></tt> to the '<tt>value</tt>' field of <tt>SingleAttributeTemplate</tt>.
+If the client is expected to provide an RDN of a certain type such as <tt>commonName</tt>,
+the respective RDN <bcp14>MUST</bcp14> be present in the '<tt>subject</tt>' field; otherwise, it <bcp14>MUST</bcp14> be absent.
+In addition, if the server gives an RDN value,
+this means that the client is expected to use this value for the RDN; otherwise, the client is expected to fill in a suitable value.
+The example at the end of this section has a '<tt>subject</tt>' field
+that contains both forms of RDN specifications.</t>
+          </li>
+        </ul>
+        <sourcecode type=""><![CDATA[
+  SingleAttributeTemplate {ATTRIBUTE:AttrSet} ::= SEQUENCE {
+      type      ATTRIBUTE.&id({AttrSet}),
+      value     ATTRIBUTE.&Type({AttrSet}{@type}) OPTIONAL
+  }]]></sourcecode>
+        <ul spacing="normal">
+          <li>
+            <t>The '<tt>subjectPKInfo</tt>' field has been made <tt><bcp14>OPTIONAL</bcp14></tt>.
+The field <bcp14>MUST</bcp14> be absent if the server places no requirements on the key; otherwise, it <bcp14>MUST</bcp14> be present, and the '<tt>algorithm</tt>' field
+specifies the type of key pair the client is expected to use.</t>
+          </li>
+          <li>
+            <t>The '<tt>subjectPublicKey</tt>' field contained in <tt>SubjectPublicKeyInfoTemplate</tt>
+has been made <tt><bcp14>OPTIONAL</bcp14></tt> because it is usually not needed.
+In case the server requires use of an RSA key and needs to specify its size, the field
+<bcp14>MUST</bcp14> be present and contain a placeholder public key value of the desired RSA modulus length; otherwise, the <tt>subjectPublicKey</tt> <bcp14>MUST</bcp14> be absent.</t>
+          </li>
+        </ul>
+        <sourcecode><![CDATA[
+  SubjectPublicKeyInfoTemplate{PUBLIC-KEY:IOSet} ::= SEQUENCE {
+      algorithm        AlgorithmIdentifier{PUBLIC-KEY, {IOSet}},
+      subjectPublicKey BIT STRING OPTIONAL
+  }]]></sourcecode>
+        <ul spacing="normal">
+          <li>
+            <t>A new OID <tt>id-aa-extensionReqTemplate</tt> and the related <tt>ExtensionTemplate</tt> structure
+is defined where the '<tt>extnValue</tt>' field has been made <tt><bcp14>OPTIONAL</bcp14></tt>.
+This is only needed to enable specifying partial extensions with values to be filled in
+by the client; otherwise, the <tt>id-ExtensionReq</tt> OID and the respective value of type
+<tt>ExtensionReq</tt> <bcp14>MUST</bcp14> be used for specifying requirements on X.509 extensions.</t>
+          </li>
+        </ul>
+        <t>For each extension of type <tt>Extension</tt> or <tt>ExtensionTemplate</tt> provided by the server,
+the client is expected to include an extension of the type given by the <tt>extnID</tt>.
+If the '<tt>critical</tt>' field is present, the client <bcp14>SHOULD</bcp14> use it in the extension as well.
+If the '<tt>extnValue</tt>' is present (which is always the case when type <tt>Extension</tt> is used),
+the client <bcp14>SHOULD</bcp14> use the given extension value in its CSR.
+When the type <tt>ExtensionTemplate</tt> is used, the '<tt>extnValue</tt>' can be absent, and then the client <bcp14>SHOULD</bcp14> provide an extension value in an <tt>Extension</tt> with the given <tt>extnID</tt>.
+For instance, if the server includes an <tt>ExtensionTemplate</tt>
+with the <tt>extnID</tt> '<tt>subjectAltName</tt>' but without an <tt>extnValue</tt>,
+the client <bcp14>SHOULD</bcp14> include a SAN extension with a suitable value.</t>
+        <t>In case the server includes an <tt>ExtensionTemplate</tt> with the <tt>extnID</tt> '<tt>subjectAltName</tt>'
+and a partially filled-in <tt>extnValue</tt>, such as a '<tt>directoryName</tt>' choice containing the <tt>NULL-DN</tt>
+(i.e., an empty sequence of RDNs) or the '<tt>iPAddress</tt>' choice with an empty <tt>OCTET STRING</tt>,
+it means that the client <bcp14>SHOULD</bcp14> fill in the respective <tt>GeneralName</tt> value.</t>
+        <sourcecode type=""><![CDATA[
+ExtensionTemplate {EXTENSION:ExtensionSet} ::= SEQUENCE {
+   extnID      EXTENSION.&id({ExtensionSet}),
+   critical    BOOLEAN DEFAULT FALSE,
+   extnValue   OCTET STRING (CONTAINING
+               EXTENSION.&ExtnType({ExtensionSet}{@extnID}) OPTIONAL
+               --  contains the DER encoding of the ASN.1 value
+               --  corresponding to the extension type identified
+               --  by extnID when present
+  }]]></sourcecode>
+        <t>The '<tt>version</tt>' field of the <tt>CertificationRequestInfoTemplate</tt> <bcp14>MUST</bcp14> contain v1 (0).</t>
+        <t>The '<tt>attributes</tt>' field <bcp14>MUST NOT</bcp14> contain multiple <tt>id-aa-extensionReqTemplate</tt> attributes
+and <bcp14>MUST NOT</bcp14> contain both <tt>id-ExtensionReq</tt> and <tt>id-aa-extensionReqTemplate</tt> attributes.</t>
+        <t>The '<tt>values</tt>' field of an <tt>id-aa-extensionReqTemplate</tt> attribute
+<bcp14>MUST</bcp14> contain a set with exactly one element,
+and this element <bcp14>MUST</bcp14> be of type <tt>ExtensionTemplate</tt>.</t>
+
+<t>Suppose the server requires that the CSR will contain:</t>
+        <ul spacing="normal">
+          <li>
+            <t>the '<tt>subject</tt>' field with a common name to be filled in by the EE and
+two organizational unit names with given values "myDept" and "myGroup",</t>
+          </li>
+          <li>
+            <t>the '<tt>publicKey</tt>' field with an
+Elliptic Curve Cryptography (ECC) public key on curve <tt>secp256r1</tt>,</t>
+          </li>
+          <li>
+            <t>the 'subjectAltName' extension with two entries; one DNS entry with
+name "www.myServer.com" and IP entry that is empty for the IP address
+to be filled in,</t>
+          </li>
+          <li>
+            <t>the '<tt>keyUsage</tt>' extension marked critical
+with the values digitalSignature and keyAgreement, and</t>
+          </li>
+          <li>
+            <t>the '<tt>extKeyUsage</tt>' extension with the value to be filled in by the EE.</t>
+          </li>
+        </ul>
+        <t>Then, the <tt>CertificationRequestInfo</tt> structure constructed by the server
+will be as follows:</t>
+        <sourcecode type=""><![CDATA[
+SEQUENCE {
+  INTEGER 0
+  SEQUENCE {
+    SET {
+      SEQUENCE {
+        OBJECT IDENTIFIER commonName (2 5 4 3)
+        }
+      }
+    SET {
+      SEQUENCE {
+        OBJECT IDENTIFIER organizationalUnitName (2 5 4 11)
+        UTF8String "myDept"
+        }
+      }
+    SET {
+      SEQUENCE {
+        OBJECT IDENTIFIER organizationalUnitName (2 5 4 11)
+        UTF8String "myGroup"
+        }
+      }
+    }
+  [0] {
+    SEQUENCE {
+      OBJECT IDENTIFIER ecPublicKey (1 2 840 10045 2 1)
+      OBJECT IDENTIFIER secp256r1 (1 2 840 10045 3 1 7)
+      }
+    }
+  [1] {
+    SEQUENCE {
+      OBJECT IDENTIFIER id-aa-extensionReqTemplate
+                        (1 2 840 113549 1 9 62)
+      SET {
+        SEQUENCE {
+          SEQUENCE {
+            OBJECT IDENTIFIER subjectAltName (2 5 29 17)
+            OCTET STRING, encapsulates {
+              SEQUENCE {
+                [2] "www.myServer.com"
+                [7] ""
+                }
+              }
+            }
+          SEQUENCE {
+            OBJECT IDENTIFIER keyUsage (2 5 29 15)
+            BOOLEAN TRUE
+            OCTET STRING, encapsulates {
+              BIT STRING 3 unused bits
+                "10001"B
+              }
+            }
+          SEQUENCE {
+            OBJECT IDENTIFIER extKeyUsage (2 5 29 37)
+            }
+          }
+        }
+      }
+    }
+  }]]></sourcecode>
+      </section>
+    </section>
+    <section anchor="co-existence-with-existing-implementations">
+      <name>Coexistence with Existing Implementations</name>
+<t>EST servers with legacy clients <bcp14>MAY</bcp14> continue to use the  unstructured list of attribute/value pairs as described in <xref target="RFC7030"/> and <bcp14>MAY</bcp14> also include the template style described in <xref target="csrtemplate"/> for newer clients.
+Clients that understand both <bcp14>MUST</bcp14> use the template only, and
+ignore all other <tt>CsrAttrs</tt> elements.
+Older clients will ignore the new CertificationRequestInfoTemplate element.</t>
+    </section>
+    <section anchor="examples">
+      <name>Examples Using the Original Approach in RFC 7030</name>
+      <t>Each example has a high-level (English) explanation of what is expected.
+Some mapping back to the Attribute and Extension definitions above are included.
+The base64 DER encoding is then shown.
+The output of "dumpasn1" <xref target="dumpasn1"/> is then provided to detail what the contents are.</t>
+      <section anchor="acpNodeName">
+        <name>Require an RFC 8994 / ACP subjectAltName with Specific otherName</name>
+        <t>A single subjectAltName extension is specified in a single <tt>CsrAttrs</tt>
+attribute <xref target="RFC7030"/> with an OID '<tt>id-ExtensionReq</tt>' indicating type <tt>Extensions</tt>.
+This is what might be created by a Registrar <xref target="RFC8995"/> that is asking for AcpNodeName <xref target="RFC8994"/> with format '<tt>otherNames</tt>'.</t>
+        <section anchor="base64-encoded-example">
+          <name>Base64-Encoded Example</name>
+          <t>The Base64:</t>
+          <sourcecode type="base64" markers="false"><![CDATA[
+MGgwZgYJKoZIhvcNAQkOMVkwVzBVBgNVHREBAf8ESzBJoEcG
+CCsGAQUFBwgKoDsWOXJmYzg5OTQrZmQ3MzlmYzIzYzM0NDAx
+MTIyMzM0NDU1MDAwMDAwMDArQGFjcC5leGFtcGxlLmNvbQ==]]></sourcecode>
+        </section>
+        <section anchor="asn1-dump-output">
+          <name>ASN.1 DUMP Output</name>
+          <t>There is a single subjectAltName Extension with an Attribute with Extension type.</t>
+          <sourcecode type="asn.1"><![CDATA[
+    <30 68>
+  0 104: SEQUENCE {
+    <30 66>
+  2 102:   SEQUENCE {
+    <06 09>
+  4   9:     OBJECT IDENTIFIER
+       :       extensionRequest (1 2 840 113549 1 9 14)
+       :       (PKCS #9 via CRMF)
+    <31 59>
+ 15  89:     SET {
+    <30 57>
+ 17  87:       SEQUENCE {
+    <30 55>
+ 19  85:         SEQUENCE {
+    <06 03>
+ 21   3:           OBJECT IDENTIFIER
+       :             subjectAltName (2 5 29 17)
+       :             (X.509 extension)
+    <01 01>
+ 26   1:           BOOLEAN TRUE
+    <04 4B>
+ 29  75:           OCTET STRING, encapsulates {
+    <30 49>
+ 31  73:             SEQUENCE {
+    <A0 47>
+ 33  71:               [0] {
+    <06 08>
+ 35   8:                 OBJECT IDENTIFIER '1 3 6 1 5 5 7 8 10'
+    <A0 3B>
+ 45  59:                 [0] {
+    <16 39>
+ 47  57:                   IA5String
+       :                   'rfc8994+fd739fc23c34401122334455'
+       :                   '00000000+@acp.example.com'
+       :                   }
+       :                 }
+       :               }
+       :             }
+       :           }
+       :         }
+       :       }
+       :     }
+       :   }]]></sourcecode>
+        </section>
+      </section>
+      <section anchor="rfc7030-original-example">
+        <name>Original Example in RFC 7030</name>
+        <t>In this example, taken from <xref section="4.5.2" sectionFormat="of" target="RFC7030"/>, a few different attributes are included.
+The original encoding of the '<tt>macAddress</tt>' part in the example is NOT CORRECT.
+It was not aligned with the definition of the Extension Request attribute as specified in <xref section="5.4.2" sectionFormat="of" target="RFC2985"/>.
+The revised encoding given here does not use an '<tt>id-ExtensionReq</tt>' attribute
+because the MAC Address is not an X.509 certificate extension by itself
+and because the server provides its OID without a value,
+which is not allowed syntactically within a structure of type '<tt>Extension</tt>'.</t>
+        <section anchor="base64-encoded-example-1">
+          <name>Base64-Encoded Example</name>
+          <t>The Base64:</t>
+          <sourcecode type="base64" markers="false"><![CDATA[
+MDIGCSqGSIb3DQEJBzASBgcqhkjOPQIBMQcGBSuBBAAiBgcr
+BgEBAQEWBggqhkjOPQQDAw==]]></sourcecode>
+        </section>
+        <section anchor="asn1-dump-output-1">
+          <name>ASN.1 DUMP Output</name>
+          <t>The CsrAttrs structure contains:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>The challengePassword attribute to indicate that the
+CSR should include this value.</t>
+            </li>
+            <li>
+              <t>An ecPublicKey OID with the value secp384r1 to
+indicate what kind of public key should be submitted.</t>
+            </li>
+            <li>
+              <t>The  macAddress OID 1.3.6.1.1.1.1.22 to
+indicate that the CSR is expected to include
+(in a subjectDirectoryAttributes extension) a MAC address value.</t>
+            </li>
+            <li>
+              <t>The ecdsaWithSHA384 OID to indicate what kind of hash
+is expected to be used for the self-signature in the PKCS#10 CSR.</t>
+            </li>
+          </ol>
+          <sourcecode type=""><![CDATA[
+    <30 32>
+  0  50: SEQUENCE {
+    <06 09>
+  2   9:   OBJECT IDENTIFIER challengePassword (1 2 840 113549 1 9 7)
+       :     (PKCS #9)
+    <30 12>
+ 13  18:   SEQUENCE {
+    <06 07>
+ 15   7:     OBJECT IDENTIFIER ecPublicKey (1 2 840 10045 2 1)
+       :       (ANSI X9.62 public key type)
+    <31 07>
+ 24   7:     SET {
+    <06 05>
+ 26   5:       OBJECT IDENTIFIER secp384r1 (1 3 132 0 34)
+       :         (SECG (Certicom) named elliptic curve)
+       :       }
+       :     }
+    <06 07>
+ 33   7:   OBJECT IDENTIFIER '1 3 6 1 1 1 1 22'
+    <06 08>
+ 42   8:   OBJECT IDENTIFIER ecdsaWithSHA384 (1 2 840 10045 4 3 3)
+       :     (ANSI X9.62 ECDSA algorithm with SHA384)
+       :   }]]></sourcecode>
+        </section>
+      </section>
+      <section anchor="require-a-specific-subjectaltname-extension">
+        <name>Require a Specific subjectAltName Extension</name>
+        <t>This example is the same as the previous one except that instead of the OID
+for a macAddress, a subjectAltName is specified as the only Extension element.</t>
+        <section anchor="base64-encoded-example-2">
+          <name>Base64-Encoded Example</name>
+          <t>The Base64:</t>
+          <sourcecode type="base64" markers="false"><![CDATA[
+MEUGCSqGSIb3DQEJBzASBgcqhkjOPQIBMQcGBSuBBAAjBgkq
+hkiG9w0BCRQGCgmSJomT8ixkAQUGA1UEBQYIKoZIzj0EAwQ=]]></sourcecode>
+        </section>
+        <section anchor="asn1-dump-output-2">
+          <name>ASN.1 DUMP Output</name>
+          <t>The CsrAttrs structure contains:</t>
+          <ol spacing="normal" type="1"><li>
+              <t>The challengePassword attribute to indicate that the CSR should include this value.</t>
+            </li>
+            <li>
+              <t>An ecPublicKey OID with the value secp521r1 to indicate what kind of public key should be submitted.</t>
+            </li>
+            <li>
+              <t>An extensionRequest container with a subjectAltName value containing the name potato@example.com.</t>
+            </li>
+            <li>
+              <t>The ecdsaWithSHA512 OID to indicate the SHA-512 hash is expected to be used for the self-signature in the PKCS#10 CSR.</t>
+            </li>
+          </ol>
+          <sourcecode type=""><![CDATA[
+    <30 45>
+  0  69: SEQUENCE {
+    <06 09>
+  2   9:   OBJECT IDENTIFIER challengePassword (1 2 840 113549 1 9 7)
+       :     (PKCS #9)
+    <30 12>
+ 13  18:   SEQUENCE {
+    <06 07>
+ 15   7:     OBJECT IDENTIFIER ecPublicKey (1 2 840 10045 2 1)
+       :       (ANSI X9.62 public key type)
+    <31 07>
+ 24   7:     SET {
+    <06 05>
+ 26   5:       OBJECT IDENTIFIER secp521r1 (1 3 132 0 35)
+       :         (SECG (Certicom) named elliptic curve)
+       :       }
+       :     }
+    <06 09>
+ 33   9:   OBJECT IDENTIFIER friendlyName (for PKCS #12)
+                             (1 2 840 113549 1 9 20)
+       :     (PKCS #9 via PKCS #12)
+    <06 0A>
+ 44  10:   OBJECT IDENTIFIER '0 9 2342 19200300 100 1 5'
+    <06 03>
+ 56   3:   OBJECT IDENTIFIER serialNumber (2 5 4 5)
+       :     (X.520 DN component)
+    <06 08>
+ 61   8:   OBJECT IDENTIFIER ecdsaWithSHA512 (1 2 840 10045 4 3 4)
+       :     (ANSI X9.62 ECDSA algorithm with SHA512)
+       :   }]]></sourcecode>
+        </section>
+      </section>
+      <section anchor="require-a-public-key-of-a-specific-size">
+        <name>Require a Public Key of a Specific Size</name>
+        <t>The CSR requires an RSA public key of a specific size.</t>
+        <section anchor="base64-encoded-example-3">
+          <name>Base64-Encoded Example</name>
+          <t>The Base64:</t>
+          <sourcecode type="base64" markers="false"><![CDATA[
+MCkGCSqGSIb3DQEJBzARBgkqhkiG9w0BAQExBAICEAAGCSqG
+SIb3DQEBCw==]]></sourcecode>
+        </section>
+        <section anchor="asn1-dump-output-3">
+          <name>ASN.1 DUMP Output</name>
+          <t>Provide a CSR with an RSA key that's 4096 bits and use SHA256 as the hash algorithm within the signature.</t>
+          <sourcecode type="asn.1"><![CDATA[
+    <30 29>
+  0  41: SEQUENCE {
+    <06 09>
+  2   9:   OBJECT IDENTIFIER challengePassword (1 2 840 113549 1 9 7)
+       :     (PKCS #9)
+    <30 11>
+ 13  17:   SEQUENCE {
+    <06 09>
+ 15   9:     OBJECT IDENTIFIER rsaEncryption (1 2 840 113549 1 1 1)
+       :       (PKCS #1)
+    <31 04>
+ 26   4:     SET {
+    <02 02>
+ 28   2:       INTEGER 4096
+       :       }
+       :     }
+    <06 09>
+ 32   9:   OBJECT IDENTIFIER sha256WithRSAEncryption
+                             (1 2 840 113549 1 1 11)
+       :     (PKCS #1)
+       :   }]]></sourcecode>
+        </section>
+      </section>
+      <section anchor="require-a-public-key-of-a-specific-curve">
+        <name>Require a Public Key of a Specific Curve</name>
+        <t>The CSR requires an ECC public key with a specific curve.</t>
+        <section anchor="base64-encoded-example-4">
+          <name>Base64-Encoded Example</name>
+          <t>The Base64:</t>
+          <sourcecode type="base64" markers="false"><![CDATA[
+MC4GCSqGSIb3DQEJBzASBgcqhkjOPQIBMQcGBSuBBAAiBgNV
+BAUGCCqGSM49BAMD]]></sourcecode>
+        </section>
+        <section anchor="asn1-dump-output-4">
+          <name>ASN.1 DUMP Output</name>
+          <t>Provide a CSR with an ECC public key from p384, include your serial number, and
+use SHA384 as the hash algorithm within the signature.</t>
+          <sourcecode type="asn.1"><![CDATA[
+    <30 2E>
+  0  46: SEQUENCE {
+    <06 09>
+  2   9:   OBJECT IDENTIFIER challengePassword (1 2 840 113549 1 9 7)
+       :     (PKCS #9)
+    <30 12>
+ 13  18:   SEQUENCE {
+    <06 07>
+ 15   7:     OBJECT IDENTIFIER ecPublicKey (1 2 840 10045 2 1)
+       :       (ANSI X9.62 public key type)
+    <31 07>
+ 24   7:     SET {
+    <06 05>
+ 26   5:       OBJECT IDENTIFIER secp384r1 (1 3 132 0 34)
+       :         (SECG (Certicom) named elliptic curve)
+       :       }
+       :     }
+    <06 03>
+ 33   3:   OBJECT IDENTIFIER serialNumber (2 5 4 5)
+       :     (X.520 DN component)
+    <06 08>
+ 38   8:   OBJECT IDENTIFIER ecdsaWithSHA384 (1 2 840 10045 4 3 3)
+       :     (ANSI X9.62 ECDSA algorithm with SHA384)
+       :   }]]></sourcecode>
+        </section>
+      </section>
+      <section anchor="require-specific-extensions-and-attributes">
+        <name>Require Specific Extensions and Attributes</name>
+        <t>The CSR is required to have an ECC public key, include a serial number, include a friendly name, include a favorite drink <xref target="favoritedrink"/> [OID 0.9.2342.19200300.100.1.5], and
+use SHA512 as the hash algorithm within the signature.</t>
+        <section anchor="base64-encoded-example-5">
+          <name>Base64-Encoded Example</name>
+          <t>The Base64:</t>
+          <sourcecode type="base64" markers="false"><![CDATA[
+MEUGCSqGSIb3DQEJBzASBgcqhkjOPQIBMQcGBSuBBAAjBgkq
+hkiG9w0BCRQGCgmSJomT8ixkAQUGA1UEBQYIKoZIzj0EAwQ=]]></sourcecode>
+        </section>
+        <section anchor="asn1-dump-output-5">
+          <name>ASN.1 DUMP Output</name>
+          <t>Provide a CSR with an ECC public key from sha521 and include your serial number,
+friendly name, and favorite drink, and hash it with SHA512.</t>
+          <sourcecode type="asn.1"><![CDATA[
+    <30 45>
+  0  69: SEQUENCE {
+    <06 09>
+  2   9:   OBJECT IDENTIFIER challengePassword (1 2 840 113549 1 9 7)
+       :     (PKCS #9)
+    <30 12>
+ 13  18:   SEQUENCE {
+    <06 07>
+ 15   7:     OBJECT IDENTIFIER ecPublicKey (1 2 840 10045 2 1)
+       :       (ANSI X9.62 public key type)
+    <31 07>
+ 24   7:     SET {
+    <06 05>
+ 26   5:       OBJECT IDENTIFIER secp521r1 (1 3 132 0 35)
+       :         (SECG (Certicom) named elliptic curve)
+       :       }
+       :     }
+    <06 09>
+ 33   9:   OBJECT IDENTIFIER friendlyName (for PKCS #12)
+                             (1 2 840 113549 1 9 20)
+       :     (PKCS #9 via PKCS #12)
+    <06 0A>
+ 44  10:   OBJECT IDENTIFIER '0 9 2342 19200300 100 1 5'
+    <06 03>
+ 56   3:   OBJECT IDENTIFIER serialNumber (2 5 4 5)
+       :     (X.520 DN component)
+    <06 08>
+ 61   8:   OBJECT IDENTIFIER ecdsaWithSHA512 (1 2 840 10045 4 3 4)
+       :     (ANSI X9.62 ECDSA algorithm with SHA512)
+       :   }]]></sourcecode>
+        </section>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The security considerations from <xref target="RFC7030" sectionFormat="comma" section="6"/> are unchanged.</t>
+      <section anchor="identity-and-privacy-considerations">
+        <name>Identity and Privacy Considerations</name>
+        <t>An EST server may use this mechanism to instruct the EST client about the identities it should include in the CSR it sends as part of enrollment.
+The client may only be aware of its Initial Device
+   Identifier (IDevID) Subject, which includes a manufacturer serial number.
+The EST server can use this mechanism to tell the client to include a specific fully qualified domain name in the CSR in order to complete domain ownership proofs required by the CA.
+Additionally, the EST server may deem the manufacturer serial number in an IDevID as personally identifiable information and may want to specify a new random opaque identifier that the pledge should use in its CSR.
+This may be desirable if the CA and EST server have different operators.</t>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+<t>
+For the ASN.1 module in <xref target="app-asn1-module"/>, IANA has assigned the following OID in the "SMI Security for S/MIME Module Identifier (1.2.840.113549.1.9.16.0)" registry:
+</t>
+
+<table anchor="table_1"> 
+  <thead>
+    <tr>
+      <th>Decimal</th>  
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>        
+    <tr>
+      <td>82</td>
+      <td>id-mod-critemplate</td>
+      <td>RFC 9908</td>
+    </tr>
+  </tbody>
+</table>
+
+<t>
+For the Certification Request Information Template and Extension Request Template attributes in <xref target="app-asn1-module"/>, IANA has assigned the following OIDs in the "SMI Security for S/MIME Attributes (1.2.840.113549.1.9.16.2)" registry:
+</t>
+
+<table anchor="table_2"> 
+  <thead>
+    <tr>
+      <th>Decimal</th>  
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>        
+    <tr>
+      <td>61</td>
+      <td>id-aa-certificationRequestInfoTemplate</td>
+      <td>RFC 9908</td>
+    </tr>
+     <tr>
+      <td>62</td>
+      <td>id-aa-extensionReqTemplate</td>
+      <td>RFC 9908</td>
+     </tr>
+  </tbody>
+</table>
+    </section>
+  </middle>
+  <back>
+
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5911.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5912.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6268.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7030.xml"/>
+        <reference anchor="X.680" target="https://www.itu.int/rec/T-REC-X.680">
+          <front>
+            <title>Information technology -- Abstract Syntax Notation One (ASN.1): Specification of basic notation</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2021" month="February"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="X.680"/>
+          <seriesInfo name="ISO/IEC" value="8824-1:2021"/>
+        </reference>
+        <reference anchor="X.690" target="https://www.itu.int/rec/T-REC-X.690">
+          <front>
+            <title>Information technology -- ASN.1 encoding rules: Specification of Basic Encoding Rules (BER), Canonical Encoding Rules (CER) and Distinguished Encoding Rules (DER)</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date year="2021" month="February"/>
+          </front>
+          <seriesInfo name="ITU-T Recommendation" value="X.690"/>
+          <seriesInfo name="ISO/IEC" value="8825-1:2021"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9148.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2986.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2985.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4211.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5272.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8295.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8368.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8994.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8995.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9810.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9483.xml"/>
+        <reference anchor="dumpasn1" target="https://www.cs.auckland.ac.nz/~pgut001/dumpasn1.c">
+          <front>
+            <title>Dump ASN</title>
+            <author initials="P." surname="Gutmann" fullname="Peter Gutmann">
+              <organization/>
+            </author>
+            <date day="22" month="4" year="2021"/>
+          </front>
+        </reference>
+
+        <reference anchor="favoritedrink" target="https://oid-base.com/get/0.9.2342.19200300.100.1.5">
+          <front>
+            <title>drink(5) [other identifier: favouriteDrink]</title>
+            <author>
+              <organization>OID Repository</organization>
+            </author>
+            <date day="4" month="July" year="2019"/>
+          </front>
+          <refcontent>OID 0.9.2342.19200300.100.1.5</refcontent>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="app-asn1-module">
+      <name>ASN.1 Module</name>
+      <t>This appendix provides an ASN.1 module <xref target="X.680"/> for the Certification Request Information Template attribute and its sub-template structures. It follows the conventions
+established in <xref target="RFC5911"/>, <xref target="RFC5912"/>, and <xref target="RFC6268"/>.</t>
+      <sourcecode type="asn.1"><![CDATA[
+CRITemplateModule
+  { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1)
+    pkcs-9(9) smime(16) modules(0) id-mod-critemplate(82) }
+
+DEFINITIONS IMPLICIT TAGS ::=
+
+BEGIN
+
+IMPORTS -- from [RFC5912]
+
+SupportedAttributes
+ FROM PKIX1Explicit-2009
+  { iso(1) identified-organization(3) dod(6) internet(1) security(5)
+    mechanisms(5) pkix(7) id-mod(0) id-mod-pkix1-explicit-02(51)}
+
+ATTRIBUTE, EXTENSION
+ FROM PKIX-CommonTypes-2009
+  { iso(1) identified-organization(3) dod(6) internet(1) security(5)
+    mechanisms(5) pkix(7) id-mod(0) id-mod-pkixCommon-02(57) }
+
+PUBLIC-KEY, AlgorithmIdentifier{}
+ FROM AlgorithmInformation-2009
+  { iso(1) identified-organization(3) dod(6) internet(1) security(5)
+    mechanisms(5) pkix(7) id-mod(0)
+    id-mod-algorithmInformation-02(58)}
+
+CertExtensions
+ FROM PKIX1Implicit-2009
+  { iso(1) identified-organization(3) dod(6) internet(1) security(5)
+    mechanisms(5) pkix(7) id-mod(0) id-mod-pkix1-implicit-02(59)}
+
+Attributes{}, CRIAttributes, PKInfoAlgorithms
+ FROM PKCS-10
+  { iso(1) identified-organization(3) dod(6) internet(1)
+    security(5) mechanisms(5) pkix(7)
+    id-mod(0) id-mod-pkcs10-2009(69) }
+;
+
+aa-certificationRequestInfoTemplate ATTRIBUTE ::=
+  { TYPE CertificationRequestInfoTemplate IDENTIFIED BY
+    id-aa-certificationRequestInfoTemplate }
+
+id-aa-certificationRequestInfoTemplate OBJECT IDENTIFIER ::=
+  { iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) pkcs9(9)
+    smime(16) aa(2) id-aa-certificationRequestInfoTemplate(61) }
+
+--  like CertificationRequestInfo but OPTIONAL subject, subjectPKInfo
+CertificationRequestInfoTemplate ::= SEQUENCE {
+    version       INTEGER { v1(0) } (v1, ... ),
+    subject       NameTemplate OPTIONAL,
+    subjectPKInfo [0] SubjectPublicKeyInfoTemplate
+                              {{ PKInfoAlgorithms }} OPTIONAL,
+    attributes    [1] Attributes{{ CRIAttributes }}
+}
+
+
+--  like Name, but with OPTIONAL RDN values
+NameTemplate ::= CHOICE { -- only one possibility for now --
+    rdnSequence  RDNSequenceTemplate }
+
+RDNSequenceTemplate ::= SEQUENCE OF RelativeDistinguishedNameTemplate
+
+RelativeDistinguishedNameTemplate  ::= SET SIZE (1 .. MAX)
+    OF SingleAttributeTemplate { {SupportedAttributes} }
+
+--  like Attributes, but with OPTIONAL value
+SingleAttributeTemplates{ATTRIBUTE:AttrSet} ::= SEQUENCE OF
+    SingleAttributeTemplates{ {AttrSet} }
+
+--  like SingleAttribute, but with OPTIONAL value
+SingleAttributeTemplate{ATTRIBUTE:AttrSet} ::= SEQUENCE {
+    type      ATTRIBUTE.&id({AttrSet}),
+    value     ATTRIBUTE.&Type({AttrSet}{@type}) OPTIONAL
+}
+
+--  like SubjectPublicKeyInfo, but with OPTIONAL subjectPublicKey
+SubjectPublicKeyInfoTemplate{PUBLIC-KEY:IOSet} ::= SEQUENCE {
+    algorithm        AlgorithmIdentifier{PUBLIC-KEY, {IOSet}},
+    subjectPublicKey BIT STRING OPTIONAL
+}
+
+id-aa-extensionReqTemplate OBJECT IDENTIFIER ::=
+{ iso(1) member-body(2) us(840) rsadsi(113549) pkcs(1) pkcs9(9)
+  smime(16) aa(2) id-aa-extensionReqTemplate(62) }
+
+--  like extensionRequest, but with OPTIONAL Extension extnValues
+--  original definition was in PKCS#9 RFC 2985, Section 5.4.2
+at-extensionReqTemplate ATTRIBUTE ::= {
+    TYPE ExtensionReqTemplate IDENTIFIED BY 
+                 id-aa-extensionReqTemplate }
+
+ExtensionReqTemplate ::= ExtensionTemplates{{CertExtensions}}
+
+--  like Extensions, but with OPTIONAL extnValue
+ExtensionTemplates{EXTENSION:ExtensionSet} ::=
+    SEQUENCE SIZE (1..MAX) OF ExtensionTemplate{{ExtensionSet}}
+
+--  like Extension, but with OPTIONAL extnValue
+ExtensionTemplate{EXTENSION:ExtensionSet} ::= SEQUENCE {
+    extnID    EXTENSION.&id({ExtensionSet}),
+    critical  BOOLEAN
+  --                   (EXTENSION.&Critical({ExtensionSet}{@extnID}))
+                     DEFAULT FALSE,
+    extnValue OCTET STRING (CONTAINING
+              EXTENSION.&ExtnType({ExtensionSet}{@extnID})) OPTIONAL
+              --  contains the DER encoding of the ASN.1 value
+              --  corresponding to the extension type identified
+              --  by extnID when present
+}
+
+END]]></sourcecode>
+
+</section>
+
+    <section anchor="acknowledgments" numbered="false">
+      <name>Acknowledgments</name>
+      <t><contact fullname="Corey Bonnell"/> crafted Example 2 using a different tool, and    
+this helped debug other running code.</t>
+      <t><contact fullname="Carl Wallace"/> provided major parts of the                       
+CertificationRequestInfoTemplate syntax declaration.</t>
+      <t><contact fullname="Russ Housley"/> conducted many reviews of the ASN.1 module and suggested many 
+fixes.</t>
+      <t><contact fullname="Deb Cooley"/> conducted the usual Area Director Review.</t>
+    </section>
+  </back>
+</rfc>

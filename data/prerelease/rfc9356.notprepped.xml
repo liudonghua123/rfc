@@ -1,0 +1,666 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-lsr-ospf-l2bundles-10" number="9356" ipr="trust200902" updates="9085" obsoletes="" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+<!-- xml2rfc v2v3 conversion 3.15.0 -->
+  <front>
+    <title abbrev="OSPF L2 Bundle Member Link Attributes">Advertising Layer 2
+    Bundle Member Link Attributes in OSPF</title>
+    <seriesInfo name="RFC" value="9356"/>
+    <author fullname="Ketan Talaulikar" initials="K." role="editor" surname="Talaulikar">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <street/>
+          <city/>
+          <code/>
+          <region/>
+          <country>India</country>
+        </postal>
+        <email>ketant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Peter Psenak" initials="P." surname="Psenak">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <extaddr>Apollo Business Center</extaddr>
+          <street>Mlynske nivy 43</street>
+          <city>Bratislava</city>
+          <code>821 09</code>
+          <country>Slovakia</country>
+        </postal>
+        <email>ppsenak@cisco.com</email>
+      </address>
+    </author>
+    <date year="2023" month="January" />
+    <area>rtg</area>
+    <workgroup>lsr</workgroup>
+    <keyword>OSPF</keyword>
+    <abstract>
+      <t>There are deployments where the Layer 3 (L3) interface on which OSPF
+      operates is a Layer 2 (L2) interface bundle. Existing OSPF
+      advertisements only support advertising link attributes of the L3
+      interface. If entities external to OSPF wish to control traffic flows on
+      the individual physical links that comprise the L2 interface
+      bundle, link attribute information for the bundle members is
+      required.</t>
+
+      <t>This document defines the protocol extensions for OSPF to advertise
+      the link attributes of L2 bundle members. The document also specifies
+      the advertisement of these OSPF extensions via the Border Gateway Protocol - Link State (BGP-LS)
+      and thereby updates RFC 9085.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>There are deployments where the L3 interface on which an
+      OSPF adjacency is established is a L2 interface bundle, for
+      instance, a Link Aggregation Group (LAG) <xref target="IEEE802.1AX"
+      format="default"/>. This reduces the number of adjacencies that need to
+      be maintained by the OSPF protocol in cases where there are parallel
+      links between the neighbors.  Entities external to OSPF such as Path
+      Computation Elements (PCEs) <xref target="RFC4655" format="default"/> may
+      wish to control traffic flows on individual L2 member links of the
+      underlying bundle interface (e.g., LAG). To do so, link attribute
+      information for individual bundle members is required.  The protocol
+      extensions defined in this document provide the means to advertise this
+      information.</t>
+      <t>This document defines sub-TLVs to advertise link attribute
+      information for each of the L2 bundle members that comprise the L3
+      interface on which OSPF operates. Similar capabilities were introduced
+      for IS-IS in <xref target="RFC8668" format="default"/>.</t>
+
+      <t><xref target="RFC8665" format="default"/> and <xref target="RFC8666"
+      format="default"/> introduced the Adjacency Segment Identifier (Adj-SID)
+      link attribute for OSPFv2 and OSPFv3, respectively, which can be used as
+      an instruction to forward traffic over a specific link <xref
+      target="RFC8402" format="default"/>. This document enables the
+      advertisement of the Adj-SIDs using the same Adj-SID sub-TLV at
+      the granularity level of each L2 bundle member link so that traffic may
+      be steered over that specific member link.</t>
+
+      <t>Note that the advertisements at the L2 bundle member link level
+      defined in this document are intended to be provided to entities external to OSPF
+      and do not alter or change the OSPF route computation.  The
+      following items are intentionally not defined in and are outside the scope
+      of this document:</t>
+      <ul spacing="normal">
+        <li>What link attributes will be advertised. This is determined by
+          the needs of the external entities.</li>
+        <li>A minimum or default set of link attributes.</li>
+        <li>How these attributes are configured.</li>
+        <li>How the advertisements are used.</li>
+        <li>What impact the use of these advertisements may have on traffic
+          flow in the network.</li>
+        <li>How the advertisements are passed to external entities.</li>
+      </ul>
+
+      <t>BGP Link State (BGP-LS) <xref target="RFC7752" format="default"/>
+      was extended for the advertisement of L2 bundle members and their
+      attributes in <xref target="RFC9085" format="default"/>, which covered
+      only IS-IS. This document updates <xref target="RFC9085"
+      format="default"/> by specifying the advertisement from OSPF (refer to
+      <xref target="BGPLS" format="default"/>).</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+        "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+        NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+        "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+        "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+        are to be interpreted as described in BCP&nbsp;14 <xref
+        target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they
+        appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>L2 Bundle Member Attributes</name> <t>A new L2 Bundle Member
+      Attributes sub-TLV is introduced to advertise L2 bundle member
+      attributes in both OSPFv2 and OSPFv3. In the case of OSPFv2, this
+      sub-TLV is an optional sub-TLV of the OSPFv2 Extended Link TLV that is
+      used to describe link attributes via the OSPFv2 Extended Link Opaque LSA
+      (Link State Advertisement) <xref target="RFC7684" format="default"/>. In
+      the case of OSPFv3, this sub-TLV is an optional sub-TLV of the Router-Link TLV of the OSPFv3 E-Router-LSA <xref target="RFC8362"
+      format="default"/>.</t>
+      <t>When the OSPF adjacency is associated with an L2 bundle interface,
+      this sub-TLV is used to advertise the underlying L2 bundle member links
+      along with their respective link attributes. The inclusion of this
+      information implies that the identified link is a member of the L2
+      bundle associated with an OSPF L3 link and that the member link is
+      operationally up. Therefore, advertisements of member links <bcp14>MUST NOT</bcp14> be
+      done when the member link becomes operationally down or is no longer
+      a member of the identified L2 bundle.</t>
+      <t>The advertisement of the L2 Bundle Member Attributes sub-TLV may be
+      asymmetric for an OSPF link, depending on the underlying L2
+      connectivity, i.e., advertised by the router on only one end.</t>
+      <t>The L2 Bundle Member Attributes sub-TLV has the following format:
+      </t>
+      <figure anchor="L2BTLVFIG">
+        <name>L2 Bundle Member Attributes Sub-TLV Format</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |          Length               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   L2 Bundle Member Descriptor                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           Member Link Attribute sub-TLVs (variable)          //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+]]></artwork>
+      </figure>
+      <t>Where:</t>
+      <dl newline="false" spacing="normal">
+        <dt>Type:</dt>
+        <dd>24 for OSPFv2 and 29 for OSPFv3</dd>
+        <dt>Length:</dt>
+        <dd>The total length (in octets) of the value portion of the
+          TLV including nested sub-TLVs.</dd>
+        <dt>L2 Bundle Member Descriptor:</dt>
+
+        <dd>A 4-octet link-local identifier for the member link. This identifier is described as "link local identifier" in <xref
+        target="RFC4202" format="default"/> and used as "Local Interface ID" in <xref target="RFC8510"
+        format="default"/>.</dd>
+      </dl>
+      <t>Link attributes for L2 bundle member links are advertised as sub-TLVs
+      of the L2 Bundle Member Attributes sub-TLV.</t>
+      <t>In the case of OSPFv2, the L2 Bundle Member Attributes sub-TLV shares
+      the sub-TLV space of the Extended Link TLV, and the sub-TLVs of the
+      Extended Link TLV <bcp14>MAY</bcp14> be used to describe the attributes
+      of the member link. <xref target="OSPFV2L2EXCL" format="default"/> 
+      lists sub-TLVs and their applicability for L2 bundle member links. The
+      sub-TLVs that are not applicable <bcp14>MUST NOT</bcp14> be used as
+      sub-TLVs for the L2 Bundle Member Attributes sub-TLV. Specifications
+      that introduce new sub-TLVs of the Extended Link TLV <bcp14>MUST</bcp14>
+      indicate their applicability to the L2 Bundle Member Attributes
+      sub-TLV. Typically, attributes that have L3
+      semantics would not be applicable, but L2 attributes would apply.
+      An implementation <bcp14>MUST</bcp14> ignore any sub-TLVs received that are not
+      applicable in the context of the L2 Bundle Member Attributes sub-TLV.</t>
+
+<table anchor="OSPFV2L2EXCL" align="left">
+  <name>Applicability of OSPFv2 Link Attribute Sub-TLVs for L2 Bundle Members</name>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Description</th>
+      <th>Applicability</th>
+    </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>1</td>
+        <td>SID/Label</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>2</td>
+        <td>Adj-SID</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>3</td>
+        <td>LAN Adj-SID/Label</td>
+         <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>4</td>
+        <td>Network-to-Router Metric</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>5</td>
+        <td>RTM Capability</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>6</td>
+        <td>OSPFv2 Link MSD</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>7</td>
+        <td>Graceful-Link-Shutdown</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>8</td>
+        <td>Remote IPv4 Address</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>9</td>
+        <td>Local/Remote Interface ID</td>
+        <td align="center">N</td>
+      </tr>
+      <tr>
+        <td>10</td>
+        <td>Application-Specific Link Attributes</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>11</td>
+        <td>Shared Risk Link Group</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>12</td>
+        <td>Unidirectional Link Delay</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>13</td>
+        <td>Min/Max Unidirectional Link Delay</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>14</td>
+        <td>Unidirectional Delay Variation</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>15</td>
+        <td>Unidirectional Link Loss</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>16</td>
+        <td>Unidirectional Residual Bandwidth</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>17</td>
+        <td>Unidirectional Available Bandwidth</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>18</td>
+        <td>Unidirectional Utilized Bandwidth</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>19</td>
+        <td>Administrative Group</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>20</td>
+        <td>Extended Administrative Group</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>22</td>
+        <td>TE Metric</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>23</td>
+        <td>Maximum Link Bandwidth</td>
+        <td align="center">Y</td>
+      </tr>
+      <tr>
+        <td>24</td>
+        <td>L2 Bundle Member Attributes</td>
+        <td align="center">N</td>
+      </tr>
+    </tbody>
+</table>
+
+<t>Applicability:</t>
+<dl newline="false" spacing="normal" indent="5">
+<dt>Y:</dt><dd>This sub-TLV <bcp14>MAY</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</dd>
+<dt>N:</dt><dd>This sub-TLV <bcp14>MUST NOT</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</dd>
+</dl>
+
+      <t>In the case of OSPFv3, the L2 Bundle Member Attributes sub-TLV shares
+      the sub-TLV space of the Router-Link TLV, and the sub-TLVs of the
+      Router-Link TLV <bcp14>MAY</bcp14> be used to describe the attributes of
+      the member link.  <xref target="OSPFV3L2EXCL" format="default"/> lists
+      sub-TLVs that are applicable to the Router-Link TLV and their
+      applicability for L2 bundle member links. The sub-TLVs that are not
+      applicable <bcp14>MUST NOT</bcp14> be used as sub-TLVs for the L2 Bundle
+      Member Attributes sub-TLV. Specifications that introduce new sub-TLVs of
+      the Router-Link TLV <bcp14>MUST</bcp14> indicate their applicability to
+      the L2 Bundle Member Attributes sub-TLV. An implementation
+      <bcp14>MUST</bcp14> ignore any sub-TLVs received that are not applicable
+      in the context of the L2 Bundle Member Attributes sub-TLV.</t>
+
+<table anchor="OSPFV3L2EXCL" align="left">
+  <name>Applicability of OSPFv3 Link Attribute Sub-TLVs for L2 Bundle Members</name>
+  <thead>
+    <tr>
+      <th>Value</th>
+      <th>Description</th>
+      <th>Applicability</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td>
+      <td>IPv6-Forwarding-Address</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>2</td>
+      <td>IPv4-Forwarding-Address</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>3</td>
+      <td>Route-Tag</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>4</td>
+      <td>Prefix SID</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>5</td>
+      <td>Adj-SID</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>6</td>
+      <td>LAN Adj-SID</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>7</td>
+      <td>SID/Label</td>
+      <td align="center">N</td>
+    </tr>
+    <tr>
+      <td>8</td>
+      <td>Graceful-Link-Shutdown</td>
+      <td align="center">N</td>
+    </tr>
+    <tr>
+      <td>9</td>
+      <td>OSPFv3 Link MSD</td>
+      <td align="center">N</td>
+    </tr>
+    <tr>
+      <td>11</td>
+      <td>Application-Specific Link Attributes</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>12</td>
+      <td>Shared Risk Link Group</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>13</td>
+      <td>Unidirectional Link Delay</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>14</td>
+      <td>Min/Max Unidirectional Link Delay</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>15</td>
+      <td>Unidirectional Delay Variation</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>16</td>
+      <td>Unidirectional Link Loss</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>17</td>
+      <td>Unidirectional Residual Bandwidth</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>18</td>
+      <td>Unidirectional Available Bandwidth</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>19</td>
+      <td>Unidirectional Utilized Bandwidth</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>20</td>
+      <td>Administrative Group</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>21</td>
+      <td>Extended Administrative Group</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>22</td>
+      <td>TE Metric</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>23</td>
+      <td>Maximum Link Bandwidth</td>
+      <td align="center">Y</td>
+    </tr>
+    <tr>
+      <td>24</td>
+      <td>Local Interface IPv6 Address</td>
+      <td align="center">N</td>
+    </tr>
+    <tr>
+      <td>25</td>
+      <td>Remote Interface IPv6 Address</td>
+      <td align="center">N</td>
+    </tr>
+    <tr>
+      <td>26</td>
+      <td>Flexible Algorithm Prefix Metric (FAPM)</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>27</td>
+      <td>Prefix Source OSPF Router-ID</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>28</td>
+      <td>Prefix Source Router Address</td>
+      <td align="center">X</td>
+    </tr>
+    <tr>
+      <td>29</td>
+      <td>L2 Bundle Member Attributes</td>
+      <td align="center">N</td>
+    </tr>
+    <tr>
+      <td>33</td>
+      <td>OSPF Flexible Algorithm ASBR Metric</td>
+      <td align="center">X</td>
+    </tr>
+  </tbody>
+</table>
+
+<t>Applicability:</t>
+
+<dl newline="false" spacing="normal" indent="5">
+<dt>Y:</dt><dd>This sub-TLV <bcp14>MAY</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</dd>
+<dt>N:</dt><dd>This sub-TLV <bcp14>MUST NOT</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</dd>
+<dt>X:</dt><dd>This is not a sub-TLV of the Router-Link TLV; it <bcp14>MUST NOT</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</dd>
+</dl>
+
+    </section>
+    <section anchor="BGPLS" numbered="true" toc="default">
+      <name>BGP-LS Advertisement</name>
+      <t>The BGP-LS extensions for the advertisement of L2 bundle members
+      and their attributes were specified in <xref target="RFC9085"
+      format="default"/>. Using the OSPF L2 Bundle Member Attributes sub-TLV
+      defined in this document, the L2 bundle member information can now be
+      advertised from OSPF into BGP-LS on the same lines as discussed for
+      IS-IS in <xref target="RFC9085" sectionFormat="of"
+      section="2.2.3"/>.</t>
+    </section>
+
+ <section anchor="IANA" numbered="true" toc="default">
+
+   <name>IANA Considerations</name>
+      <t>IANA has allocated the following code point in
+      the "OSPFv2 Extended Link TLV Sub-TLVs" subregistry under the "Open Shortest Path First v2 (OSPFv2)
+      Parameters" registry:</t>
+      <dl newline="false" spacing="normal">
+	<dt>Value:</dt>
+	<dd>24</dd>
+	<dt>Designation:</dt>
+	<dd>L2 Bundle Member Attributes</dd>
+      </dl>
+      <t>IANA has allocated the following code point in
+      the "OSPFv3 Extended-LSA Sub-TLVs" subregistry under the "Open Shortest Path First v3 (OSPFv3)
+      Parameters" registry:</t>
+      <dl newline="false" spacing="normal">
+	<dt>Value:</dt>
+	<dd>29</dd>
+	<dt>Description:</dt>
+	<dd>L2 Bundle Member Attributes</dd>
+      </dl>
+      <t>IANA has also introduced a column titled "L2BM" in the "OSPFv2
+      Extended Link TLV Sub-TLVs" registry. The "L2BM" column indicates
+      applicability to the L2 Bundle Attributes Member sub-TLV. The initial
+      allocations (Y/N) for this column are indicated in <xref
+      target="OSPFV2L2EXCL" format="default"/>.  The following explanatory
+      note has been added to the registry:</t>
+<blockquote>
+  <t>The "L2BM" column indicates applicability to the L2 Bundle Attributes
+  Member sub-TLV. The options for the "L2BM" column are:
+</t>
+<t>Y - This sub-TLV <bcp14>MAY</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</t>
+<t>N - This sub-TLV <bcp14>MUST NOT</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</t>
+</blockquote>
+      <t>Similarly, IANA has introduced a column titled "L2BM" in the "OSPFv3
+      Extended-LSA Sub-TLVs" registry. The "L2BM" column indicates
+      applicability to the L2 Bundle Attributes Member sub-TLV. The initial
+      allocations (Y/N/X) for this column are indicated in <xref
+      target="OSPFV3L2EXCL" format="default"/>. The following explanatory note
+      has been added to the registry:</t>
+<blockquote>
+<t>The "L2BM" column indicates applicability to the L2 Bundle Attributes
+Member sub-TLV. The options for the "L2BM" column are:
+</t>     
+<t>Y - This sub-TLV <bcp14>MAY</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</t>
+<t>N - This sub-TLV <bcp14>MUST NOT</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</t>
+<t>X - This is not a sub-TLV of the Router-Link TLV; it <bcp14>MUST NOT</bcp14> appear in the L2 Bundle Member Attributes sub-TLV.</t>
+</blockquote>
+      <t>Future allocations in these two registries are required to indicate
+      the applicability of the introduced sub-TLV to the L2 Bundle Member
+      Attributes sub-TLV. IANA has added this document as a reference for
+      both registries.</t>
+    </section>
+    <section anchor="OPER" numbered="true" toc="default">
+      <name>Operational Considerations</name>
+      <t>Implementations <bcp14>MUST NOT</bcp14> enable the advertisement of L2 bundle
+      member links and their attributes in OSPF LSAs by default and <bcp14>MUST</bcp14>
+      provide a configuration option to enable their advertisement on specific
+      links.</t>
+      <t><xref target="RFC9129" format="default"/> specifies the base YANG data
+      model for OSPF. The required configuration and operational elements for this
+      feature are expected to be introduced as augmentation to this base YANG data model for OSPF.</t>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>The OSPF protocol has supported the advertisement of link attribute
+      information, including link identifiers, for many years. The
+      advertisements defined in this document are identical to the existing
+      advertisements defined in <xref target="RFC3630" format="default"/>,
+      <xref target="RFC4203" format="default"/>, <xref target="RFC5329"
+      format="default"/>, <xref target="RFC7471" format="default"/>, <xref
+      target="RFC8665" format="default"/>, and <xref target="RFC8666"
+      format="default"/>, but they are associated with L2 links that are part of
+      a bundle interface on which the OSPF protocol operates. Therefore, the
+      security considerations of these documents are applicable, and there are
+      no new security issues introduced by the extensions in this
+      document.</t>
+      <t>As always, if the protocol is used in an environment where
+      unauthorized access to the physical links on which OSPF packets are sent
+      occurs, then attacks are possible. The use of authentication as defined
+      in <xref target="RFC5709" format="default"/>, <xref target="RFC7474" format="default"/>, <xref target="RFC4552" format="default"/>, and <xref target="RFC7166" format="default"/> is recommended for
+      preventing such attacks.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+<reference anchor="IEEE802.1AX">
+          <front>
+            <title>IEEE Standard for Local and Metropolitan Area Networks--Link
+          Aggregation</title>
+            <author>
+              <organization>IEEE</organization>
+            </author>
+            <date month="May" year="2020"/>
+          </front>
+	  <seriesInfo name="IEEE Std" value="802.1AX"/>
+	  <seriesInfo name="DOI" value="10.1109/IEEESTD.2020.9105034"/>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4202.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7684.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8362.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8665.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8666.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9085.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3630.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4203.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4655.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5329.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7471.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7752.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8402.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8510.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5709.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7474.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4552.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7166.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8668.xml"/>
+
+<!-- [I-D.ietf-ospf-yang] Published as RFC 9129 -->
+	
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9129.xml"/>
+      </references>
+    </references>
+
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>This document leverages similar work done for IS-IS, and the
+      authors of this document would like to acknowledge the contributions of
+      the authors of <xref target="RFC8668" format="default"/>.</t>
+      <t>The authors would like to thank <contact fullname="Anoop Ghanwani"/>,
+      <contact fullname="Paul Kyzivat"/>, <contact fullname="Dan Romascanu"/>,
+      and <contact fullname="Russ Mundy"/> for their review and feedback on
+      this document. The authors would also like to thank <contact
+      fullname="Acee Lindem"/> for his detailed shepherd review of this
+      document. The authors would also like to thank <contact fullname="John
+      Scudder"/> for his AD review and the discussion related to the
+      applicability of TLVs/sub-TLVs to the L2 Bundle Member Attributes sub-TLV.</t>
+    </section>
+
+  </back>
+</rfc>

@@ -1,0 +1,325 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" submissionType="IETF" category="std" consensus="true" docName="draft-ietf-acme-authority-token-09" number="9447" ipr="trust200902" obsoletes="" updates="" xml:lang="en" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.16.0 -->
+  <front>
+    <title abbrev="ACME Authority Token">Automated Certificate Management
+   Environment (ACME) Challenges Using an Authority Token</title>
+    <seriesInfo name="RFC" value="9447"/>
+    <author initials="J." surname="Peterson" fullname="Jon Peterson">
+      <organization abbrev="Neustar">Neustar, Inc.</organization>
+      <address>
+        <email>jon.peterson@team.neustar</email>
+      </address>
+    </author>
+    <author fullname="Mary Barnes" initials="M." surname="Barnes">
+      <organization abbrev="Neustar">Neustar, Inc.</organization>
+      <address>
+        <email>mary.ietf.barnes@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="David Hancock" initials="D." surname="Hancock">
+      <organization>Somos</organization>
+      <address>
+        <email>davidhancock.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Chris Wendt" initials="C." surname="Wendt">
+      <organization>Somos</organization>
+      <address>
+        <email>chris-ietf@chriswendt.net</email>
+      </address>
+    </author>
+    <date year="2023" month="September"/>
+    <area>sec</area>
+    <workgroup>acme</workgroup>
+    <keyword>ACME</keyword>
+    <abstract>
+      <t>
+	  Some proposed extensions to the Automated Certificate Management Environment (ACME) rely on proving eligibility for certificates through consulting an external authority that issues a token
+	  according to a particular policy. This document specifies a generic Authority Token Challenge for ACME that supports subtype claims for different identifiers or namespaces
+	  that can be defined separately for specific applications.
+      </t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>
+	<xref target="RFC8555" format="default">ACME</xref> is a mechanism for automating certificate management on the Internet. It enables administrative entities to prove effective control over
+	resources, like domain names, and automates the process of issuing certificates that attest control or ownership of those resources.
+      </t>
+      <t>
+	In some cases, proving effective control over an identifier requires an attestation from a third party who has authority over the resource, for example, an external policy administrator for a namespace other than the DNS application ACME was originally designed to support. In order to automate the process of issuing certificates for those resources, this specification defines a generic Authority Token Challenge that ACME servers can
+	issue in order to require clients to return an Authority Token that authorizes a given issuance. The challenge contains a type indication that tells the client what sort of token it needs to acquire. 
+	It is expected that the Authority Token Challenge will be usable for a variety of identifier types. 
+	In particular, this document describes an architecture for Authority Tokens, defines a JSON Web Token (JWT) <xref target="RFC7519" format="default"/> Authority Token format along with a protocol for token acquisition, and shows how to integrate these tokens into an ACME challenge.
+      </t>
+      <t>
+	As a concrete example, <xref target="RFC9448" format="default"/> provides a mechanism that allows service providers to acquire certificates corresponding to a Service Provider Code (SPC) as defined in <xref target="RFC8226" format="default"/> by consulting an external authority responsible for those codes. Furthermore, Communications Service Providers (CSPs) can delegate authority over numbers to their customers, and those CSPs who support ACME can then help customers to acquire certificates for those numbering resources with ACME.  This can permit number acquisition flows compatible with those shown in <xref target="RFC8396" format="default"/>.
+      </t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+    </section>
+    <section anchor="challenges" numbered="true" toc="default">
+      <name>ACME Authority Token Challenge</name>
+      <t>
+	Proving that a device on the Internet has effective control over a non-Internet resource is not as straightforward as proving control over Internet resources, like a DNS zone or a 
+	web page. Provided that the issuer of identifiers in a namespace, or someone acting on the issuer's behalf, can implement a service that grants Authority Tokens to the people to whom it has issued identifiers, a generic token could be used as a response to an ACME challenge. This specification, therefore, defines an Authority Token issued by an authority over a namespace to an ACME client for delivery to an ACME server in response to a challenge. Authority over a hierarchical namespace can also be delegated so that delegates of a root authority can themselves act as Token Authorities for certain types of names.
+      </t>
+      <t>
+	This architecture assumes a trust relationship between certification authorities (CAs) and Token Authorities, i.e., that CAs are willing to accept the attestation of Token Authorities for particular types of identifiers as sufficient proof to issue a credential. It furthermore assumes that ACME clients have a relationship with Token Authorities, which permits them to authenticate and authorize the issuance of Authority Tokens to the proper entities. This ACME challenge has no applicability to identifiers or authorities where those pre-associations cannot be assumed.
+      </t>
+      <t>
+	The ACME Authority Token Challenge type, "tkauth-01", is here specified for use with the "TNAuthList" (Telephone Number Authentication List) ACME Identifier Type described in <xref target="RFC9448" format="default"/>; in order to use the "tkauth-01" Validation Method with an ACME Identifier Type other than "TNAuthList", that identifier type would need to be listed in a new registration in the ACME Validation Methods registry maintained by IANA. "tkauth-01" furthermore supports different token subtypes. The token subtype is determined by a new ACME challenge field, tkauth-type. An IANA registry is used to manage the values of tkauth-type (see <xref target="IANA-3" format="default"/>). Additionally, this challenge type also has a new "token-authority" field to designate a location where a token can be acquired. 
+	
+      </t>
+      <section anchor="req" numbered="true" toc="default">
+        <name>Token Type Requirements</name>
+        <t>
+	  IANA will maintain a registry of tkauth-types under a policy of Specification Required. In order to register a new tkauth-type, specifications must address the following requirements; in cases where a tkauth-type admits of its own subtypes, subtypes inherit these requirements.
+        </t>
+        <t>
+	  While Authority Token types do not need to be specific to a namespace, every token must carry enough information for a CA to determine the name for which certificate issuance is authorized. Some types of Authority Token types might be reusable for a number of different namespaces; others might be specific to a particular type of name. Therefore, 
+	  in defining tkauth-types, future specifications must indicate how a token conveys to the CA the name(s) that the Token Authority is attesting that the ACME client controls.
+        </t>
+        <t>
+	  While nothing precludes use cases where an ACME client is itself a Token Authority, an ACME client will typically need a protocol to request and retrieve an Authority Token. The Token Authority will require certain information from an ACME client in order to ascertain that it is an authorized entity to request a certificate for a particular name. The protocols used to request an Authority Token <bcp14>MUST</bcp14> convey to the Token Authority the identifier type and value that will be used in the ACME challenge, as well as the binding (see <xref target="bind" format="default"/>), and those <bcp14>MUST</bcp14> be reflected in the Authority Token. A baseline mechanism for how the Token Authority authenticates and authorizes ACME clients to receive Authority Tokens is given in <xref target="acquire" format="default"/>.
+        </t>
+        <t>
+	  Because the assignment of resources can change over time, demonstrations of authority must be regularly refreshed. Definitions of a tkauth-type <bcp14>MUST</bcp14> specify how they manage the freshness of authority assignments. Typically, a CA will expect a regular refreshing of the token.
+        </t>
+      </section>
+      <section anchor="scope" numbered="true" toc="default">
+        <name>Authority Token Scope</name>
+        <t>
+	An Authority Token is used to answer a challenge from an ACME server, upon a request for the issuance of a certificate. It could be that the Authority Token is requested from the Token Authority after a challenge has been received, or it could be that the Authority Token was acquired prior to the initial ACME client request. A Token Authority could grant an Authority Token that has the exact same scope as the requested certificate to a client; alternatively, an Authority Token could attest to all of the resources that the client is eligible to receive certificates for, which could be a superset of the scope of the requested certificate.
+        </t>
+        <t>
+	For example, imagine a case where a Token Authority for DNS names knows that a client is eligible to receive certificates for "example.com" and "example.net". The client asks an ACME server for a certificate for "example.com", and the server directs the client to acquire an Authority Token from the Token Authority. When the client sends an acquisition request (see <xref target="acquire" format="default"/>) to the Token Authority, the Token Authority could issue a token scoped just to "example.com" or a token that attests the client is eligible to receive certificates for both "example.com" or "example.net". The advantage of the latter is that if, at a later time (but one within the expiry of the token), the client wanted to acquire a certificate for "example.net", it would not have to return to the Token Authority, as the Token effectively pre-authorized the issuance of that certificate.
+        </t>
+        <t>
+	Applications of the Authority Token to different identifier types might require different scopes, so registrations of tkauth-types should be clear about if and how a scope greater than that of the requested certificate would be conveyed in a token.
+        </t>
+      </section>
+      <section anchor="bind" numbered="true" toc="default">
+        <name>Binding Challenges</name>
+        <t>
+	Applications that use the Authority Token need a way to correlate tokens issued by a Token Authority with the proper ACME client to prevent replay or cut-and-paste attacks using a token issued for a different purpose. To mitigate this, Authority Tokens contain a binding signed by a Token Authority; an ACME server can use the binding to determine that a Token presented by a client was in fact granted by the Token Authority based on a request from the client and not from some other entity. It is <bcp14>RECOMMENDED</bcp14> that the ACME account fingerprint be used for this purpose.
+        </t>
+        <t>
+	Creating a binding from an Authority Token to a particular ACME account entails that the Token could be reused up until its expiry for multiple challenges issued by an ACME server. This might be a desirable property
+	when using short-lived certificates, for example, in any cases where the ACME server issues challenges more frequently that an Authority Token can or should issue tokens or in cases where the Authority Token scope (see <xref target="scope" format="default"/>) is broad, so certificates with a more narrow scope may periodically be issued.
+        </t>
+        <t>
+	For some identifier types, it may be more appropriate to bind the Authority Token to a nonce specific to the challenge rather than to an ACME account fingerprint. Any specification of the use of the nonce or other factors for this purpose is left to the identifier type profile for the Authority Token. 
+        </t>
+        <t>
+	Note that the fingerprint value in the client's JWT is reflected in the Authority Token returned by the Token Authority; the Token Authority has no requirement to validate that fingerprint. Were a fingerprint to be captured by an attacker that had its own account with the Token Authority, it could replay that fingerprint in its own JWT in order to receive an Authority Token with that fingerprint. However, were the attacker to present that Authority Token to an ACME service, the service would see the fingerprint does not match the attacker's ACME account fingerprint. So unless an attacker can compromise a target ACME account or gain similar privileges, the binding would be secure.
+        </t>
+      </section>
+    </section>
+    <section anchor="tn" numbered="true" toc="default">
+      <name>Authority Token Challenge tkauth-type Registration</name>
+      <t>
+	This document specifies a tkauth-type of "atc", which contains a standard
+  JWT <xref target="RFC7519" format="default"/> using a signature string defined by a JSON Web Signature (JWS) <xref target="RFC7515" format="default"/>.
+The "atc" tkauth-type <bcp14>MAY</bcp14> be used for any number of different ACME
+Identifier Types in the ACME challenge. 
+      </t>
+      <t>
+ A new JWT claim, "atc", is
+ defined below and lists the identifier type used in this Authority
+Token.  The "atc" tkauth-type is restricted to the JWTs; if a
+non-JWT format is desired for the ACME Authority Token
+Challenge, a different tkauth-type should be specified and registered in the
+"ACME Authority Token Challenge Types"
+registry defined in <xref target="IANA-3" format="default"/>.
+      </t>
+      <t>
+        For this ACME Authority Token usage of a JWT, it is <bcp14>OPTIONAL</bcp14> for the payload of the JWT to contain an "iss", indicating the Token Authority that generated the token if the "x5u" or "x5c" element in the header does not already convey that information; typically, this will be the same location that appeared in the "token-authority" field of the ACME challenge, when present. In order to satisfy the requirement for replay prevention, the JWT <bcp14>MUST</bcp14> contain a "jti" element and an "exp" claim; the "exp" claim manages token freshness. In addition to helping to manage replay, the "jti" provides a convenient way to reliably track when the same "atc" Authority Token is being used for multiple challenges over time within its set lifetime.
+      </t>
+      <t>
+        The JWT payload <bcp14>MUST</bcp14> also contain a new JWT claim, "atc", for Authority Token Challenge, which contains three mandatory elements in a JSON map: the ATC identifier type ("tktype"), the identifier value ("tkvalue"), and the binding ("fingerprint"). The use of "tktype" is restricted to the values in the "ACME Identifier Types" registry, as defined by <xref target="RFC8555" format="default"/>. The identifier type and value are those given in the ACME challenge and conveyed to the Token Authority by the ACME client. For the purposes of the "atc" tkauth-type, the binding "fingerprint" is assumed to be a fingerprint of the ACME credential for the account used to request the certificate, but the specification of how the binding is generated is left to the identifier type profile for the Authority Token (see <xref target="bind" format="default"/>). The "tkvalue" indicates the scope of the authority that the token and its semantics are outside the scope of this document, as they will be specified by the "tkvalue" identifier in a separate specification.
+      </t>
+      <t>	
+		Following the example of <xref target="RFC9448" format="default"/>, the "tktype" identifier type could be the TNAuthList (as defined in <xref target="RFC8226"/>), which would be the value for the "tkvalue" element that the Token Authority is attesting. Practically speaking, that scope may comprise a list of Service Provider Code elements, telephone number range elements, and/or individual telephone numbers.  So for example:
+      </t>
+<sourcecode type=""><![CDATA[
+     {
+ "protected": base64url({
+      "typ":"JWT",
+  "alg":"ES256",
+  "x5u":"https://authority.example.org/cert"
+     }),
+ "payload": base64url({
+      "iss":"https://authority.example.org/authz",
+  "exp":1300819380,
+  "jti":"id6098364921",
+  "atc":{"tktype":"TnAuthList","tkvalue":"F83n2a...avn27DN3==",
+  "fingerprint":"SHA256 56:3E:CF:AE:83:CA:4D:15:B0:29:FF:1B:71:D3:
+  BA:B9:19:81:F8:50:9B:DF:4A:D4:39:72:E2:B1:F0:B9:38:E3"}
+     }),
+  "signature": "9cbg5JO1Gf5YLjjz...SpkUfcdPai9uVYYQ"
+     }
+]]></sourcecode>
+      <t>Optionally, the "atc" claim may contain a fourth boolean element, "ca". If set to "true", the "ca" element indicates that the Token Authority is granting permission to issue a certification authority certificate rather than an end-entity certificate for the names in question. This permits subordinate delegations from the issued certificate (using <xref target="RFC9115" format="default"/> or similar mechanisms). If the "ca" element is absent, the Token Authority is explicitly withholding permission. The "atc" object in the example above would then look like:
+      </t>
+      <sourcecode type=""><![CDATA[
+"atc":{"tktype":"TnAuthList","tkvalue":"F83n2a...avn27DN3==",
+"ca":true,"fingerprint":"SHA256 56:3E:CF:AE:83:CA:4D:15:B0:29:FF:1B:
+71:D3:BA:B9:19:81:F8:50:9B:DF:4A:D4:39:72:E2:B1:F0:B9:38:E3"} }
+        ]]></sourcecode>
+      <t>
+    Specifications of "tktype" identifier types may define additional optional "atc" elements.
+      </t>
+    </section>
+    <section anchor="acquire" numbered="true" toc="default">
+      <name>Acquiring a Token</name>
+      <t>
+    The acquisition of an Authority Token requires a network interface, apart from potential use cases where the entity that acts as an ACME client itself also acts as a Token Authority trusted by the ACME server. Implementations compliant with this specification <bcp14>MUST</bcp14> support an HTTPS interface for Authority Token acquisition as described below, though other interfaces <bcp14>MAY</bcp14> be supported as well.
+      </t>
+      <section anchor="ex" numbered="true" toc="default">
+        <name>Basic REST Interface</name>
+        <t>
+     In order to request an Authority Token from a Token Authority, a client sends a HTTPS POST request <xref target="RFC9110" format="default"/>. This specification assumes that Token Authority URIs are known to clients through preexisting business relationships and that the credentials and related authentication and authorization for Authority Token acquisition are encompassed in that relationship. Different services may organize their web resources in domain-specific ways, but the resource locator should specify the account of the client, an identifier for the service provider, and finally a locator for the token.
+        </t>
+        <sourcecode type=""><![CDATA[
+   POST /at/account/:id/token HTTP/1.1
+   Host: authority.example.com
+   Content-Type: application/json
+                  ]]></sourcecode>
+        <t>Note that ":id" here is a placeholder for an actual account identifier. The body of the POST request <bcp14>MUST</bcp14> contain the Authority Token Challenge element (the key "atc", colon, and its value) that the client is requesting the Token Authority generate. In this way, the client proposes the scope of the Authority Token it would like to receive from the Token Authority.
+        </t>
+        <t>
+    In common use cases, the "tkvalue" in this request is asking that the Token Authority issue a token that attests the entire scope of authority to which the client is entitled. The client may also request an Authority Token with some subset of its own authority via the "tkvalue" element in the Authority Token Challenge object. The way that "tkvalue" is defined will necessarily be specific to the identifier type. For the TNAuthList identifier type, for example, an object requesting an Authority Token could request authority for only a single telephone number in a way that is defined in the TNAuthList specification.
+        </t>
+        <t>
+    Finally, the JSON object <bcp14>MAY</bcp14> also contain an optional boolean element, "ca", which signifies that the client is requesting that the Token Authority issue an Authority Token with the "ca" flag set, as described in <xref target="tn" format="default"/>.</t>
+        <t>
+    After an HTTPS-level challenge (e.g., a 401 HTTP response code) to verify the identity of the client and subsequently making an authorization decision about whether the client should receive an Authority Token with the requested scope, then in the success case, the Token Authority <bcp14>MUST</bcp14> return a 200 OK with a body of type "application/json" containing the Authority Token. 
+        </t>
+        <t>
+	A full example of "atc" token acquisition using the HTTP interface, with the "tktype" of "TNAuthList", is given in <xref target="RFC9448" format="default" sectionFormat="of" section ="5.5"/>.
+        </t>
+      </section>
+    </section>
+    <section anchor="iana" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section anchor="IANA-1" numbered="true" toc="default">
+        <name>ACME Validation Method Registration</name>
+        <t>IANA has added a new ACME Validation Method (per <xref target="RFC8555" format="default"/>) in the "ACME Validation Methods" subregistry of the "Automated Certificate Management Environment (ACME) Protocol" registry group  as follows:</t>
+        <dl newline="false" spacing="normal">
+          <dt>Label:</dt> <dd>tkauth-01</dd>
+          <dt>Identifier Type:</dt> <dd>TNAuthList</dd>
+          <dt>ACME:</dt> <dd>Y</dd>
+          <dt>Reference:</dt> <dd>RFC 9447</dd>
+        </dl>
+      </section>
+      <section anchor="IANA-2" numbered="true" toc="default">
+        <name>JSON Web Token Claim Registration</name>
+        <t>
+		IANA has added a new claim in the "JSON Web Token Claims" registry, as defined in <xref target="RFC7519" format="default"/>, as follows:
+        </t>
+        <dl newline="false" spacing="normal">
+          <dt>Claim name:</dt> <dd>atc</dd>
+	  <dt>Claim Description:</dt> <dd>Authority Token Challenge</dd>
+	  <dt>Change Controller:</dt> <dd>IETF</dd>
+	  <dt>Specification document(s):</dt> <dd>RFC 9447</dd>
+        </dl>
+      </section>
+      <section anchor="IANA-3" numbered="true" toc="default">
+        <name>Creation of ACME Authority Token Challenge Types Registry</name>
+        <t>
+          IANA has created a new registry for "ACME Authority Token Challenge Types" as used in these challenges, under a policy of Specification Required and following the requirements in <xref target="req" format="default"/>, with three columns: Label, Description, and Reference. The initial content of the registry is as follows:</t>
+<dl newline="false">
+ <dt>Label:</dt> <dd> atc (as defined in <xref target="tn" format="default"/>)</dd> 
+ <dt>Description:</dt> <dd>JSON Web Token (JWT) challenge type</dd>
+ <dt>Reference:</dt> <dd>RFC 9447</dd>
+ </dl>
+
+      </section>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+          Per the guidance in <xref target="RFC8555" format="default"/>, ACME transactions <bcp14>MUST</bcp14> use TLS, and similarly, the HTTPS REST transactions used to request and acquire Authority Tokens <bcp14>MUST</bcp14> use TLS. These measures are intended to prevent the capture of Authority Tokens by eavesdroppers. A preexisting trust relationship between the HTTPS REST client and the Token Authority must also exist in order for the parties to meaningfully authenticate one another. The security considerations of <xref target="RFC8555" format="default"/> apply to the use of the mechanism in this specification. Implementations should follow the best practices identified in <xref target="RFC8725" format="default"/>.
+      </t>
+      <t>
+		  As described in <xref target="scope" format="default"/>, an Authority Token can either have a scope that attests all of the resources that a client is eligible to receive certificates for or potentially a more limited scope that is intended to capture only those resources for which a client will receive a certificate from a particular certification authority. Any certification authority that sees an Authority Token can learn information about the resources a client can claim. In cases where this incurs a privacy risk, Authority Token scopes should be limited to only the resources that will be attested by the requested ACME certificate.
+      </t>
+      <t>
+		  In cases where a tkauth-type, as defined in <xref target="tn" format="default"/>, admits of its own subtypes, the security of features like binding challenges (see <xref target="bind" format="default"/>) will depend on the subtype specification. 
+      </t>
+      <t>
+	The capture of Authority Tokens by an adversary could enable an attacker to acquire a certificate from a CA. Therefore, all Authority Tokens <bcp14>MUST</bcp14> contain a field that identifies to the CA which ACME client requested the token from the Token Authority; here, that is the fingerprint specified in <xref target="tn" format="default"/>. All Authority Tokens must specify an expiry (of the token itself as proof for a CA, as opposed to the expiry of the name), and for some applications, it may make sense for that expiry to be quite short.
+	ACME services relying on Authority Tokens <bcp14>SHOULD NOT</bcp14> issue certificates with a longer expiry than the expiry of the Authority Token. Any protocol used to retrieve Authority Tokens from a Token Authority <bcp14>MUST</bcp14> use confidentiality to prevent eavesdroppers from acquiring an Authority Token. The details of this protocol are out of the scope of this specification.
+      </t>
+      <t>
+		This document only specifies SHA256 for the fingerprint hash. However, the syntax of the fingerprint object would permit other keys if, due to concerns about algorithmic agility, a more robust algorithm were required at a future time. Future specifications can define new keys for the fingerprint object as needed.
+      </t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7515.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7519.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8725.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8555.xml"/>
+
+<reference anchor='RFC9448' target='https://www.rfc-editor.org/info/rfc9448'>
+<front>
+<title>TNAuthList Profile of Automated Certificate Management Environment (ACME) Authority Token</title>
+<author initials='C' surname='Wendt' fullname='Chris Wendt'>
+<organization />
+</author>
+<author initials='D' surname='Hancock' fullname='David Hancock'>
+<organization />
+</author>
+<author initials='M' surname='Barnes' fullname='Mary Barnes'>
+<organization />
+</author>
+<author initials='J' surname='Peterson' fullname='Jon Peterson'>
+<organization />
+</author>
+<date year='2023' month='September'/>
+</front>
+<seriesInfo name="RFC" value="9448"/>
+<seriesInfo name="DOI" value="10.17487/RFC9448"/>
+</reference>
+
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8226.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8396.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9115.xml"/>
+      </references>
+    </references>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>We would like to <contact fullname="Roman Danyliw"/> and <contact fullname="Ben Kaduk"/> for contributions to this problem statement and framework.</t>
+    </section>
+  </back>
+</rfc>

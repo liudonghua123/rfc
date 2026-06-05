@@ -1,0 +1,332 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-idr-bgp-sendholdtimer-15" number="9687" updates="4271" obsoletes="" ipr="trust200902" submissionType="IETF" consensus="true" sortRefs="true" symRefs="true" tocInclude="true" tocDepth="3" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="BGP SendHoldTimer">Border Gateway Protocol 4 (BGP-4) Send Hold Timer</title>
+    <seriesInfo name="RFC" value="9687"/>
+    <author fullname="Job Snijders" initials="J." surname="Snijders">
+      <organization>Fastly</organization>
+      <address>
+        <postal>
+          <city>Amsterdam</city>
+          <country>Netherlands</country>
+        </postal>
+        <email>job@fastly.com</email>
+      </address>
+    </author>
+    <author fullname="Ben Cartwright-Cox" initials="B." surname="Cartwright-Cox">
+      <organization abbrev="Port 179">Port 179 Ltd</organization>
+      <address>
+        <postal>
+          <city>London</city>
+          <country>United Kingdom</country>
+        </postal>
+        <email>ben@benjojo.co.uk</email>
+      </address>
+    </author>
+    <author fullname="Yingzhen Qu" initials="Y" surname="Qu">
+      <organization abbrev="Futurewei">Futurewei Technologies</organization>
+      <address>
+        <postal>
+          <city>San Jose</city>
+	  <region>CA</region>
+	  <code>95131</code>
+          <country>United States of America</country>
+        </postal>
+        <email>yingzhen.ietf@gmail.com</email>
+      </address>
+    </author>
+    <date month="November" year="2024"/>
+    <area>RTG</area>
+    <workgroup>idr</workgroup>
+    <keyword>BGP</keyword>
+    <keyword>TCP</keyword>
+    <abstract>
+      <t>
+      This document defines the <tt>SendHoldTimer</tt>, along with the <tt>SendHoldTimer_Expires</tt> event, for the Border Gateway Protocol (BGP) Finite State Machine (FSM).
+      Implementation of the <tt>SendHoldTimer</tt> helps overcome situations where a BGP connection is not terminated after the local system detects that the remote system is not processing BGP messages.
+      This document specifies that the local system should close the BGP connection and not solely rely on the remote system for connection closure when the <tt>SendHoldTimer</tt> expires.
+      This document updates RFC 4271.
+      </t>
+    </abstract>
+
+
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>
+      This document defines the <tt>SendHoldTimer</tt>, along with the <tt>SendHoldTimer_Expires</tt> event, for the Border Gateway Protocol (BGP) Finite State Machine (FSM) defined in <xref target="RFC4271" section="8"/>.
+      </t>
+      <t>
+      Failure to terminate a blocked BGP connection can result in network reachability issues, and the subsequent failure to generate and deliver BGP UPDATE messages to another BGP speaker of the local system is detrimental to all participants of the inter-domain routing system.
+      This phenomena is thought to have contributed to IP traffic packet loss events in the global Internet routing system <xref target="bgpzombies"/>.
+      </t>
+      <t>
+      This specification intends to improve this situation by requiring that BGP connections be terminated if the local system has detected that the remote system cannot possibly have processed any BGP messages for the duration of the <tt>SendHoldTime</tt>.
+      Through standardization of the aforementioned requirement, operators will benefit from consistent behavior across different BGP implementations.
+      </t>
+      <t>
+      BGP speakers following this specification do not rely exclusively on remote systems closing blocked connections; they also locally close blocked connections.
+      </t>
+    </section>
+<section>
+<name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+</section>
+    <section>
+      <name>Example of a Problematic Scenario</name>
+      <t>
+      In implementations lacking the concept of a <tt>SendHoldTimer</tt>, a malfunctioning or overwhelmed remote speaker may cause data on the BGP socket in the local system to accumulate ad infinitum.
+      This could result in forwarding failure and traffic loss, as the overwhelmed speaker continues to utilize stale routes.
+      </t>
+
+      <t>
+      An example fault state: as BGP runs over TCP <xref target="RFC9293"/>, it is possible for a BGP speaker in the Established state to encounter a BGP speaker that is advertising a TCP Receive Window (RCV.WND) of size zero.  The size zero of this window prevents the local system from sending KEEPALIVE, UPDATE, or any other critical BGP messages across the 
+network socket to the remote speaker. 
+      </t>
+      <t>
+      Generally BGP implementations have no visibility into lower-layer subsystems such as TCP or the speaker's current Receive Window size, and there is no existing BGP mechanism for such a blocked connection to be recognized.
+      Hence BGP implementations are not able to handle this situation in a consistent fashion.
+      </t>
+      <t>
+The primary issue that arises when a BGP speaker is unable to send a BGP message to a remote speaker is that the affected speaker may end up operating with outdated routing information.
+      Failure of the BGP speaker to send (and thus the remote speaker to receive) BGP messages on a single BGP session can negatively impact the ability of an entire autonomous system (or even a group of autonomous systems) to converge.
+      </t>
+    </section>
+    <section>
+      <name>Changes to RFC 4271 - <tt>SendHoldTimer</tt></name>
+      <t>
+    BGP speakers are implemented following a conceptual model "BGP Finite State Machine" (FSM), which is outlined in <xref target="RFC4271" section="8" sectionFormat="of"/>.
+    This specification adds a BGP timer, <tt>SendHoldTimer</tt>, and updates the BGP FSM as indicated in the following subsections.  
+      </t>
+      <section>
+        <name>Session Attributes</name>
+        <t>
+      The following optional session attributes for each connection are added to the list in <xref target="RFC4271" section="8" sectionFormat="of"/> appearing just prior to "The optional session attributes support different features of the BGP functionality that have implications for the BGP FSM state transitions":</t>
+        <t>NEW</t>
+        <blockquote>
+          <ul empty="true" spacing="normal">
+            <li>
+              <t>
+          14) <tt>SendHoldTimer</tt>
+              </t>
+            </li>
+            <li>
+              <t>
+          15) <tt>SendHoldTime</tt>
+              </t>
+            </li>
+          </ul>
+        </blockquote>
+        <t>
+      <tt>SendHoldTime</tt> determines how long a BGP speaker will stay in the Established state before the TCP connection is dropped because no BGP messages can be transmitted to its peer.
+      A BGP speaker can configure the value of the <tt>SendHoldTime</tt> for each peer independently.
+        </t>
+      </section>
+      <section>
+        <name>Timer Event: <tt>SendHoldTimer_Expires</tt></name>
+        <t>
+    Another timer event is added to <xref target="RFC4271" section="8.1.3" sectionFormat="of"/> as follows:
+        </t>
+        <t>NEW</t>
+        <blockquote>
+<ul empty="true">
+<li><t>        Event 29: <tt>SendHoldTimer_Expires</tt></t>
+<ul empty="true">
+               <li>Definition: An event generated when the <tt>SendHoldTimer</tt> expires.</li>
+                <li>Status: Optional</li>
+              </ul></li>
+            </ul>
+        </blockquote>
+      </section>
+      <section>
+        <name>Changes to the FSM</name>
+        <t>The following changes are made to <xref target="RFC4271" section="8.2.2" sectionFormat="of"/>.</t>
+        <t>In "OpenConfirm State", the handling of Event 26 is revised as follows:</t>
+        <t>OLD</t>
+        <blockquote>
+          <t>
+        If the local system receives a KEEPALIVE message (KeepAliveMsg (Event 26)), the local system:
+          </t>
+<ul empty="true"><li><ul><li>restarts the <tt>HoldTimer</tt> and</li>
+            <li>changes its state to Established.</li>
+          </ul></li></ul>
+        </blockquote>
+        <t>NEW</t>
+        <blockquote>
+          <t>
+        If the local system receives a KEEPALIVE message (KeepAliveMsg (Event 26)), the local system:
+          </t>
+<ul empty="true"><li><ul>
+            <li>restarts the <tt>HoldTimer</tt>,</li>
+            <li>starts the <tt>SendHoldTimer</tt> if the <tt>SendHoldTime</tt> is non-zero, and</li>
+            <li>changes its state to Established.</li>
+          </ul></li></ul>
+        </blockquote>
+        <t>
+      The following paragraph is added to <xref target="RFC4271" section="8.2.2"        
+sectionFormat="of"/> in "Established State", after the paragraph that ends "unless the negotiated <tt>HoldTime</tt> value is zero":
+        </t>
+        <t>NEW</t>
+        <blockquote>
+              <t>If the <tt>SendHoldTimer_Expires</tt> (Event 29) occurs, the local system:
+              </t>
+
+<ul empty="true"><li><ul>                <li>(optionally) sends a NOTIFICATION message with the BGP Error Code "Send Hold Timer Expired" if the local system can determine that doing so will not delay the following actions in this paragraph,</li>
+                <li>logs an error message in the local system with the BGP Error Code "Send Hold Timer Expired",</li>
+                <li>releases all BGP resources,</li>
+                <li>sets the ConnectRetryTimer to zero,</li>
+                <li>drops the TCP connection,</li>
+                <li>increments the ConnectRetryCounter by 1,</li>
+                <li>(optionally) performs peer oscillation damping if the DampPeerOscillations attribute is set to TRUE, and</li>
+                <li>changes its state to Idle.</li>
+              </ul>
+            </li>
+            <li>
+              <t>
+          Each time the local system sends a BGP message, it restarts the <tt>SendHoldTimer</tt> unless the <tt>SendHoldTime</tt> value is zero or the negotiated <tt>HoldTime</tt> value is zero, in which case the <tt>SendHoldTimer</tt> is stopped.
+              </t>
+            </li>
+            <li>
+              <t>
+          The <tt>SendHoldTimer</tt> is stopped following any transition out of the Established state as part of the "release all BGP resources" action.
+              </t>
+            </li>
+          </ul>
+        </blockquote>
+      </section>
+      <section anchor="timers">
+        <name>Changes to BGP Timers</name>
+        <t>
+      <xref target="RFC4271" section="10"/> summarizes BGP timers.
+      This document adds another optional BGP timer: <tt>SendHoldTimer</tt>.
+        </t>
+        <t>NEW</t>
+        <blockquote>
+          <t>
+        <tt>SendHoldTime</tt> is an FSM attribute that stores the initial value for the <tt>SendHoldTimer</tt>.
+        If <tt>SendHoldTime</tt> is non-zero, then it <bcp14>MUST</bcp14> be greater than the value of <tt>HoldTime</tt>; see <xref target="implcons" /> of [RFC9687] for suggested default values.
+          </t>
+        </blockquote>
+      </section>
+    </section>
+    <section>
+      <name>Send Hold Timer Expired Error Handling</name>
+      <t>
+      If the local system does not send any BGP messages within the period specified in <tt>SendHoldTime</tt>, then a NOTIFICATION message with the "Send Hold Timer Expired" Error Code <bcp14>MAY</bcp14> be sent and the BGP connection <bcp14>MUST</bcp14> be closed.
+      Additionally, an error <bcp14>MUST</bcp14> be logged in the local system, indicating the "Send Hold Timer Expired" Error Code.
+      </t>
+    </section>
+    <section anchor="implcons">
+      <name>Implementation Considerations</name>
+      <t>
+      Due to the relative rarity of the failure mode that this specification is designed to address, and also the fact that network operators may be unfamiliar with the formal specification of BGP fault detection mechanisms such as <tt>HoldTimer</tt>, it is likely that a large number of operators will be unaware of the need for an additional mechanism such as <tt>SendHoldTimer</tt>.
+      </t>
+      <t>
+      Accordingly, it is <bcp14>RECOMMENDED</bcp14> that implementations of this specification enable <tt>SendHoldTimer</tt> by default, without requiring additional configuration of the BGP-speaking device.
+      </t>
+      <t>
+      The default value of <tt>SendHoldTime</tt> for a BGP connection <bcp14>SHOULD</bcp14> be the greater of:
+      </t>
+      <ul>
+        <li>8 minutes or</li>
+        <li>2 times the negotiated <tt>HoldTime</tt></li>
+      </ul>
+      <t>
+      Implementations <bcp14>MAY</bcp14> make the value of <tt>SendHoldTime</tt> configurable, either globally or on a per-peer basis, within the constraints set out in <xref target="timers"/>.
+      </t>
+      <t>
+      The subcode for NOTIFICATION message "Send Hold Timer Expired" is set to 0 and is not used; no additional data is to be appended to the end of a "Send Hold Timer Expired" NOTIFICATION message.
+      </t>
+    </section>
+    <section>
+      <name>Operational Considerations</name>
+      <t>
+      When the local system recognizes that a remote speaker has not processed any BGP messages for the duration of the <tt>SendHoldTime</tt>, it is likely that the local system will not be able to inform the remote peer through a NOTIFICATION message as to why the connection is being closed.
+      This document suggests that an attempt to send a NOTIFICATION message with the "Send Hold Timer Expired" Error Code still be made, if doing so will not delay closing the BGP connection.
+      Meanwhile, an error message is logged in the local system.
+      </t>
+      <t>
+      Other mechanisms can be used as well, for example, BGP speakers <bcp14>SHOULD</bcp14> provide this reason ("Send Hold Timer Expired") as part of their operational state (for example, bgpPeerLastError in the BGP MIB <xref target="RFC4273"/>).
+      </t>
+    </section>
+    <section>
+      <name>Security Considerations</name>
+      <t>
+      This specification does not change BGP's security characteristics. Implementing the BGP <tt>SendHoldTimer</tt> as specified in this document will enhance network resilience by terminating connections with malfunctioning or overwhelmed remote peers.
+      </t>
+    </section>
+    <section>
+      <name>IANA Considerations</name>
+      <t>
+      IANA has registered value 8 for "Send Hold Timer Expired" in the "BGP Error (Notification) Codes" registry within the "Border Gateway Protocol (BGP) Parameters" registry group.
+      </t>
+    </section>
+  </middle>
+  <back>
+
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4271.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9293.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+
+        <reference anchor="bgpzombies" target="https://labs.ripe.net/author/romain_fontugne/bgp-zombies/">
+          <front>
+            <title>BGP Zombies</title>
+            <author fullname="Romain Fontugne">
+              <organization>IIJ Research Lab</organization>
+            </author>
+            <date month="April" year="2019"/>
+          </front>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4273.xml"/>
+
+      </references>
+    </references>
+    <section numbered="false">
+      <name>Acknowledgements</name>
+      <t>
+      The authors would like to thank
+      <contact fullname="William McCall"/>,
+      <contact fullname="Theo de Raadt"/>,
+      <contact fullname="John Heasley"/>,
+<contact fullname="Nick Hilliard"/>,
+<contact fullname="Jeffrey Haas"/>,
+<contact fullname="Tom Petch"/>,
+<contact fullname="Susan Hares"/>,
+<contact fullname="Keyur Patel"/>,
+<contact fullname="Ben Maddison"/>,
+<contact fullname="Claudio Jeker"/>, and
+<contact fullname="John Scudder"/>
+      for their helpful review of this document.
+      </t>
+    </section>
+
+  </back>
+</rfc>

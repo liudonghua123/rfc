@@ -1,0 +1,2597 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-idr-bgp-ls-sr-policy-17" number="9857" consensus="true" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="Advertising SR Policies Using BGP-LS">Advertisement of
+    Segment Routing Policies Using BGP - Link State</title>
+    <seriesInfo name="RFC" value="9857"/>
+    <author fullname="Stefano Previdi" initials="S." surname="Previdi">
+      <organization>Individual</organization>
+      <address>
+        <email>stefano@previdi.net</email>
+      </address>
+    </author>
+    <author fullname="Ketan Talaulikar" initials="K." role="editor" surname="Talaulikar">
+      <organization>Cisco Systems</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>ketant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <author fullname="Jie Dong" initials="J." surname="Dong">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <postal>
+          <street>Huawei Campus, No. 156 Beiqing Rd.</street>
+          <city>Beijing</city>
+          <code>100095</code>
+          <country>China</country>
+        </postal>
+        <email>jie.dong@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Hannes Gredler" initials="H." surname="Gredler">
+      <organization>RtBrick Inc.</organization>
+      <address>
+        <email>hannes@rtbrick.com</email>
+      </address>
+    </author>
+    <author fullname="Jeff Tantsura" initials="J." surname="Tantsura">
+      <organization>Nvidia</organization>
+      <address>
+        <email>jefftant.ietf@gmail.com</email>
+      </address>
+    </author>
+    <date year="2025" month="October"/>
+    <area>RTG</area>
+    <workgroup>idr</workgroup>
+
+    <keyword>BGP</keyword>
+    <keyword>BGP-LS</keyword>
+    <keyword>Segment Routing</keyword>
+    <keyword>SR</keyword>
+    <keyword>SR Policy</keyword>
+    <keyword>SR-MPLS</keyword>
+    <keyword>SRv6</keyword>
+    <keyword>Traffic Engineering</keyword>
+    <keyword>BGP SR Policy</keyword>
+
+    <abstract>
+      <t>This document describes a mechanism used to collect Segment Routing (SR)
+      Policy information that is locally available in a node and advertise it
+      into BGP - Link State (BGP-LS) updates. Such information can be used by
+      external components for path computation, reoptimization, service
+      placement, network visualization, etc.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="Introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>SR Policy architecture details are specified in <xref target="RFC9256" format="default"/>. An SR Policy comprises one or more candidate paths
+      of which at a given time one and only one may be active (i.e., installed
+      in forwarding and usable for the steering of traffic). Each candidate path
+      in turn may have one or more SID lists of which one or more SID lists may
+      be active. When multiple SID lists are active, traffic is load
+      balanced over them. This document covers the advertisement of state
+      information at the individual SR Policy candidate path level.</t>
+      <t>SR Policies are generally instantiated at the headend and are based
+      on either local configuration or controller-based programming of the
+      node using various APIs and protocols (e.g., the Path Computation Element Communication Protocol (PCEP) or BGP).</t>
+      <t>In many network environments, the configuration and state of each SR
+      Policy that is available in the network is required by controllers. Such
+      controllers, which are aware of both topology and SR Policy state
+      information, allow the network operator to optimize several functions
+      and operations in their networks.</t>  
+      
+      <t>One example of a controller is the stateful Path Computation Element
+      (PCE) <xref target="RFC8231" format="default"/>, which can provide benefits in path
+      optimization. While some extensions are proposed in the PCEP for Path Computation Clients
+      (PCCs) to report Label Switched Path (LSP) states to the PCE, this mechanism may not be
+      applicable in a management-based PCE architecture as specified in
+      <xref target="RFC4655" sectionFormat="of" section="5.5"/>. As illustrated in the figure
+      below, the PCC is not a Label Switching Router (LSR) in the routing domain, thus the headend
+      nodes of the SR Policies may not implement the PCEP. In this
+      case, a general mechanism to collect the SR Policy states from the
+      ingress Label Edge Routers (LERs) is needed. This document proposes an SR Policy state
+      collection mechanism complementary to the mechanism defined in <xref target="RFC8231" format="default"/>.</t>
+
+<figure>
+  <name>Management-Based PCE Usage</name>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+                                 -----------
+                                |   -----   |
+            Service             |  | TED |<-+----------->
+            Request             |   -----   |  TED synchronization
+               |                |     |     |  mechanism (e.g., the
+               v                |     |     |  routing protocol)
+         ------------- Request/ |     v     |
+        |             | Response|   -----   |
+        |     NMS     |<--------+> | PCE |  |
+        |             |         |   -----   |
+         -------------           -----------
+       Service |
+       Request |
+               v
+          ----------  Signaling   ----------
+         | Headend  | Protocol   | Adjacent |
+         |  Node    |<---------->|   Node   |
+          ----------              ----------]]></artwork>
+</figure>
+      <t>In networks with composite PCE nodes as specified in
+      <xref target="RFC4655" sectionFormat="of" section="5.1"/>, PCE is implemented on several routers in the
+      network, and the PCCs in the network can use the mechanism described in
+      <xref target="RFC8231" format="default"/> to report the SR Policy information to the PCE
+      nodes. An external component may also need to collect the SR Policy
+      information from all the PCEs in the network to obtain a global view of
+      the state of all SR Policy paths in the network.</t>
+      <t>In multi-area or multi-AS scenarios, each area or AS can have a child
+      PCE to collect the SR Policies in its domain. In addition, a parent PCE
+      needs to collect SR Policy information from multiple child PCEs to
+      obtain a global view of SR Policy paths inside and across the domains
+      involved.</t>
+      <t>In another network scenario, a centralized controller is used for
+      service placement. Obtaining the SR Policy state information is quite
+      important for making appropriate service placement decisions with the
+      purpose of both meeting the application's requirements and utilizing
+      network resources efficiently.</t>
+      <t>The Network Management System (NMS) may need to provide global
+      visibility of the SR Policies in the network as part of the network
+      visualization function.</t>
+      <t>BGP has been extended to distribute link-state and Traffic
+      Engineering (TE) information to external components <xref target="RFC9552" format="default"/>.
+      Using the same protocol to collect SR Policy and state information is
+      desirable for these external components since this avoids introducing
+      multiple protocols for network topology information collection. This
+      document describes a mechanism to distribute SR Policy information (both
+      SR-MPLS and SRv6 <xref target="RFC8402" format="default"/>) to external components using
+      BGP-LS and covers both explicit and dynamic candidate paths. The
+      advertisements of a composite candidate path are outside the scope of this
+      document.</t>
+      <t>The BGP-LS Producer <xref target="RFC9552" format="default"/> that is originating the
+      advertisement of SR Policy information can be either:</t>
+      <ul spacing="normal">
+        <li>
+          <t>an SR Policy headend node or</t>
+        </li>
+        <li>
+          <t>a PCE that is receiving the SR Policy information from its PCCs
+          (i.e., SR Policy headend nodes) via PCEP</t>
+        </li>
+      </ul>
+      <t>The extensions specified in this document complement the BGP SR
+      Policy SAFI <xref target="RFC9830" format="default"/> <xref target="RFC9831" format="default"/> and are used to advertise
+      SR Policies from controllers to the headend routers using BGP by
+      enabling the reporting of the operational state of those SR Policies
+      back from the headend to the controllers.</t>
+      <t>While this document focuses on SR Policies, <xref target="I-D.ietf-idr-bgp-ls-te-path" format="default"/> introduces further extensions to
+      support other TE paths such as MPLS-TE LSPs.</t>
+      <t>The encodings specified in this document (specifically in Sections <xref target="SRPOLICYCP" format="counter"/> and <xref target="SRPOLICYTLVS" format="counter"/>) make use of
+      flags that convey various types of information of the SR Policy. The
+      document uses the term "set" to indicate that the value of a flag bit is
+      1 and the term "clear" when the value is 0.</t>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+      </section>
+    </section>
+    <section anchor="TEINFOINBGP" numbered="true" toc="default">
+      <name>Carrying SR Policy Information in BGP</name>
+      <t>The "Link-State Network Layer Reachability Information (NLRI)" defined in <xref target="RFC9552" format="default"/> is extended
+      to carry the SR Policy information. New TLVs carried in the BGP-LS
+      Attribute defined in <xref target="RFC9552" format="default"/> are also
+      defined to carry the attributes of an SR Policy in the subsequent
+      sections.</t>
+      <t>The format of the Link-State NLRI is defined in <xref target="RFC9552" format="default"/> as follows:</t>
+      <figure>
+  <name>BGP-LS NLRI Format</name>
+      <artwork align="center" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|            NLRI Type          |     Total NLRI Length         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+//                  Link-State NLRI (variable)                 //
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+      <t>An additional NLRI Type known as "SR Policy Candidate Path NLRI"
+      (value 5) is defined for the advertisement of SR Policy Information.</t>
+      <t>This SR Policy Candidate Path NLRI is used to report the state
+      details of individual SR Policy candidate paths along with their
+      underlying segment lists.</t>
+    </section>
+    <section anchor="TEPOLICYNLRI" numbered="true" toc="default">
+      <name>SR Policy Candidate Path NLRI Type</name>
+      <t>This document defines the SR Policy Candidate Path NLRI type with its
+      format as shown in the following figure:</t>
+<figure>
+  <name>SR Policy Candidate Path NLRI Format</name>
+      <artwork align="center" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+
+|  Protocol-ID  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Identifier                             |
+|                        (64 bits)                              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//        Local Node Descriptors TLV (for the Headend)         //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//           SR Policy Candidate Path Descriptor TLV           //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+
+      <dl spacing="normal">
+          <dt>Protocol-ID field:</dt><dd> Specifies the component that owns the SR Policy
+          state in the advertising node. An additional Protocol-ID "Segment
+          Routing" (value 9) is introduced by this document that <bcp14>MUST</bcp14> be used
+          for the advertisement of SR Policies.</dd>
+          <dt>Identifier:</dt><dd>An 8-octet value as defined in 
+          <xref target="RFC9552" sectionFormat="of" section="5.2"/>.</dd>
+          <dt>Local Node Descriptors (TLV 256):</dt><dd>Defined in <xref target="RFC9552" format="default"/> and
+          used as specified further in this section.</dd>
+          <dt>SR Policy Candidate Path Descriptor TLV:</dt><dd>Specified in <xref target="SRPOLICYCP" format="default"/>.</dd>
+      </dl>
+      <t>The Local Node Descriptors TLV carries information that only
+      identifies the headend node of the SR Policy irrespective of whether the
+      BGP-LS Producer is a headend or a PCE node.</t>
+      <t>The Local Node Descriptors TLV <bcp14>MUST</bcp14> include at least one of the
+      following Node Descriptor TLVs:</t>
+      <ul spacing="normal">
+        <li>
+          <t>IPv4 Router-ID of Local Node (TLV 1028) <xref target="RFC9552" format="default"/>,
+          which identifies the headend node of the SR Policy as specified in
+          <xref target="RFC9256" sectionFormat="of" section="2.1"/>.</t>
+        </li>
+        <li>
+          <t>IPv6 Router-ID of Local Node (TLV 1029) <xref target="RFC9552" format="default"/>,
+          which identifies the headend node of the SR Policy as specified in
+          <xref target="RFC9256" sectionFormat="of" section="2.1"/>.</t>
+        </li>
+      </ul>
+      <t>The following subsections describe the encoding of sub-TLVs within
+      the Local Node Descriptors TLV depending on which node is the BGP-LS
+      Producer.</t>
+      <section numbered="true" toc="default">
+        <name>SR Policy Headend as the BGP-LS Producer</name>
+        <t>The Local Node Descriptors TLV <bcp14>MUST</bcp14> include the following Node
+        Descriptor TLVs when the headend node is the BGP-LS Producer:</t>
+        <ul spacing="normal">
+          <li>
+            <t>BGP Router-ID (TLV 516) <xref target="RFC9086" format="default"/>, which
+            contains a valid BGP Identifier of the headend node of the SR
+            Policy.</t>
+          </li>
+          <li>	    
+            <t>Autonomous System (TLV 512) <xref target="RFC9552" format="default"/>,
+            which contains the Autonomous System Number (ASN) (or AS Confederation Identifier <xref target="RFC5065" format="default"/>, if confederations are used) of the headend
+            node of the SR Policy.</t>
+          </li>
+        </ul>
+        <t>The Local Node Descriptors TLV <bcp14>MAY</bcp14> include the following Node
+        Descriptor TLVs when the headend node is the BGP-LS Producer:</t>
+        <ul spacing="normal">
+          <li>
+            <t>BGP Confederation Member (TLV 517) <xref target="RFC9086" format="default"/>,
+            which contains the ASN of the confederation member (i.e., Member-AS
+            Number); if BGP confederations are used, it contains the headend node of the
+            SR Policy.</t>
+          </li>
+          <li>	    
+            <t>Other Node Descriptors as defined in <xref target="RFC9552" format="default"/>
+            to identify the headend node of the SR Policy. The determination
+            of whether the IGP Router-ID (TLV 515) contains a 4-octet
+            OSPF Router-ID or a 6-octet ISO System-ID is to be done based on
+            the length of that sub-TLV as the Protocol-ID in the NLRI is
+            always going to be "Segment Routing".</t>
+          </li>
+        </ul>
+      </section>
+      <section numbered="true" toc="default">
+        <name>PCE as the BGP-LS Producer</name>
+        <t>The PCE node <bcp14>MUST NOT</bcp14> include its identifiers in the Node
+        Descriptor TLV in the NLRI as the Node Descriptor TLV <bcp14>MUST</bcp14> only carry
+        the identifiers of the SR Policy headend.</t>
+        <t>The Local Node Descriptors TLV <bcp14>MAY</bcp14> include the following Node
+        Descriptor TLVs when the PCE node is the BGP-LS Producer and it has
+        this information about the headend (e.g., as part of its topology
+        database):</t>
+        <ul spacing="normal">
+          <li>
+            <t>BGP Router-ID (TLV 516) <xref target="RFC9086" format="default"/>, which
+            contains a valid BGP Identifier of the headend node of the SR
+            Policy.</t>
+          </li>
+          <li>
+            <t>Autonomous System (TLV 512) <xref target="RFC9552" format="default"/>,
+            which contains the ASN (or AS Confederation Identifier <xref target="RFC5065" format="default"/>, if confederations are used) of the headend
+            node of the SR Policy.</t>
+          </li>
+          <li>
+            <t>BGP Confederation Member (TLV 517) <xref target="RFC9086" format="default"/>,
+            which contains the ASN of the confederation member (i.e., Member-AS
+            Number); if BGP confederations are used, it contains the headend node of the
+            SR Policy.</t>
+          </li>
+          <li>
+            <t>Other Node Descriptors as defined in <xref target="RFC9552" format="default"/>
+            to identify the headend node of the SR Policy.
+	    The determination
+            of whether the IGP Router-ID (TLV 515) contains a 4-octet
+            OSPF Router-ID or a 6-octet ISO System-ID is to be done based on
+            the length of that sub-TLV since the Protocol-ID in the NLRI is
+            always going to be "Segment Routing".</t>
+          </li>
+        </ul>
+        <t>When a PCE node is functioning as the
+        BGP-LS Producer on behalf of one or more headends, it <bcp14>MAY</bcp14> include its
+        own BGP Router-ID (TLV 516), Autonomous System (TLV 512), or
+        BGP Confederation Member (TLV 517) in the BGP-LS Attribute.</t>
+      </section>
+    </section>
+    <section anchor="SRPOLICYCP" numbered="true" toc="default">
+      <name>SR Policy Candidate Path Descriptor</name>
+      <t>The SR Policy Candidate Path Descriptor TLV identifies an SR Policy candidate path as defined in <xref target="RFC9256" format="default"/>. It
+      is a mandatory TLV for the SR Policy Candidate Path NLRI type. The TLV has
+      the following format: </t>
+<figure>
+  <name>SR Policy Candidate Path Descriptor Format</name>
+      <artwork align="center" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Type              |          Length               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Protocol-Origin|    Flags      |            RESERVED           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Endpoint (4 or 16 octets)                //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                     Policy Color (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Originator AS Number (4 octets)                 |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Originator Address (4 or 16 octets)             //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Discriminator (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+      <dl spacing="normal" newline="false">
+        <dt>Type:</dt><dd>554</dd>
+        <dt>Length:</dt><dd>Variable (valid values are 24, 36, or 48 octets)</dd>
+        <dt>Protocol-Origin:</dt><dd>1-octet field that identifies the protocol or
+        component that is responsible for the instantiation of this path as
+        specified in <xref target="RFC9256" sectionFormat="of"
+        section="2.3"/>. The protocol-origin code points to be used are listed
+        in <xref target="PROTOCOLORIGINS" format="default"/>.</dd>
+        <dt>Flags:</dt><dd><t>1-octet field with the following bit positions
+        defined. Other bits <bcp14>MUST</bcp14> be cleared by the originator
+        and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|E|O|           |
++-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+            <dt>E-Flag:</dt><dd>Indicates the encoding of an endpoint as an IPv6
+            address when set and an IPv4 address when clear.</dd>
+            <dt>O-Flag:</dt><dd>Indicates the encoding of the originator address
+            as an IPv6 address when set and an IPv4 address when clear.</dd>
+          </dl>
+        </dd>
+        <dt>Reserved:</dt><dd>2 octets that <bcp14>MUST</bcp14> be set to 0
+        by the originator and <bcp14>MUST</bcp14> be ignored by a
+        receiver.</dd>
+        <dt>Endpoint:</dt><dd>4 or 16 octets (as indicated by the flags)
+        containing the address of the endpoint of the SR Policy as specified
+        in <xref target="RFC9256" sectionFormat="of" section="2.1"/>.</dd>
+        <dt>Policy  Color:</dt><dd>4 octets that indicate the color of the SR Policy
+        as specified in <xref target="RFC9256" sectionFormat="of"
+        section="2.1"/>.</dd>
+        <dt>Originator ASN:</dt><dd>4 octets to carry the 4-byte encoding of
+        the ASN of the originator. Refer to <xref target="RFC9256"
+        sectionFormat="of" section="2.4"/> for details.</dd>
+        <dt>Originator Address:</dt><dd>4 or 16 octets (as indicated by the
+        flags) to carry the address of the originator. Refer to <xref
+        target="RFC9256" sectionFormat="of" section="2.4"/> for details.</dd>
+        <dt>Discriminator:</dt><dd>4 octets to carry the discriminator of the
+        path.  Refer to <xref target="RFC9256" sectionFormat="of"
+        section="2.5"/> for details.</dd>
+      </dl>
+    </section>
+    <section anchor="SRPOLICYTLVS" numbered="true" toc="default">
+      <name>SR Policy State TLVs</name>
+      <t>This section defines the various TLVs that enable the headend to
+      report the state at the SR Policy candidate path level. These TLVs (and
+      their sub-TLVs) are carried in the optional non-transitive BGP-LS
+      Attribute defined in <xref target="RFC9552" format="default"/> and are associated with the SR
+      Policy Candidate Path NLRI type.</t>
+      <t>The detailed procedures for the advertisement are described in <xref target="Procedures" format="default"/>.</t>
+      <section anchor="CPBSID" numbered="true" toc="default">
+        <name>SR Binding SID TLV</name>
+        <t>The SR Binding Segment Identifier (BSID) is an optional TLV that is used to report
+        the BSID and its attributes for the SR Policy candidate path. The TLV
+        <bcp14>MAY</bcp14> also optionally contain the Specified BSID value for reporting as
+        described in <xref target="RFC9256"  sectionFormat="of" section="6.2.3"/>. Only a single
+        instance of this TLV is advertised for a given candidate path. If
+        multiple instances are present, then the first valid one (i.e., not
+        determined to be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and the rest are ignored.</t>
+        <t>The TLV has the following format:</t>
+<figure>
+  <name>SR Binding SID TLV Format</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           BSID Flags          |            RESERVED           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   Binding SID (4 or 16 octets)               //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Specified Binding SID (4 or 16 octets)         //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+          <dt>Type:</dt><dd>1201</dd>
+          <dt>Length:</dt><dd>Variable (valid values are 12 or 36 octets)</dd>
+          <dt>BSID Flags:</dt><dd><t>2-octet field that indicates the attribute and
+          status of the Binding SID (BSID) associated with this candidate
+          path. The following bit positions are defined, and the semantics are
+          described in detail in <xref target="RFC9256" sectionFormat="of"
+          section="6.2"/>.  Other bits <bcp14>MUST</bcp14> be cleared by the
+          originator and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|D|B|U|L|F|                     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+<dl spacing="normal" newline="false">
+  
+              <dt>D-Flag:</dt><dd>Indicates the data plane for the BSIDs and if
+              a BSID is a 16-octet SRv6 SID (when set) or 4-octet SR/MPLS
+              label value (when clear).</dd>
+              <dt>B-Flag:</dt><dd>Indicates the allocation of the value in the
+              BSID field when set and that BSID is not allocated
+              when clear.</dd>
+              <dt>U-Flag:</dt><dd>Indicates that the specified BSID value is
+              unavailable when set. When clear, it indicates that this
+              candidate path is using the specified BSID. This flag is ignored
+              when there is no specified BSID.</dd>
+              <dt>L-Flag:</dt><dd>Indicates that the BSID value is from the Segment
+              Routing Local Block (SRLB) of the headend node when set and
+              from the local dynamic label pool when clear.</dd>
+              <dt>F-Flag:</dt><dd>Indicates that the BSID value is one allocated
+              from a dynamic label pool due to fallback (e.g., when a specified
+              BSID is unavailable) when set and that there has been
+              no fallback for BSID allocation when clear.</dd>
+            </dl>
+          </dd>
+          <dt>RESERVED:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by
+          the originator and <bcp14>MUST</bcp14> be ignored by a receiver.</dd>
+          <dt>Binding SID:</dt><dd>Indicates the operational or allocated
+          BSID value based on the status flags.</dd>
+          <dt>Specified BSID:</dt><dd>Used to report the explicitly
+          specified BSID value regardless of whether it is successfully
+          allocated or not. The field is set to value 0 when the BSID has not been
+          specified.</dd>
+        </dl>
+        <t>The BSID fields above depend on the data plane (SRv6 or MPLS)
+        indicated by the D-flag. If the D-flag is set (SRv6 data plane), then the
+        length of the BSID fields is 16 octets. If the D-flag is clear (MPLS
+        data plane), then the length of the BSID fields is 4 octets. When
+        carrying the MPLS Label, as shown in the figure below, the TC, S, and
+        TTL (total of 12 bits) are RESERVED and <bcp14>MUST</bcp14> be set to 0 by the
+        originator and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+<figure>
+  <name>SR Binding SID Label Format</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+   0                   1                   2                   3
+   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+  |          Label                        | TC  |S|       TTL     |
+  +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+        <t>In the case of an SRv6, the SR Binding SID sub-TLV does not have
+        the ability to signal the SRv6 Endpoint behavior <xref
+        target="RFC8986" format="default"/> or the structure of the
+        SID. Therefore, the SR Binding SID sub-TLV <bcp14>SHOULD NOT</bcp14>
+        be used for the advertisement of an SRv6 Binding SID. Instead, the
+        SRv6 Binding SID TLV defined in <xref target="CPBSIDSRV6"
+        format="default"/> <bcp14>SHOULD</bcp14> be used for the signaling of an
+        SRv6 Binding SID. The use of the SR Binding SID sub-TLV for
+        advertisement of the SRv6 Binding SID has been deprecated, and it is
+        documented here only for backward compatibility with implementations
+        that followed early draft versions of this specification.</t>
+      </section>
+      <section anchor="CPBSIDSRV6" numbered="true" toc="default">
+        <name>SRv6 Binding SID TLV</name>
+        <t>The SRv6 Binding SID (BSID) is an optional TLV that is used to
+        report the SRv6 BSID and its attributes for the SR Policy candidate
+        path. The TLV <bcp14>MAY</bcp14> also optionally contain the Specified SRv6 BSID
+        value for reporting as described in <xref target="RFC9256" sectionFormat="of" section="6.2.3"/>. Multiple instances of this TLV may be used to
+        report each of the SRv6 BSIDs associated with the candidate path.</t>
+        <t>The TLV has the following format:</t>
+<figure>
+  <name>SRv6 Binding SID TLV Format</name>  
+  
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           BSID Flags          |            RESERVED           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                    Binding SID (16 octets)                   //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Specified Binding SID (16 octets)             //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   sub-TLVs (variable)                                       //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+          <dt>Type:</dt><dd>1212</dd>
+          <dt>Length:</dt><dd>Variable</dd>
+          <dt>BSID Flags:</dt><dd><t>2-octet field that indicates the attribute
+          and status of the BSID associated with this candidate
+          path. The following bit positions are defined, and the semantics are
+          described in detail in <xref target="RFC9256" sectionFormat="of"
+          section="6.2"/>.  Other bits <bcp14>MUST</bcp14> be cleared by the
+          originator and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|B|U|F|                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+<t>Where:</t>
+            <dl spacing="normal" newline="false">
+              <dt>B-Flag:</dt><dd>Indicates the allocation of the value in the
+              BSID field when set and that BSID is not allocated
+              when clear.</dd>
+              <dt>U-Flag:</dt><dd>Indicates the specified BSID value is
+              unavailable when set. When clear, it indicates that this
+              candidate path is using the specified BSID. This flag is ignored
+              when there is no specified BSID.</dd>
+              <dt>F-Flag:</dt><dd>Indicates that the BSID value is one allocated
+              dynamically due to fallback (e.g., when the specified BSID is
+              unavailable) when set and that there has been no
+              fallback for BSID allocation when clear.</dd>
+            </dl>
+          </dd>
+          <dt>RESERVED:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by
+          the originator and <bcp14>MUST</bcp14> be ignored by a receiver.</dd>
+          <dt>Binding SID:</dt><dd>Indicates the operational or allocated
+          BSID value based on the status flags.</dd>
+          <dt>Specified BSID:</dt><dd>Used to report the explicitly
+          specified BSID value regardless of whether it is successfully
+          allocated or not. The field is set to value 0 when the BSID has not been
+          specified.</dd>
+          <dt>Sub-TLVs:</dt><dd>Variable and contain any other optional
+          attributes associated with the SRv6 BSID.</dd>
+        </dl>
+        <t>The SRv6 Endpoint Behavior TLV (1250) and the SRv6 SID Structure
+        TLV (1252) <bcp14>MAY</bcp14> optionally be used as sub-TLVs of the SRv6 Binding SID
+        TLV to indicate the SRv6 Endpoint behavior and SID structure for the
+        Binding SID value in the TLV. <xref target="RFC9514" format="default"/> defines the SRv6
+        Endpoint Behavior TLV and the SRv6 SID Structure TLV.</t>
+      </section>
+      <section anchor="CPSTATE" numbered="true" toc="default">
+        <name>SR Candidate Path State TLV</name>
+        <t>The SR Candidate Path State TLV provides the operational status and
+        attributes of the SR Policy at the candidate path level. Only a single
+        instance of this TLV is advertised for a given candidate path. If
+        multiple instances are present, then the first valid one (i.e., not
+        determined to be malformed as per <xref target="RFC9552"  sectionFormat="of" section="8.2.2"/>) is used and the rest are ignored.</t>
+        <t>The TLV has the following format:</t>
+<figure>
+  <name>SR Candidate Path State TLV Format</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   Priority    |   RESERVED    |              Flags            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      Preference (4 octets)                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1202</dd>
+            <dt>Length:</dt><dd>8 octets</dd>
+            <dt>Priority:</dt><dd>1-octet value that indicates the priority of the
+            candidate path. Refer to <xref target="RFC9256" sectionFormat="of" section="2.12"/>.</dd>
+            <dt>RESERVED:</dt><dd>1 octet. <bcp14>MUST</bcp14> be set to 0 by the originator and <bcp14>MUST</bcp14>
+            be ignored by a receiver.</dd>
+            <dt>Flags:</dt><dd><t>2-octet field that indicates the attribute and status of the
+            candidate path. The following bit positions are defined, and the
+            semantics are described in <xref target="RFC9256" sectionFormat="of" section="5"/>
+            unless stated otherwise for individual flags. Other bits <bcp14>MUST</bcp14> be
+            cleared by the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</t>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|S|A|B|E|V|O|D|C|I|T|U|         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+            <dl spacing="normal" newline="false">
+                <dt>S-Flag:</dt><dd>Indicates that the candidate path is in an
+                administrative shut state when set and not in an administrative
+                shut state when clear.</dd>
+                <dt>A-Flag:</dt><dd>Indicates that the candidate path is the active path
+                (i.e., one provisioned in the forwarding plane as specified in
+                <xref target="RFC9256" sectionFormat="of" section="2.9"/>) for the SR Policy
+                when set and not the active path when clear.</dd>
+                <dt>B-Flag:</dt><dd>Indicates that the candidate path is the backup path
+                (i.e., one identified for path protection of the active path as
+                specified in <xref target="RFC9256" sectionFormat="of" section="9.3"/>) for the
+                SR Policy when set and not the backup path when clear.</dd>
+                <dt>E-Flag:</dt><dd>Indicates that the candidate path has been
+                evaluated for validity (e.g., headend may evaluate candidate
+                paths based on their preferences) when set and has not been
+                evaluated for validity when clear.</dd>
+                <dt>V-Flag:</dt><dd>Indicates that the candidate path has at least one valid
+                SID list when set and that no valid SID list is available
+                or evaluated when clear. When the E-flag is clear (i.e., the
+                candidate path has not been evaluated), then this flag <bcp14>MUST</bcp14> be
+                set to 0 by the originator and <bcp14>MUST</bcp14> be ignored by a receiver.</dd>
+                <dt>O-Flag:</dt><dd>Indicates that the candidate path was instantiated by
+                the headend due to an on-demand next hop trigger based on a
+                local template when set and that the candidate path has not
+                been instantiated due to an on-demand next hop trigger when clear.
+                Refer to <xref target="RFC9256" sectionFormat="of" section="8.5"/> for
+                details.</dd>
+                <dt>D-Flag:</dt><dd>Indicates that the candidate path was delegated for
+                computation to a PCE/controller when set and that
+                the candidate path has not been delegated for computation when
+                clear.</dd>
+                <dt>C-Flag:</dt><dd>Indicates that the candidate path was provisioned by a
+                PCE/controller when set and that the candidate path
+                was not provisioned by a PCE/controller when clear.</dd>
+                <dt>I-Flag:</dt><dd>Indicates that the candidate path is to perform the
+                "Drop-Upon-Invalid" behavior when no other valid candidate
+                path is available for this SR Policy when the flag is set.
+                Refer to <xref target="RFC9256" sectionFormat="of" section="8.2"/> for details.
+                When clear, it indicates that the candidate path is not
+                enabled for the "Drop-Upon-Invalid" behavior.</dd>
+                <dt>T-Flag:</dt><dd>Indicates that the candidate path has been marked as
+                eligible for use as a transit policy on the headend when set
+                and not eligible for use as a transit policy when clear.
+                Transit policy is a policy whose BSID can be used in the
+                segment list of another SR Policy. Refer to 
+                <xref target="RFC9256" sectionFormat="of" section="8.3"/> for steering into a transit policy
+                using its BSID.</dd>
+                <dt>U-Flag:</dt><dd>Indicates that the candidate path is reported as
+                active and is dropping traffic as a result of the "Drop-Upon-Invalid"
+                behavior being activated for the SR Policy when set.
+                When clear, it indicates that the candidate path is not
+                dropping traffic as a result of the "Drop-Upon-Invalid"
+                behavior. Refer to <xref target="RFC9256" sectionFormat="of" section="8.2"/> for
+                details.</dd>
+            </dl>
+	  </dd>
+            <dt>Preference:</dt><dd>4-octet value that indicates the preference of the
+            candidate path. Refer to <xref target="RFC9256" sectionFormat="of" section="2.7"/>
+            for details.</dd>
+        </dl>
+      </section>
+      <section anchor="POLNAME" numbered="true" toc="default">
+        <name>SR Policy Name TLV</name>
+        <t>The SR Policy Name TLV is an optional TLV that is used to carry the
+        symbolic name associated with the SR Policy. Only a single instance of
+        this TLV is advertised for a given candidate path. If multiple
+        instances are present, then the first valid one (i.e., not determined to
+        be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is
+        used and the rest are ignored.</t>
+        <t>The TLV has the following format:</t>
+<figure>
+  <name>SR Policy Name TLV Format</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   SR Policy Name (variable)                  //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1213</dd>
+            <dt>Length:</dt><dd>Variable</dd>	    
+            <dt>SR Policy Name:</dt><dd>Symbolic name for the SR Policy without a NUL
+            terminator as specified in <xref target="RFC9256" sectionFormat="of" section="2.1"/>. It is <bcp14>RECOMMENDED</bcp14> that the size of the
+            symbolic name be limited to 255 bytes. Implementations <bcp14>MAY</bcp14> choose
+            to truncate long names to 255 bytes when signaling via BGP-LS.</dd>
+        </dl>
+      </section>
+      <section anchor="CPNAME" numbered="true" toc="default">
+        <name>SR Candidate Path Name TLV</name>
+        <t>The SR Candidate Path Name TLV is an optional TLV that is used to
+        carry the symbolic name associated with the candidate path. Only a
+        single instance of this TLV is advertised for a given candidate path.
+        If multiple instances are present, then the first valid one (i.e., not
+        determined to be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and the rest are ignored.</t>
+        <t>The TLV has the following format:</t>
+<figure>
+  <name>SR Candidate Path Name TLV Format</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Candidate Path Name (variable)                //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1203</dd>
+            <dt>Length:</dt><dd>Variable</dd>
+            <dt>Candidate Path Name:</dt><dd>Symbolic name for the SR Policy
+            candidate path without a NUL terminator as specified in <xref
+            target="RFC9256" sectionFormat="of" section="2.6"/>. It is
+            <bcp14>RECOMMENDED</bcp14> that the size of the symbolic name be
+            limited to 255 bytes. Implementations <bcp14>MAY</bcp14> choose to
+            truncate long names to 255 bytes when signaling via BGP-LS.</dd>
+        </dl>
+      </section>
+      <section anchor="CPCONSTRAINTS" numbered="true" toc="default">
+        <name>SR Candidate Path Constraints TLV</name>
+        <t>The SR Candidate Path Constraints TLV is an optional TLV that is
+        used to report the constraints associated with the candidate path. The
+        constraints are generally applied to a dynamic candidate path that is
+        either computed by the headend or delegated to a controller.
+        The constraints may also be applied to an explicit path where the
+        computation entity is expected to validate that the path satisfies the
+        specified constraints; if not, the path is to be invalidated (e.g.,
+        due to topology changes). Only a single instance of this TLV is
+        advertised for a given candidate path. If multiple instances are
+        present, then the first valid one (i.e., not determined to be malformed as
+        per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and the
+        rest are ignored.</t>
+        <t>The TLV has the following format:</t>
+<figure>
+  <name>SR Candidate Path Constraints TLV Format</name>
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Flags            |          RESERVED1            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             MTID              |   Algorithm   |   RESERVED2   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   sub-TLVs (variable)                                        //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1204</dd>
+            <dt>Length:</dt><dd>Variable</dd>
+            <dt>Flags:</dt><dd><t>2-octet field that indicates the constraints that are
+            being applied to the candidate path. The following bit positions
+            are defined, and the other bits <bcp14>MUST</bcp14> be cleared by the originator
+            and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+            <artwork name="" type="" align="left" alt=""><![CDATA[ 
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|D|P|U|A|T|S|F|H|               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+            <dl spacing="normal">
+                <dt>D-Flag:</dt><dd>Indicates that the candidate path uses an SRv6
+                data plane when set and an SR/MPLS data plane when clear.</dd>
+                <dt>P-Flag:</dt><dd>Indicates that the candidate path prefers the use
+                of only protected SIDs when set and that the
+                candidate path does not prefer the use of only protected SIDs
+                when clear. This flag is mutually exclusive with the U-flag
+                (i.e., both of these flags cannot be set at the same time).</dd>
+                <dt>U-Flag:</dt><dd>Indicates that the candidate path prefers the use
+                of only unprotected SIDs when set and that the
+                candidate path does not prefer the use of only unprotected
+                SIDs when clear. This flag is mutually exclusive with the
+                P-Flag (i.e., both of these flags cannot be set at the same
+                time).</dd>
+                <dt>A-Flag:</dt><dd>Indicates that the candidate path uses only the
+                SIDs belonging to the specified SR Algorithm when set and
+                that the candidate path does not use only the SIDs
+                belonging to the specified SR Algorithm when clear.</dd>
+                <dt>T-Flag:</dt><dd>Indicates that the candidate path uses only the
+                SIDs belonging to the specified topology when set and
+                that the candidate path does not use only the SIDs
+                belonging to the specified topology when clear.</dd>
+                <dt>S-Flag:</dt><dd>Indicates that the use of protected (P-flag) or
+                unprotected (U-flag) SIDs becomes a strict constraint instead
+                of a preference when set and that there is no strict
+                constraint (and only a preference) when clear.</dd>
+                <dt>F-Flag:</dt><dd>Indicates that the candidate path is fixed once
+                computed and not modified except on operator intervention and
+                that the candidate path may be modified as part of
+                recomputation when clear.</dd>
+                <dt>H-Flag:</dt><dd>Indicates that the candidate path uses only
+                adjacency SIDs and traverses hop-by-hop over the links
+                corresponding to those adjacency SIDs when set and
+                that the candidate path is not restricted to using only
+                hop-by-hop adjacency SIDs when clear.</dd>
+            </dl>
+	</dd>
+            <dt>RESERVED1:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by the originator and
+            <bcp14>MUST</bcp14> be ignored by a receiver.</dd>
+            <dt>MTID:</dt><dd>Indicates the multi-topology identifier of the IGP
+            topology that is preferred to be used when the path is set up.
+            When the T-flag is set, then the path is strictly using the
+            specified topology SIDs only.</dd>
+            <dt>Algorithm:</dt><dd>Indicates the algorithm that is preferred to be used
+            when the path is set up. When the A-flag is set, then the path is
+            strictly using the specified algorithm SIDs only. The algorithm
+            values are from the "IGP Algorithm Types" IANA registry under the 
+            "Interior Gateway Protocol (IGP) Parameters" registry group.</dd>
+            <dt>RESERVED2:</dt><dd>1 octet. <bcp14>MUST</bcp14> be set to 0 by the originator and <bcp14>MUST</bcp14>
+            be ignored by a receiver.</dd>
+            <dt>sub-TLVs:</dt><dd>One or more optional sub-TLVs <bcp14>MAY</bcp14> be included in this
+            TLV to describe other constraints. These sub-TLVs are: SR Affinity
+            Constraint, SR Shared Risk Link Group (SRLG) Constraint, SR Bandwidth Constraint, SR
+            Disjoint Group Constraint, SR Bidirectional Group Constraint, and
+            SR Metric Constraint.</dd>
+        </dl>
+        <t>These constraint sub-TLVs are defined below.</t>
+        <section anchor="CPAFFINITY" numbered="true" toc="default">
+          <name>SR Affinity Constraint Sub-TLV</name>
+          <t>The SR Affinity Constraint sub-TLV is an optional sub-TLV of the
+          SR Candidate Path Constraints TLV that is used to carry the affinity
+          constraints <xref target="RFC2702" format="default"/> associated with the candidate
+          path. The affinity is expressed in terms of an Extended Administrative Group
+          (EAG) as defined in <xref target="RFC7308" format="default"/>. Only a single instance
+          of this sub-TLV is advertised for a given candidate path. If
+          multiple instances are present, then the first valid one (i.e., not
+          determined to be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and the rest are ignored.</t>
+          <t>The sub-TLV has the following format:</t>
+<figure>
+  <name>SR Affinity Constraint Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Excl-Any-Size | Incl-Any-Size | Incl-All-Size |    RESERVED   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Exclude-Any EAG (optional, variable)             //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Include-Any EAG (optional, variable)             //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             Include-All EAG (optional, variable)             //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+              <dt>Type:</dt><dd>1208</dd>
+              <dt>Length:</dt><dd>Variable, dependent on the size of the EAG.
+              <bcp14>MUST</bcp14> be a non-zero multiple of 4 octets.</dd>
+              <dt>Exclude-Any-Size:</dt><dd>1 octet to indicate the size of
+              Exclude-Any EAG bitmask size in multiples of 4 octets (e.g.,
+              value 0 indicates the Exclude-Any EAG field is skipped, and value 1
+              indicates that 4 octets of Exclude-Any EAG are included).</dd>
+              <dt>Include-Any-Size:</dt><dd>1 octet to indicate the size of
+              Include-Any EAG bitmask size in multiples of 4 octets (e.g.,
+              value 0 indicates the Include-Any EAG field is skipped, and value 1
+              indicates that 4 octets of Include-Any EAG are included).</dd>
+              <dt>Include-All-Size:</dt><dd>1 octet to indicate the size of
+              Include-All EAG bitmask size in multiples of 4 octets (e.g.,
+              value 0 indicates the Include-All EAG field is skipped, and value 1
+              indicates that 4 octets of Include-All EAG are included).</dd>
+              <dt>RESERVED:</dt><dd>1 octet. <bcp14>MUST</bcp14> be set to 0 by the originator and
+              <bcp14>MUST</bcp14> be ignored by a receiver.</dd>
+              <dt>Exclude-Any EAG:</dt><dd>The bitmask used to represent the affinities
+              that have been excluded from the path.</dd>
+              <dt>Include-Any EAG:</dt><dd>The bitmask used to represent the affinities
+              that have been included in the path.</dd>
+              <dt>Include-All EAG:</dt><dd>The bitmask used to represent all the
+              affinities that have been included in the path.</dd>
+          </dl>
+        </section>
+        <section anchor="CPSRLG" numbered="true" toc="default">
+          <name>SR SRLG Constraint Sub-TLV</name>
+          <t>The SR SRLG Constraint sub-TLV is an optional sub-TLV of the SR
+          Candidate Path Constraints TLV that is used to carry the SRLG values <xref target="RFC4202" format="default"/> that have been
+          excluded from the candidate path. Only a single instance of this
+          sub-TLV is advertised for a given candidate path. If multiple
+          instances are present, then the first valid one (i.e., not determined to
+          be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>)
+          is used and the rest are ignored.</t>
+          <t>The sub-TLV has the following format:</t>
+<figure>
+  <name>SR SRLG Constraint Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         SRLG Values (variable, multiples of 4 octets)        //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+              <dt>Type:</dt><dd>1209</dd>
+              <dt>Length:</dt><dd>Variable, dependent on the number of SRLGs encoded.
+              <bcp14>MUST</bcp14> be a non-zero multiple of 4 octets.</dd>
+              <dt>SRLG Values:</dt><dd>One or more SRLG values. Each SRLG value is of 4
+              octets.</dd>
+	  </dl>
+        </section>
+        <section anchor="CPBW" numbered="true" toc="default">
+          <name>SR Bandwidth Constraint Sub-TLV</name>
+          <t>The SR Bandwidth Constraint sub-TLV is an optional sub-TLV of the
+          SR Candidate Path Constraints TLV that is used to indicate the
+          bandwidth that has been requested for the candidate path. Only a
+          single instance of this sub-TLV is advertised for a given candidate
+          path. If multiple instances are present, then the first valid one (i.e.,
+          not determined to be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and the rest are ignored.</t>
+          <t>The sub-TLV has the following format:</t>
+<figure>
+  <name>SR Bandwidth Constraint Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Bandwidth                            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+              <dt>Type:</dt><dd>1210</dd>
+              <dt>Length:</dt><dd>4 octets</dd>
+              <dt>Bandwidth:</dt><dd>4 octets that specify the desired bandwidth in
+              unit of bytes per second in IEEE floating point format <xref target="IEEE754" format="default"/>.</dd>
+          </dl>
+        </section>
+        <section anchor="CPDISJOINT" numbered="true" toc="default">
+          <name>SR Disjoint Group Constraint Sub-TLV</name>
+          <t>The SR Disjoint Group Constraint sub-TLV is an optional sub-TLV
+          of the SR Candidate Path Constraints TLV that is used to carry the
+          disjointness constraint associated with the candidate path. The
+          disjointness between two SR Policy candidate paths is expressed by
+          associating them with the same disjoint group identifier and then
+          specifying the type of disjointness required between their paths.
+          The types of disjointness are described in <xref target="RFC8800" sectionFormat="of" section="3"/> where the level of disjointness increases in the
+          order: link, node, SRLG, Node + SRLG. The computation is expected to
+          achieve the highest level of disjointness requested; when that is
+          not possible, then fall back to a lesser level progressively based on
+          the levels indicated. Only a single instance of this sub-TLV is
+          advertised for a given candidate path. If multiple instances are
+          present, then the first valid one (i.e., not determined to be malformed
+          as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and
+          the rest are ignored.</t>
+          <t>The sub-TLV has the following format:</t>
+<figure>
+  <name>SR Disjoint Group Constraint Sub-TLV Format</name>
+  
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Request Flags |  Status Flags |            RESERVED           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Disjoint Group Identifier (variable)                 //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+              <dt>Type:</dt><dd>1211</dd>
+              <dt>Length:</dt><dd>Variable. Minimum of 8 octets.</dd>
+              <dt>Request Flags:</dt><dd><t>1 octet to indicate the level of
+              disjointness requested as specified in the form of flags. The
+              following flags are defined, and the other bits <bcp14>MUST</bcp14> be cleared
+              by the originator and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|S|N|L|F|I|     |
++-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                  <dt>S-Flag:</dt><dd>Indicates that SRLG disjointness is requested
+                  when set and that SRLG disjointness is not
+                  requested when clear.</dd>
+                  <dt>N-Flag:</dt><dd>Indicates that node disjointness is requested
+                  when set and that node disjointness is not
+                  requested when clear.</dd>
+                  <dt>L-Flag:</dt><dd>Indicates that link disjointness is requested
+                  when set and that the link disjointness is not
+                  requested when clear.</dd>
+                  <dt>F-Flag:</dt><dd>Indicates that the computation may fall back to a
+                  lower level of disjointness amongst the ones requested when
+                  all cannot be achieved when set and that fallback
+                  to a lower level of disjointness is not allowed when
+                  clear.</dd>
+                  <dt>I-Flag:</dt><dd>Indicates that the computation may fall back to
+                  the default best path (e.g., an IGP path) in case none of the
+                  desired disjointness can be achieved when set and 
+                  that fallback to the default best path is not allowed when
+                  clear.</dd>
+              </dl>
+            </dd>
+            <dt>Status Flags:</dt><dd><t>1 octet to indicate the level of disjointness
+              that has been achieved by the computation as specified in the
+              form of flags. The following flags are defined, and the other
+              bits <bcp14>MUST</bcp14> be cleared by the originator and <bcp14>MUST</bcp14> be ignored by a
+              receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|S|N|L|F|I|X|   |
++-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                  <dt>S-Flag:</dt><dd>Indicates that SRLG disjointness is achieved when
+                  set and that SRLG disjointness is not achieved
+                  when clear.</dd>
+                  <dt>N-Flag:</dt><dd>Indicates that node disjointness is achieved when
+                  set and that node disjointness was not achieved
+                  when clear.</dd>
+                  <dt>L-Flag:</dt><dd>Indicates that link disjointness is achieved when
+                  set and that link disjointness was not achieved
+                  when clear.</dd>
+                  <dt>F-Flag:</dt><dd>Indicates that the computation has fallen back to
+                  a lower level of disjointness than requested when set and
+                  that there has been no fallback to a lower level
+                  of disjointness when clear.</dd>
+                  <dt>I-Flag:</dt><dd>Indicates that the computation has fallen back to
+                  the best path (e.g., an IGP path) and disjointness has not been
+                  achieved when set and that there has been no
+                  fallback to the best path when clear.</dd>
+                  <dt>X-Flag:</dt><dd>Indicates that the disjointness constraint could
+                  not be achieved and hence the path has been invalidated when set
+                  and that the path has not been invalidated due to
+                  unmet disjointness constraints when clear.</dd>
+                </dl>
+              </dd>
+              <dt>RESERVED:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by the originator and
+              <bcp14>MUST</bcp14> be ignored by a receiver.</dd>
+              <dt>Disjoint Group Identifier:</dt><dd>4-octet value that is the group
+              identifier for a set of disjoint paths. Alternatively, this
+              field <bcp14>MAY</bcp14> contain the entire PCEP ASSOCIATION Object as
+              specified in <xref target="RFC8697" sectionFormat="of" section="6.1"/> (including
+              its optional TLVs) when PCEP is used for the signaling of the SR
+              Policy candidate path and where the BGP-LS Producer is unable to
+              determine the group identifier that can be accommodated in a
+              4-octet value (since PCEP supports multiple methods of encoding
+              an association identifier). Note that the parsing of the PCEP
+              object is expected to be performed only by the BGP-LS Consumer
+              (hence, outside the scope of this document) and not by any BGP
+              Speaker as specified in <xref target="RFC9552" format="default"/>. If the PCEP
+              object size is such that the update for a single SR Policy
+              Candidate Path NLRI would exceed the supported BGP message size
+              by the implementation, then the PCEP ASSOCIATION Object <bcp14>MUST NOT</bcp14>
+              be encoded and this sub-TLV skipped along with an error log.
+              Refer to <xref target="RFC9552" sectionFormat="of" section="5.3"/> for discussion on
+              implications of encoding large sets of information into
+              BGP-LS.</dd>
+          </dl>
+        </section>
+        <section anchor="CPBIDIR" numbered="true" toc="default">
+          <name>SR Bidirectional Group Constraint Sub-TLV</name>
+          <t>The SR Bidirectional Group Constraint sub-TLV is an optional
+          sub-TLV of the SR Candidate Path Constraints TLV that is used to
+          carry the bidirectional constraint associated with the candidate
+          path. The bidirectional relationship between two SR Policy candidate
+          paths is expressed by associating them with the same bidirectional
+          group identifier and then specifying the type of bidirectional
+          routing required between their paths. Only a single instance of this
+          sub-TLV is advertised for a given candidate path. If multiple
+          instances are present, then the first valid one (i.e., not determined to
+          be malformed as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) 
+          is used and the rest are ignored.</t>
+          <t>The sub-TLV has the following format:</t>
+<figure>
+  <name>SR Bidirectional Group Constraint Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|               Type            |              Length           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Flags            |            RESERVED           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|            Bidirectional Group Identifier (variable)         //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+              <dt>Type:</dt><dd>1214</dd>
+              <dt>Length:</dt><dd>Variable. Minimum of 8 octets.</dd>
+              <dt>Flags:</dt><dd><t>2 octets to indicate the bidirectional path setup
+              information as specified in the form of flags. The following
+              flags are defined, and the other bits <bcp14>MUST</bcp14> be cleared by the
+              originator and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|R|C|                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+              <dl spacing="normal">
+                  <dt>R-Flag:</dt><dd>Indicates that the candidate path of the SR
+                  Policy forms the reverse path when the R-flag is set. If the
+                  R-flag is clear, the candidate path forms the forward
+                  path.</dd>
+                  <dt>C-Flag:</dt><dd>Indicates that the bidirectional path is
+                  co-routed when set and that the bidirectional path
+                  is not co-routed when clear.</dd>
+              </dl>
+	    </dd>
+            <dt>RESERVED:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</dd>
+            <dt>Bidirectional Group Identifier:</dt><dd>4-octet value that is
+            the group identifier for a set of bidirectional paths.
+            Alternatively, this field <bcp14>MAY</bcp14> contain the entire
+            PCEP ASSOCIATION Object as specified in <xref target="RFC8697"
+            sectionFormat="of" section="6.1"/> (including its optional TLVs)
+            when PCEP is used for the signaling of the SR Policy candidate path
+            and where the BGP-LS Producer is unable to determine the group
+            identifier that can be accommodated in a 4-octet value (since PCEP
+            supports multiple methods of encoding an association
+            identifier). Note that the parsing of the PCEP object is expected
+            to be performed only by the BGP-LS Consumer (hence, outside the
+            scope of this document) and not by any BGP Speaker as specified in
+            <xref target="RFC9552" format="default"/>. If the PCEP object size
+            is such that the update for a single SR Policy Candidate Path NLRI
+            would exceed the supported BGP message size by the implementation,
+            then the PCEP ASSOCIATION Object <bcp14>MUST NOT</bcp14> be
+            encoded and this sub-TLV skipped along with an error log. Refer to
+            <xref target="RFC9552" sectionFormat="of" section="5.3"/> for
+            discussion on implications of encoding large sets of information
+            into BGP-LS.</dd>
+          </dl>
+        </section>
+        <section anchor="CPMETRIC" numbered="true" toc="default">
+          <name>SR Metric Constraint Sub-TLV</name>
+          <t>The SR Metric Constraint sub-TLV is an optional sub-TLV of the SR
+          Candidate Path Constraints TLV that is used to report the
+          optimization metric of the candidate path. For a dynamic path
+          computation, it is used to report the optimization metric used along
+          with its parameters. For an explicit path, this sub-TLV <bcp14>MAY</bcp14> be used
+          to report the metric margin or is bound to be used for validation
+          (i.e., the path is invalidated if the metric is beyond specified
+          values). Multiple instances of this sub-TLV may be used to report
+          different metric type uses.</t>
+          <t>The sub-TLV has the following format: </t>
+<figure>
+  <name>SR Metric Constraint Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Metric Type  |      Flags    |          RESERVED             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Metric Margin                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Metric Bound                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal">
+              <dt>Type:</dt><dd>1215</dd>
+              <dt>Length:</dt><dd>12 octets</dd>
+              <dt>Metric Type:</dt><dd><t>1-octet field that identifies the type of
+              metric being used. Below is a list of metric types
+               introduced by this document along with references for each. Where
+              the references are for IS-IS and OSPF specifications, those
+              metric types are defined for a link while in the SR Policy
+              context those relate to the candidate path or the segment list.
+              The metric type code points that may be used in this sub-TLV are
+              also listed in <xref target="METRICTYPE" format="default"/> of this document.
+	      Note that the metric types in this field are taken from the
+              "BGP-LS SR Policy Metric Types" IANA registry, which includes 
+              IGP Metric Types as well as metric types specific to SR Policy
+              path computation (i.e., the metric types are not from the 
+              "IGP Metric-Type" registry).  Additional
+              metric types may be introduced by future documents. This
+              document does not make any assumptions about a smaller metric value
+              being better than a higher metric value; that is something
+              that is dependent on the semantics of the specific metric type. This
+              document uses the words "best" and "worst" to abstract this
+              aspect when referring to metric margins and bounds.</t>
+              <dl spacing="normal" newline="true">	
+                <dt>Type 0: IGP:</dt><dd>This is specified in <xref target="RFC5305" sectionFormat="of" section="3"/> for IS-IS and is known as the default metric. This is specified in <xref target="RFC2328" format="default"/> for OSPFv2 and in <xref target="RFC5340" format="default"/> for OSPFv3 and is known as the metric in both.</dd>
+                <dt>Type 1: Min Unidirectional Delay:</dt><dd>This is
+                specified in <xref target="RFC8570" sectionFormat="of"
+                section="4.2"/> for IS-IS and in <xref target="RFC7471"
+                sectionFormat="of" section="4.2"/> for OSPFv2/OSPFv3.</dd>
+                <dt>Type 2: TE:</dt><dd>This is specified in <xref
+                target="RFC5305" sectionFormat="of" section="3.7"/> for IS-IS as the TE
+                default metric, in <xref target="RFC3630"
+                sectionFormat="of" section="2.5.5"/> for OSPFv2, and in <xref
+                target="RFC5329" sectionFormat="of" section="4"/> for
+                OSPFv3.</dd>
+                <dt>Type 3: Hop Count:</dt><dd>This is specified in <xref
+                target="RFC5440" sectionFormat="of" section="7"/>.</dd>
+                <dt>Type 4: SID List Length:</dt><dd>This is specified in
+                <xref target="RFC8664" sectionFormat="of" section="4.5"/>.</dd>
+                <dt>Type 5: Bandwidth:</dt><dd>This is specified in <xref
+                target="RFC9843" sectionFormat="of"
+                section="4"/>.</dd>		
+                <dt>Type 6: Avg Unidirectional Delay:</dt><dd>This is
+                specified in <xref target="RFC8570" sectionFormat="of"
+                section="4.1"/> for IS-IS and in <xref target="RFC7471"
+                sectionFormat="of" section="4.1"/> for OSPFv2/OSPFv3.</dd>
+                <dt>Type 7: Unidirectional Delay Variation:</dt><dd>This is
+                specified in <xref target="RFC8570" sectionFormat="of"
+                section="4.3"/> for IS-IS and in <xref target="RFC7471"
+                sectionFormat="of" section="4.3"/> for OSPFv2/OSPFv3.</dd>
+                <dt>Type 8: Loss:</dt><dd>This is specified in <xref
+                target="RFC8570" sectionFormat="of" section="4.4"/> for IS-IS
+                and in <xref target="RFC7471" sectionFormat="of"
+                section="4.4"/> for OSPFv2/OSPFv3.</dd>
+                <dt>Types 128 to 255 (both inclusive): User
+                Defined:</dt><dd>This is specified in <xref
+                target="RFC9843" sectionFormat="of"
+                section="2"/> for IS-IS and OSPF.</dd>
+              </dl>
+            </dd>
+            <dt>Flags:</dt><dd><t>1-octet field that indicates the validity of
+            the metric fields and their semantics. The following bit positions
+            are defined, and the other bits <bcp14>MUST</bcp14> be cleared by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|O|M|A|B|       |
++-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                  <dt>O-Flag:</dt><dd>Indicates that this is the optimization metric
+                  being reported for a dynamic candidate path when set and
+                  that the metric is not the optimization metric
+                  when clear. This bit <bcp14>MUST NOT</bcp14> be set in more than one
+                  instance of this TLV for a given candidate path
+                  advertisement.</dd>
+                  <dt>M-Flag:</dt><dd>Indicates that the metric margin allowed is
+                  specified when set and that the metric margin allowed
+                  is not specified when clear.</dd>
+                  <dt>A-Flag:</dt><dd>Indicates that the metric margin is specified as
+                  an absolute value when set and that the metric margin is expressed as a percentage
+                  of the minimum metric when clear.</dd>
+                  <dt>B-Flag:</dt><dd>Indicates that the metric bound allowed for the
+                  path is specified when set and that the metric bound
+                  is not specified when clear.</dd>
+              </dl>
+            </dd>
+            <dt>RESERVED:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</dd>
+            <dt>Metric Margin:</dt><dd>4-octet value that indicates the
+            metric margin when the M-flag is set. The metric margin is
+            specified, depending on the A-flag, as either an absolute value or
+            a percentage of the best computed path metric based on the
+            specified constraints for path calculation. The metric margin
+            allows for the metric value of the computed path to vary
+            (depending on the semantics of the specific metric type) from the
+            best metric value possible to optimizing for other factors (that are
+            not specified as constraints) such as bandwidth availability,
+            minimal SID stack depth, and the maximizing of ECMP for the computed SR path.</dd>
+            <dt>Metric Bound:</dt><dd>4-octet value that indicates the worst
+            metric value (depending on the semantics of the specific metric
+            type) allowed when the B-flag is set. If the computed path
+            metric crosses the specified bound value, then the path is
+            considered invalid.</dd>
+          </dl>
+          <t>The absolute metric margin and the metric bound values are
+          encoded as specified for each metric type. For metric types that are
+          smaller than 4 octets in size, the most significant bits are filled
+          with zeros. The percentage metric margin is encoded as an unsigned
+          integer percentage value.</t>
+        </section>
+      </section>
+      <section anchor="SEGMENTLIST" numbered="true" toc="default">
+        <name>SR Segment List TLV</name>
+        <t>The SR Segment List TLV is used to report a single SID list of a
+        candidate path. Multiple instances of this TLV may be used to report
+        multiple SID lists of a candidate path.</t>
+        <t>The TLV has the following format: </t>
+<figure>
+  <name>SR Segment List TLV Format</name>
+
+        <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Flags            |           RESERVED1           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             MTID              |   Algorithm   |    RESERVED2  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Weight (4 octets)                      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|   sub-TLVs (variable)                                        //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+        <dl spacing="normal" newline="false">
+          <dt>Type:</dt><dd>1205</dd>
+          <dt>Length:</dt><dd>Variable</dd>
+          <dt>Flags:</dt><dd><t> 2-octet field that indicates the attribute and status of the
+            SID list. The following bit positions are defined, and the semantics
+            are described in detail in <xref target="RFC9256" format="default"/>. Other bits
+            <bcp14>MUST</bcp14> be cleared by the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</t>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|D|E|C|V|R|F|A|T|M|             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+            <dl spacing="normal" newline="false">
+              <dt>D-Flag:</dt><dd>Indicates that the SID list consists of SRv6 SIDs
+              when set and SR/MPLS labels when clear.</dd>
+              <dt>E-Flag:</dt><dd>Indicates that the SID list is associated with
+              an explicit candidate path when set and a dynamic candidate
+              path when clear. All segment lists of a given candidate path
+              <bcp14>MUST</bcp14> be either explicit or dynamic. In case of
+              inconsistency, the receiver <bcp14>MAY</bcp14> consider them all
+              to be dynamic.</dd>
+              <dt>C-Flag:</dt><dd>Indicates that the SID list has been computed
+              for a dynamic path when set. It is always reported as set for
+              explicit paths. When clear, it indicates that the SID list has
+              not been computed for a dynamic path.</dd>
+              <dt>V-Flag:</dt><dd>Indicates that the SID list has passed
+              verification or its verification was not required when set and
+              that it failed verification when clear.</dd>
+              <dt>R-Flag:</dt><dd>Indicates that the first Segment has been
+              resolved when set and that it failed resolution when clear.</dd>
+              <dt>F-Flag:</dt><dd>Indicates that the computation for the
+              dynamic path failed when set and that it succeeded (or was not required in
+              case of an explicit path) when clear.</dd>
+              <dt>A-Flag:</dt><dd>Indicates that all the SIDs in the SID list
+              belong to the specified algorithm when set and that
+              not all the SIDs belong to the specified algorithm when
+              clear.</dd>
+              <dt>T-Flag:</dt><dd>Indicates that all the SIDs in the SID list
+              belong to the specified topology (identified by the
+              multi-topology ID) when set and that not all the SIDs
+              belong to the specified topology when clear.</dd>
+              <dt>M-Flag:</dt><dd>Indicates that the SID list has been removed
+              from the forwarding plane due to fault detection by a monitoring
+              mechanism (e.g., Bidirectional Forwarding Detection (BFD)) when set and that no fault is detected or
+             no monitoring is being done when clear.</dd>
+              </dl>
+            </dd>
+            <dt>RESERVED1:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</dd>
+            <dt>MTID:</dt><dd>2 octets that indicate the multi-topology identifier of
+            the IGP topology that is to be used when the T-flag is set.</dd>
+            <dt>Algorithm:</dt><dd>1 octet that indicates the algorithm of the SIDs
+            used in the SID list when the A-flag is set. The algorithm values
+            are from the "IGP Algorithm Types" IANA registry under the "Interior
+            Gateway Protocol (IGP) Parameters" registry group.</dd>
+            <dt>RESERVED2:</dt><dd>1 octet. <bcp14>MUST</bcp14> be set to 0 by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</dd>
+            <dt>Weight:</dt><dd>4-octet field that indicates the weight
+            associated with the SID list for weighted load balancing. Refer to
+            Sections <xref target="RFC9256" sectionFormat="bare"
+            section="2.2"/> and <xref target="RFC9256" sectionFormat="bare"
+            section="2.11"/> of <xref target="RFC9256" format="default"/>.</dd>
+            <dt>Sub-TLVs:</dt><dd>Variable and contain the ordered set of Segments and
+            any other optional attributes associated with the specific
+            SID list.</dd>
+          </dl>
+        <t>The SR Segment sub-TLV (defined in <xref target="SEGMENTTLV" format="default"/>)
+        <bcp14>MUST</bcp14> be included as an ordered set of sub-TLVs within the SR Segment
+        List TLV when the SID list is not empty. A SID list may be empty in
+        certain situations (e.g., for a dynamic path) where the headend has not
+        yet performed the computation and hence not derived the segments
+        required for the path. In such cases where the SID list is empty, the
+        SR Segment List TLV <bcp14>MUST NOT</bcp14> include any SR Segment sub-TLVs.</t>
+        <section anchor="SEGMENTTLV" numbered="true" toc="default">
+          <name>SR Segment Sub-TLV</name>
+          <t>The SR Segment sub-TLV describes a single segment in a SID list.
+          One or more instances of this sub-TLV in an ordered manner
+          constitute a SID list for an SR Policy candidate path. It is a
+          sub-TLV of the SR Segment List TLV and it has the following format:
+          </t>
+<figure>
+  <name>SR Segment Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Segment Type  |    RESERVED   |             Flags             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                   SID (4 or 16 octets)                       //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//               Segment Descriptor (variable)                 //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+//   sub-TLVs (variable)                                       //
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1206</dd>
+            <dt>Length:</dt><dd>Variable</dd>
+            <dt>Segment Type:</dt><dd>1 octet that indicates the type of
+            segment.  Initial values are specified by this document (see <xref
+            target="SEGMENTDESC" format="default"/> for details). Additional
+            segment types are possible but are out of scope for this
+            document.</dd>
+            <dt>RESERVED:</dt><dd>1 octet. <bcp14>MUST</bcp14> be set to 0 by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</dd>
+            <dt>Flags:</dt><dd><t>2-octet field that indicates the attribute and
+            status of the Segment and its SID. The following bit positions are
+            defined, and the semantics are described in <xref target="RFC9256"
+            sectionFormat="of" section="5"/>. Other bits <bcp14>MUST</bcp14>
+            be cleared by the originator and <bcp14>MUST</bcp14> be ignored by
+            a receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|S|E|V|R|A|                     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>S-Flag:</dt><dd>Indicates the presence of the SID value in the
+                SID field when set and no value when
+                clear.</dd>
+                <dt>E-Flag:</dt><dd>Indicates that the SID value is an explicitly
+                provisioned value (locally on headend or via controller/PCE)
+                when set and is a dynamically resolved value by headend when
+                clear.</dd>
+                <dt>V-Flag:</dt><dd>Indicates that the SID has passed verification
+                or did not require verification when set. When the V-flag is
+                clear, it indicates the SID has failed verification.</dd>
+                <dt>R-Flag:</dt><dd>Indicates that the SID has been resolved or did
+                not require resolution (e.g., because it is not the first SID)
+                when set. When the R-flag is clear, it indicates the SID has
+                failed resolution.</dd>
+                <dt>A-Flag:</dt><dd>Indicates that the Algorithm indicated in
+                the segment descriptor is valid when set. When clear, it
+                indicates that the headend is unable to determine the
+                algorithm of the SID.</dd>
+                </dl>
+              </dd>
+              <dt>SID:</dt><dd><t>4 octets carrying the MPLS Label or 16 octets carrying
+              the SRv6 SID based on the Segment Type. When carrying the MPLS
+              Label, as shown in the figure below, the TC, S, and TTL (total
+              of 12 bits) are RESERVED and <bcp14>MUST</bcp14> be set to 0 by the originator
+              and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Label                        | TC  |S|       TTL     |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+            </dd>
+            <dt>Segment Descriptor:</dt><dd>Variable size segment descriptor
+            based on the type of segment (refer to <xref target="SEGMENTDESC"
+            format="default"/> for details).</dd>
+            <dt>Sub-Sub-TLVs:</dt><dd>Variable and contain any other optional
+            attributes associated with the specific segment.</dd>
+          </dl>
+          <t>The SRv6 Endpoint Behavior TLV (1250) and the SRv6 SID Structure
+          TLV (1252) defined in <xref target="RFC9514" format="default"/> are used as
+          sub-sub-TLVs of the SR Segment sub-TLV. These two sub-sub-TLVs are
+          used to optionally indicate the SRv6 Endpoint behavior and SID
+          structure when advertising the SRv6-specific segment types.</t>
+          <section anchor="SEGMENTDESC" numbered="true" toc="default">
+            <name>Segment Descriptors</name>
+            <t><xref target="RFC9256" sectionFormat="of" section="4"/> defines multiple types of
+            segments and their descriptions. This section defines the encoding
+            of the segment descriptors for each of those segment types to be
+            used in the Segment sub-TLV described previously in <xref target="SEGMENTTLV" format="default"/>.</t>
+            <t>The following types are currently defined, and their mappings to
+            the respective segment types are defined in <xref target="RFC9256" format="default"/>:
+            </t>
+
+<table anchor="SR_segment_types">
+  <name>SR Segment Types</name>
+  <thead>
+    <tr>
+      <th>Type</th><th>Segment Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1</td><td>(Type A) SR-MPLS Label</td>
+    </tr>
+    <tr>
+      <td>2</td><td>(Type B) SRv6 SID</td>
+    </tr>
+    <tr>
+      <td>3</td><td>(Type C) IPv4 Prefix with optional SR Algorithm</td>
+    </tr>
+    <tr>
+      <td>4</td><td>(Type D) IPv6 Global Prefix with optional SR Algorithm for SR-MPLS</td>
+    </tr>
+    <tr>
+      <td>5</td><td>(Type E) IPv4 Prefix with Local Interface ID</td>
+    </tr>
+    <tr>
+      <td>6</td><td>(Type F) IPv4 Addresses for link endpoints as Local, Remote pair</td>
+    </tr>
+    <tr>
+      <td>7</td><td>(Type G) IPv6 Prefix and Interface ID for link endpoints as Local, Remote pair for SR-MPLS</td>
+    </tr>
+    <tr>
+      <td>8</td><td>(Type H) IPv6 Addresses for link endpoints as Local, Remote pair for SR-MPLS</td>
+    </tr>
+    <tr>
+      <td>9</td><td>(Type I) IPv6 Global Prefix with optional SR Algorithm for SRv6</td>
+    </tr>
+    <tr>
+      <td>10</td><td>(Type J) IPv6 Prefix and Interface ID for link endpoints as Local, Remote pair for SRv6</td>
+    </tr>
+    <tr>
+      <td>11</td><td>(Type K) IPv6 Addresses for link endpoints as Local, Remote pair for SRv6</td>
+    </tr>
+  </tbody>
+</table>
+
+            <section anchor="TYPE1" numbered="true" toc="default">
+              <name>Type 1: Segment Type A</name>
+              <t>The Segment is an SR-MPLS type and is specified simply as the
+              label. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 1 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+
+|   Algorithm   |
++-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+
+              <dl spacing="normal" newline="false">
+                <dt>Algorithm:</dt><dd>1-octet value that indicates the
+                algorithm used for picking the SID. This is valid only when
+                the A-flag has been set in the Segment TLV. The algorithm
+                values are from the "IGP Algorithm Types" IANA registry under the
+                "Interior Gateway Protocol (IGP) Parameters" registry group.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE2" numbered="true" toc="default">
+              <name>Type 2: Segment Type B</name>	      
+              <t>The Segment is an SRv6 type and is specified simply as SRv6
+              SID. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 2 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+
+|   Algorithm   |
++-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>Algorithm:</dt><dd>1-octet value that indicates the
+                algorithm used for picking the SID. This is valid only when
+                the A-flag has been set in the Segment TLV. The algorithm
+                values are from the "IGP Algorithm Types" IANA registry under the
+                "Interior Gateway Protocol (IGP) Parameters" registry group.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE3" numbered="true" toc="default">
+              <name>Type 3: Segment Type C</name>
+              <t>The Segment is an SR-MPLS Prefix SID type and is specified as an
+              IPv4 node address. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 3 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+
+|   Algorithm   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 IPv4 Node Address (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>Algorithm:</dt><dd>1-octet value that indicates the
+                algorithm used for picking the SID. The algorithm values are
+                from the "IGP Algorithm Types" IANA registry under the "Interior
+                Gateway Protocol (IGP) Parameters" registry group.</dd>
+                <dt>IPv4 Node Address:</dt><dd>4-octet value that carries the
+                IPv4 address associated with the node.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE4" numbered="true" toc="default">
+              <name>Type 4: Segment Type D</name>
+              <t>The Segment is an SR-MPLS Prefix SID type and is specified as an
+              IPv6 node global address. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 4 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+
+|   Algorithm   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|          IPv6 Node Global Address (16 octets)                 |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>Algorithm:</dt><dd>1-octet value that indicates the
+                algorithm used for picking the SID. The algorithm values are
+                from the "IGP Algorithm Types" IANA registry under the "Interior
+                Gateway Protocol (IGP) Parameters" registry group.</dd>
+                <dt>IPv6 Node Global Address:</dt><dd>16-octet value that
+                carries the IPv6 global address associated with the node.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE5" numbered="true" toc="default">
+              <name>Type 5: Segment Type E</name>
+              <t>The Segment is an SR-MPLS Adjacency SID type and is specified as
+              an IPv4 node address along with the local interface ID on that
+              node. The format of its segment descriptor is as follows:</t>
+<figure>
+  <name>Type 5 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 IPv4 Node Address (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                Local Interface ID (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>IPv4 Node Address:</dt><dd>4-octet value that carries the
+                IPv4 address associated with the node.</dd>
+                <dt>Local Interface ID:</dt><dd>4-octet value that carries
+                the local interface ID of the node identified by the Node
+                Address.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE6" numbered="true" toc="default">
+              <name>Type 6: Segment Type F</name>
+              <t>The Segment is an SR-MPLS Adjacency SID type and is specified as
+              a pair of IPv4 local and remote interface addresses. The format of its
+              segment descriptor is as follows:</t>
+	      <figure>
+		
+  <name>Type 6 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              IPv4 Local Interface Address (4 octets)          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|             IPv4 Remote Interface Address (4 octets)          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>IPv4 Local Interface Address:</dt><dd>4-octet value that carries
+                the local IPv4 address associated with the node's
+                interface.</dd>
+                <dt>IPv4 Remote Interface Address:</dt><dd>4-octet value that carries
+                the remote IPv4 address associated with the interface on the
+                node's neighbor. This is optional and <bcp14>MAY</bcp14> be
+                set to 0 when not used (e.g., when identifying point-to-point
+                links).</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE7" numbered="true" toc="default">
+              <name>Type 7: Segment Type G</name>
+              <t>The Segment is an SR-MPLS Adjacency SID type and is specified as
+              a pair of IPv6 global address and interface ID for local and
+              remote nodes. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 7 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|          IPv6 Local Node Global Address (16 octets)           |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Local Node Interface ID (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|          IPv6 Remote Node Global Address (16 octets)          |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Remote Node Interface ID (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>IPv6 Local Node Global Address:</dt><dd> 16-octet value
+                that carries the IPv6 global address associated with the
+                local node.</dd>
+                <dt>Local Node Interface ID:</dt><dd>4-octet value that
+                carries the interface ID of the local node identified by the
+                Local Node Address.</dd>
+                <dt>IPv6 Remote Node Global Address:</dt><dd>16-octet value
+                that carries the IPv6 global address associated with the
+                remote node. This is optional and <bcp14>MAY</bcp14> be set to
+                0 when not used (e.g., when identifying point-to-point
+                links).</dd>
+                <dt>Remote Node Interface ID:</dt><dd>4-octet value that
+                carries the interface ID of the remote node identified by the
+                Remote Node Address. This is optional and <bcp14>MAY</bcp14>
+                be set to 0 when not used (e.g., when identifying
+                point-to-point links).</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE8" numbered="true" toc="default">
+              <name>Type 8: Segment Type H</name>
+              <t>The Segment is an SR-MPLS Adjacency SID type and is specified as
+              a pair of IPv6 global addresses for local and remote interface
+              addresses. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 8 Segment Descriptor</name>
+
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|        IPv6 Local Interface Global Address (16 octets)        |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|        IPv6 Remote Interface Global Address (16 octets)       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>IPv6 Local Global Address:</dt><dd>16-octet value that carries
+                the local IPv6 address associated with the node's
+                interface.</dd>
+                <dt>IPv6 Remote Global Address:</dt><dd>16-octet value that carries
+                the remote IPv6 address associated with the interface on the
+                node's neighbor.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE9" numbered="true" toc="default">
+              <name>Type 9: Segment Type I</name>
+              <t>The Segment is an SRv6 END SID type and is specified as an IPv6
+              node global address. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 9 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+
+|   Algorithm   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|          IPv6 Node Global Address (16 octets)                 |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>Algorithm:</dt><dd>1-octet value that indicates the
+                algorithm used for picking the SID. The algorithm values are
+                from the "IGP Algorithm Types" IANA registry under the "Interior
+                Gateway Protocol (IGP) Parameters" registry group.</dd>
+                <dt>IPv6 Node Global Address:</dt><dd>16-octet value that
+                carries the IPv6 global address associated with the node.</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE10" numbered="true" toc="default">
+              <name>Type 10: Segment Type J</name>
+              <t>The Segment is an SRv6 END.X SID type and is specified as a pair
+              of IPv6 global address and interface ID for local and remote
+              nodes. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 10 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|          IPv6 Local Node Global Address (16 octets)           |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Local Node Interface ID (4 octets)                   |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|          IPv6 Remote Node Global Address (16 octets)          |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Remote Node Interface ID (4 octets)                  |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>IPv6 Local Node Global Address:</dt><dd>16-octet value
+                that carries the IPv6 global address associated with the
+                local node.</dd>
+                <dt>Local Node Interface ID:</dt><dd>4-octet value that
+                carries the interface ID of the local node identified by the
+                Local Node Address.</dd>
+                <dt>IPv6 Remote Node Global Address:</dt><dd>16-octet value
+                that carries the IPv6 global address associated with the
+                remote node. This is optional and <bcp14>MAY</bcp14> be set to
+                0 when not used (e.g., when identifying point-to-point
+                links).</dd>
+                <dt>Remote Node Interface ID:</dt><dd>4-octet value that
+                carries the interface ID of the remote node identified by the
+                Remote Node Address. This is optional and <bcp14>MAY</bcp14>
+                be set to 0 when not used (e.g., when identifying
+                point-to-point links).</dd>
+              </dl>
+            </section>
+            <section anchor="TYPE11" numbered="true" toc="default">
+              <name>Type 11: Segment Type K</name>
+              <t>The Segment is an SRv6 END.X SID type and is specified as a pair
+              of IPv6 global addresses for local and remote interface
+              addresses. The format of its segment descriptor is as
+              follows:</t>
+<figure>
+  <name>Type 11 Segment Descriptor</name>
+              <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|        IPv6 Local Interface Global Address (16 octets)        |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|        IPv6 Remote Interface Global Address (16 octets)       |
+|                                                               |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>IPv6 Local Global Address:</dt><dd>16-octet value that carries
+                the local IPv6 address associated with the node's
+                interface.</dd>
+                <dt>IPv6 Remote Global Address:</dt><dd>16-octet value that carries
+                the remote IPv6 address associated with the interface on the
+                node's neighbor.</dd>
+              </dl>
+            </section>
+          </section>
+        </section>
+        <section anchor="SLMETRIC" numbered="true" toc="default">
+          <name>SR Segment List Metric Sub-TLV</name>
+          <t>The SR Segment List Metric sub-TLV reports the computed metric of
+          the specific SID list. It is used to report the type of metric and
+          its computed value by the computation entity (i.e., either the
+          headend or the controller when the path is delegated) when
+          available. More than one instance of this sub-TLV may be present in
+          the SR Segment List to report metric values of different metric types.
+          The metric margin and bound may be optionally reported using this
+          sub-TLV when this information is not being reported using the SR
+          Metric Constraint sub-TLV (refer to <xref target="CPMETRIC" format="default"/>) at
+          the SR Policy candidate path level.</t>
+          <t>It is a sub-TLV of the SR Segment List TLV and has the following
+          format: </t>
+<figure>
+  <name>SR Segment List Metric Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|  Metric Type  |      Flags    |          RESERVED             |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Metric Margin                         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Metric Bound                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Metric Value                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1207</dd>
+            <dt>Length:</dt><dd>16 octets</dd>
+            <dt>Metric Type:</dt><dd>1-octet field that identifies the type
+            of metric. The semantics are the same as the metric type field in
+            the SR Metric Constraint sub-TLV in <xref target="CPMETRIC"
+            format="default"/> of this document.</dd>
+            <dt>Flags:</dt><dd><t>1-octet field that indicates the validity of the
+              metric fields and their semantics. The following bit positions
+              are defined, and the other bits <bcp14>MUST</bcp14> be cleared by the originator
+              and <bcp14>MUST</bcp14> be ignored by a receiver.</t>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|M|A|B|V|       |
++-+-+-+-+-+-+-+-+]]></artwork>
+
+<t>Where:</t>
+              <dl spacing="normal" newline="false">
+                <dt>M-Flag:</dt><dd>Indicates that the metric margin allowed
+                for this path computation is specified when set and 
+                that the metric margin allowed is not specified when clear.</dd>
+                <dt>A-Flag:</dt><dd>Indicates that the metric margin is
+                specified as an absolute value when set and that the metric margin is expressed as a
+                percentage of the minimum metric when clear.</dd>
+                <dt>B-Flag:</dt><dd>Indicates that the metric bound allowed
+                for the path is specified when set and that the metric
+                bound is not specified when clear.</dd>
+                <dt>V-Flag:</dt><dd>Indicates that the computed metric value
+                is being reported when set and that the computed
+                metric value is not being reported when clear.</dd>
+                </dl>
+            </dd>
+            <dt>RESERVED:</dt><dd>2 octets. <bcp14>MUST</bcp14> be set to 0 by
+            the originator and <bcp14>MUST</bcp14> be ignored by a
+            receiver.</dd>
+            <dt>Metric Margin:</dt><dd>4-octet value that indicates the
+            metric margin value when the M-flag is set. The metric margin is
+            specified, depending on the A-flag, as either an absolute value or
+            a percentage of the best computed path metric based on the
+            specified constraints for path calculation. The metric margin
+            allows for the metric value of the computed path to vary
+            (depending on the semantics of the specific metric type) from the
+            best metric value possible to optimizing for other factors (that are
+            not specified as constraints) such as bandwidth availability,
+            minimal SID stack depth, and the maximizing of ECMP for the computed SR path.</dd>
+            <dt>Metric Bound:</dt><dd>4-octet value that indicates the worst
+            metric value (depending on the semantics of the specific metric
+            type) that is allowed when the B-flag is set. If the computed path
+            metric crosses the specified bound value, then the path is
+            considered invalid.</dd>
+            <dt>Metric Value:</dt><dd>4-octet value that indicates the metric
+            of the computed path when the V-flag is set. This value is
+            available and reported when the computation is successful and a
+            valid path is available.</dd>
+          </dl>
+          <t>The absolute metric margin, metric bound, and metric values are
+          encoded as specified for each metric type. For metric types that are
+          smaller than 4 octets in size, the most significant bits are filled
+          with zeros. The percentage metric margin is encoded as an unsigned
+          integer percentage value.</t>
+        </section>
+        <section anchor="SLBW" numbered="true" toc="default">
+          <name>SR Segment List Bandwidth Sub-TLV</name>
+          <t>The SR Segment List Bandwidth sub-TLV is an optional sub-TLV used
+          to report the bandwidth allocated to the specific SID list by the
+          path computation entity. Only a single instance of this sub-TLV is
+          advertised for a given segment list. If multiple instances are
+          present, then the first valid one (i.e., not determined to be malformed
+          as per <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and
+          the rest are ignored.</t>
+          <t>It is a sub-TLV of the SR Segment List TLV and has the following
+          format: </t>
+
+<figure>
+  <name>SR Segment List Bandwidth Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Bandwidth                            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1216</dd>
+            <dt>Length:</dt><dd>4 octets</dd>
+            <dt>Bandwidth:</dt><dd>4 octets that specify the allocated
+            bandwidth in unit of bytes per second in IEEE floating point
+            format <xref target="IEEE754" format="default"/>.</dd>
+          </dl>
+        </section>
+        <section anchor="SLID" numbered="true" toc="default">
+          <name>SR Segment List Identifier Sub-TLV</name>
+          <t>The SR Segment List Identifier sub-TLV is an optional sub-TLV
+          used to report an identifier associated with the specific SID list.
+          Only a single instance of this sub-TLV is advertised for a given
+          segment list. If multiple instances are present, then the first
+          valid one (i.e., not determined to be malformed as per 
+          <xref target="RFC9552" sectionFormat="of" section="8.2.2"/>) is used and the rest are ignored.</t>
+          <t>It is a sub-TLV of the SR Segment List TLV and has the following
+          format: </t>
+<figure>
+  <name>SR Segment List Identifier Sub-TLV Format</name>
+          <artwork align="left" name="" type="" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|              Type             |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 Segment List Identifier                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+</figure>
+<t>Where:</t>
+          <dl spacing="normal" newline="false">
+            <dt>Type:</dt><dd>1217</dd>
+            <dt>Length:</dt><dd>4 octets</dd>
+            <dt>Segment List Identifier:</dt><dd>4 octets that carry a 32-bit
+            unsigned non-zero integer that serves as the identifier associated
+            with the segment list. A value of 0 indicates that there is no
+            identifier associated with the segment list. The scope of this
+            identifier is the SR Policy candidate path.</dd>
+	  </dl>
+        </section>
+      </section>
+    </section>
+    <section anchor="Procedures" numbered="true" toc="default">
+      <name>Procedures</name>
+      <t>The BGP-LS advertisements for the SR Policy Candidate Path NLRI type
+      are generally originated by the headend node for the SR Policies that
+      are instantiated on its local node (i.e., the headend is the BGP-LS
+      Producer). The BGP-LS Producer may also be a node (e.g., a PCE) that is
+      advertising on behalf of the headend.</t>
+      <t>For the reporting of SR Policy candidate paths, the NLRI descriptor
+      TLV as specified in <xref target="SRPOLICYCP" format="default"/> is used. An SR Policy
+      candidate path may be instantiated on the headend node via a local
+      configuration, PCEP, or BGP SR Policy signaling, and this is indicated
+      via the SR Protocol-Origin. When a PCE node is the BGP-LS Producer, it
+      uses the "in PCEP" variants of the SR Protocol-Origin (where available)
+      so as to distinguish them from advertisements by headend nodes. The SR
+      Policy candidate path's state and attributes are encoded in the BGP-LS
+      Attribute field as SR Policy State TLVs and sub-TLVs as described in
+      <xref target="SRPOLICYTLVS" format="default"/>. The SR Candidate Path State TLV as
+      defined in <xref target="CPSTATE" format="default"/> is included to report the state of
+      the candidate path. The SR BSID TLV as defined in Sections <xref target="CPBSID" format="counter"/> and <xref target="CPBSIDSRV6" format="counter"/> is included to report
+      the BSID of the candidate path when one is either specified or allocated
+      by the headend. The constraints and the optimization metric for the SR
+      Policy candidate path are reported using the SR Candidate Path
+      Constraints TLV and its sub-TLVs as described in <xref target="CPCONSTRAINTS" format="default"/>. The SR Segment List TLV is included for each SID list(s) associated with the candidate path. Each SR Segment
+      List TLV in turn includes an SR Segment sub-TLV(s) to report the segment(s)
+      and its status. The SR Segment List Metric sub-TLV is used to report
+      the metric values at an individual SID list level.</t>
+    </section>
+    <section anchor="Manageability" numbered="true" toc="default">
+      <name>Manageability Considerations</name>
+      <t>The existing BGP operational and management procedures apply to this
+      document. No new procedures are defined in this document. The
+      considerations as specified in <xref target="RFC9552" format="default"/> apply to this
+      document.</t>
+      <t>In general, the SR Policy headend nodes are responsible for the
+      advertisement of SR Policy state information.</t>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This section describes the code point allocations by IANA for this
+      document.</t>
+      <section anchor="NLRITYPES" numbered="true" toc="default">
+        <name>BGP-LS NLRI Types</name>
+        <t>IANA maintains a registry called "BGP-LS NLRI Types" under the "Border
+        Gateway Protocol - Link State (BGP-LS) Parameters" registry group.</t>
+        <t>The following NLRI Type code point has been allocated
+        by IANA:</t>
+	<table>
+	  <name>NLRI Type Code Point</name>
+	  <thead><tr><th>Type</th><th>NLRI Type</th><th>Reference</th></tr></thead>
+	  <tbody><tr><td>5</td><td>SR Policy Candidate Path NLRI</td><td>RFC 9857</td></tr></tbody>
+	</table>
+
+      </section>
+      <section anchor="PROTOCOLIDS" numbered="true" toc="default">
+        <name>BGP-LS Protocol-IDs</name>
+        <t>IANA maintains a registry called "BGP-LS Protocol-IDs" under the
+        "Border Gateway Protocol - Link State (BGP-LS) Parameters" registry
+        group.</t>
+        <t>The following Protocol-ID code point has been allocated by
+        IANA:</t>
+
+	<table>
+	  <name>Protocol-ID Code Point</name>
+	  <thead><tr><th>Protocol-ID</th><th>NLRI information source protocol</th><th>Reference</th></tr></thead>
+	  <tbody><tr><td>9</td><td>Segment Routing</td><td>RFC 9857</td></tr></tbody>
+	</table>
+
+      </section>
+      <section anchor="BGPLSTLVS" numbered="true" toc="default">
+        <name>BGP-LS TLVs</name>
+        <t>IANA maintains a registry called "BGP-LS NLRI and Attribute TLVs"
+        under the "Border Gateway Protocol - Link State (BGP-LS) Parameters"
+        registry group.</t>
+        <t>The following table lists the TLV code points that have been
+        allocated by IANA:</t>
+<table>
+  <name>NLRI and Attribute TLV Code Points</name>
+  <thead>
+    <tr>
+      <th>TLV Code Point</th>
+      <th>Description</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>554</td><td>SR Policy Candidate Path Descriptor</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1201</td><td>SR Binding SID</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1202</td><td>SR Candidate Path State</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1203</td><td>SR Candidate Path Name</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1204</td><td>SR Candidate Path Constraints</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1205</td><td>SR Segment List</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1206</td><td>SR Segment</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1207</td><td>SR Segment List Metric</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1208</td><td>SR Affinity Constraint</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1209</td><td>SR SRLG Constraint</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1210</td><td>SR Bandwidth Constraint</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1211</td><td>SR Disjoint Group Constraint</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1212</td><td>SRv6 Binding SID</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1213</td><td>SR Policy Name</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1214</td><td>SR Bidirectional Group Constraint</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1215</td><td>SR Metric Constraint</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1216</td><td>SR Segment List Bandwidth</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1217</td><td>SR Segment List Identifier</td><td>RFC 9857</td>
+    </tr>
+  </tbody>
+</table>
+      </section>
+      <section anchor="PROTOCOLORIGINS" numbered="true" toc="default">
+        <name>SR Policy Protocol-Origin</name>
+
+
+        <t>Per this document, IANA has created and maintains a new registry called "SR Policy Protocol-Origin" under
+        the "Segment Routing" registry group with the allocation policy of Expert
+        Review <xref target="RFC8126" format="default"/> using the guidelines for designated
+        experts as specified in <xref target="RFC9256" format="default"/>. This registry contains the code points allocated to the
+        "Protocol-Origin" field defined in <xref target="SRPOLICYCP" format="default"/>.</t>
+        <t>IANA has assigned the initial values as follows:</t>
+<table>
+  <name>SR Policy Protocol-Origin Code Points</name>
+  <thead>
+    <tr>
+      <th>Code Point</th>
+      <th>Protocol-Origin</th>
+      <th>Reference</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td><td>Reserved</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1</td><td>PCEP</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>2</td><td>BGP SR Policy</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>3</td><td>Configuration (CLI, YANG model via NETCONF, etc.)</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>4-9</td><td>Unassigned</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>10</td><td>PCEP (in PCEP or when BGP-LS Producer is PCE)</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>11-19</td><td>Unassigned</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>20</td><td>BGP SR Policy (in PCEP or when BGP-LS Producer is PCE)</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>21-29</td><td>Unassigned</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>30</td><td>Configuration (CLI, YANG model via NETCONF, etc. In PCEP or when BGP-LS Producer is PCE)</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>31-250</td><td>Unassigned</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>251-255</td><td>Reserved for Private Use</td><td>RFC 9857</td>
+    </tr>
+  </tbody>
+</table>
+
+      </section>
+      <section anchor="SEGDESC" numbered="true" toc="default">
+        <name>BGP-LS SR Segment Descriptors</name>
+        <t>Per this document, IANA has created a registry called "BGP-LS SR Segment
+        Descriptor Types" under the "Border Gateway Protocol - Link State
+        (BGP-LS) Parameters" registry group with the allocation policy of
+        Expert Review <xref target="RFC8126" format="default"/> using the guidelines for
+        designated experts as specified in <xref target="RFC9552" format="default"/>. There is
+        also an additional guideline for the designated experts to maintain the
+        alignment between the allocations in this registry with those in the
+        "Segment Types" registry under the "Segment Routing" registry group.
+        This requires that an allocation in the Segment Routing "Segment
+        Types" registry is required before allocation can be done in the
+        "BGP-LS SR Segment Descriptor Types" registry for a new segment type.
+        However, this does not mandate that the specification of a new Segment
+        Routing Segment Type also requires the specification of its equivalent
+        SR Segment Descriptor Type in BGP-LS; that can be done as and when
+        required while maintaining alignment.</t>
+        <t>This registry contains the code points allocated to the "Segment
+        Type" field defined in <xref target="SEGMENTTLV" format="default"/> and described in
+        <xref target="SEGMENTDESC" format="default"/>. IANA has assigned the initial values as follows:</t>
+
+<table>
+  <name>BGP-LS SR Segment Descriptor Type Code Points</name>
+<thead>
+  <tr>
+    <th>Code Point</th><th>Segment Descriptor</th><th>Reference</th>
+  </tr>
+</thead>
+<tbody>
+  <tr>
+    <td>0</td><td>Reserved</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>1</td><td>Type A Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>2</td><td>Type B Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>3</td><td>Type C Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>4</td><td>Type D Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>5</td><td>Type E Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>6</td><td>Type F Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>7</td><td>Type G Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>8</td><td>Type H Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>9</td><td>Type I Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>10</td><td>Type J Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>11</td><td>Type K Segment</td><td>RFC 9857</td>
+  </tr>
+  <tr>
+    <td>12-255</td><td>Unassigned</td><td>RFC 9857</td>
+  </tr>
+</tbody>
+</table>
+      </section>
+      <section anchor="METRICTYPE" numbered="true" toc="default">
+        <name>BGP-LS SR Policy Metric Type</name>
+        <t>Per this document, IANA has created a registry called "BGP-LS SR
+        Policy Metric Types" under the "Border Gateway Protocol - Link State
+        (BGP-LS) Parameters" registry group with the allocation policy of
+        Expert Review <xref target="RFC8126" format="default"/> using the guidelines for
+        designated experts as specified in <xref target="RFC9552" format="default"/>. This
+        registry contains the code points allocated to the metric type field
+        defined in <xref target="SLMETRIC" format="default"/>. IANA has assigned the initial values as follows:</t>
+<table>
+  <name>SR Policy Metric Type Code Point</name>
+  <thead>
+    <tr><th>Code Point</th><th>Metric Type</th><th>Reference</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0</td><td>IGP</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>1</td><td>Min Unidirectional Delay</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+    <td>2</td><td>TE</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>3</td><td>Hop Count</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>4</td><td>SID List Length</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>5</td><td>Bandwidth</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>6</td><td>Avg Unidirectional Delay</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>7</td><td>Unidirectional Delay Variation</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>8</td><td>Loss</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>9-127</td><td>Unassigned</td><td>RFC 9857</td>
+    </tr>
+    <tr>
+      <td>128-255</td><td>User Defined</td><td>RFC 9857</td>
+    </tr>
+  </tbody>
+</table>
+      </section>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>Procedures and protocol extensions defined in this document do not
+      affect the base BGP security model. See <xref target="RFC6952" format="default"/> for
+      details. The security considerations of the base BGP-LS specification as
+      described in <xref target="RFC9552" format="default"/> also apply.</t>
+      <t>The BGP-LS SR Policy extensions specified in this document enable
+      TE and service programming use cases within an SR
+      domain as described in <xref target="RFC9256" format="default"/>. SR operates within a
+      trusted SR domain <xref target="RFC8402" format="default"/>, and its security
+      considerations also apply to BGP sessions when carrying SR Policy
+      information. The SR Policies advertised to controllers and other
+      applications via BGP-LS are expected to be used entirely within this
+      trusted SR domain, i.e., within a single AS or between multiple
+      ASes/domains within a single provider network. Therefore, precaution is
+      necessary to ensure that the SR Policy information advertised via BGP
+      sessions is limited to nodes and/or controllers/applications in a secure
+      manner within this trusted SR domain. The general guidance for BGP-LS
+      with respect to isolation of BGP-LS sessions from BGP sessions for other
+      address-families (refer to the security considerations of <xref target="RFC9552" format="default"/>) may be used to ensure that the SR Policy information
+      is not advertised to an External BGP (EBGP) peering session
+      outside the SR domain by accident or error.</t>
+      <t>Additionally, it may be considered that the export of SR Policy
+      information, as described in this document, constitutes a risk to
+      the confidentiality of mission-critical or commercially sensitive
+      information about the network (more specifically, endpoint/node
+      addresses, SR SIDs, and the SR Policies deployed). BGP peerings are not
+      automatic and require configuration. Thus, it is the responsibility of
+      the network operator to ensure that only trusted nodes (that include
+      both routers and controller applications) within the SR domain are
+      configured to receive such information.</t>
+    </section>
+  </middle>
+  <back>
+
+    <displayreference target="I-D.ietf-idr-bgp-ls-te-path" to="BGP-LS-TE-PATH"/>
+    
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2328.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3630.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5329.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5340.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7471.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5440.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9552.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8402.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9843.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5305.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8570.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8697.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8664.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9256.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9086.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9514.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8986.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4655.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9830.xml"/>
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9831.xml"/>
+
+<!-- [I-D.ietf-idr-bgp-ls-te-path]
+draft-ietf-idr-bgp-ls-te-path-02
+IESG State: Expired as of 10/28/25.
+-->
+<reference anchor="I-D.ietf-idr-bgp-ls-te-path" target="https://datatracker.ietf.org/doc/html/draft-ietf-idr-bgp-ls-te-path-02">
+   <front>
+      <title>Advertisement of Traffic Engineering Paths using BGP Link-State</title>
+      <author initials="S." surname="Previdi" fullname="Stefano Previdi">
+         <organization>Individual</organization>
+      </author>
+      <author initials="K." surname="Talaulikar" fullname="Ketan Talaulikar" role="editor">
+         <organization>Cisco Systems</organization>
+      </author>
+      <author initials="J." surname="Dong" fullname="Jie Dong">
+         <organization>Huawei Technologies</organization>
+      </author>
+      <author initials="H." surname="Gredler" fullname="Hannes Gredler">
+         <organization>RtBrick Inc.</organization>
+      </author>
+      <author initials="J." surname="Tantsura" fullname="Jeff Tantsura">
+         <organization>Nvidia</organization>
+      </author>
+      <date month="November" day="11" year="2024" />
+   </front>
+   <seriesInfo name="Internet-Draft" value="draft-ietf-idr-bgp-ls-te-path-02" />
+   
+</reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2702.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4202.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7308.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6952.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8231.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5065.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8800.xml"/>
+	
+        <reference anchor="IEEE754" target="https://ieeexplore.ieee.org/document/8766229">
+          <front>
+            <title>IEEE Standard for Floating-Point Arithmetic</title>
+            <author>
+              <organization abbrev="IEEE">Institute of Electrical and Electronics
+            Engineers</organization>
+            </author>
+            <date day="22" month="July" year="2019"/>
+          </front>
+          <seriesInfo name="IEEE Std" value="754-2019"/>
+          <seriesInfo name="DOI" value="10.1109/ieeestd.2019.8766229"/>
+        </reference>
+      </references>
+    </references>
+      <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The authors would like to thank <contact fullname="Dhruv Dhody"/>,
+      <contact fullname="Mohammed Abdul Aziz Khalid"/>, <contact fullname="Lou
+      Berger"/>, <contact fullname="Acee Lindem"/>, <contact fullname="Siva
+      Sivabalan"/>, <contact fullname="Arjun Sreekantiah"/>, <contact
+      fullname="Dhanendra Jain"/>, <contact fullname="Francois Clad"/>,
+      <contact fullname="Zafar Ali"/>, <contact fullname="Stephane
+      Litkowski"/>, <contact fullname="Aravind Babu Mahendra Babu"/>, <contact
+      fullname="Geetanjalli Bhalla"/>, <contact fullname="Ahmed Bashandy"/>,
+      <contact fullname="Mike Koldychev"/>, <contact fullname="Samuel
+      Sidor"/>, <contact fullname="Alex Tokar"/>, <contact fullname="Rajesh
+      Melarcode Venkatesswaran"/>, <contact fullname="Lin Changwang"/>,
+      <contact fullname="Liu Yao"/>, <contact fullname="Joel Halpern"/>, and
+      <contact fullname="Ned Smith"/> for their reviews and valuable
+      comments. The authors would also like to thank <contact fullname="Susan
+      Hares"/> for her shepherd review and helpful comments to
+      improve this document. The authors would like to thank <contact
+      fullname="John Scudder"/> for his AD review and helpful suggestions to
+      improve this document.</t>
+    </section>
+    <section anchor="Contributors" numbered="false" toc="default">
+      
+      <name>Contributors</name>
+      <t>The following people have contributed substantially to the content of
+      this document and should be considered coauthors:</t>
+
+    <contact fullname="Clarence Filsfils">
+      <organization>Cisco Systems</organization>
+      <address>
+        <email>cfilsfil@cisco.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Mach(Guoyi) Chen">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <email>mach.chen@huawei.com</email>
+      </address>
+    </contact>
+    </section>
+  </back>
+</rfc>

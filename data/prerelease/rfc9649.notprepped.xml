@@ -1,0 +1,2718 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]>
+
+<rfc  xmlns:xi="http://www.w3.org/2001/XInclude"
+      submissionType="IETF"
+      category="info"
+      consensus="true"
+      docName="draft-zern-webp-15"
+      number="9649"
+      ipr="trust200902"
+      obsoletes=""
+      updates=""
+      xml:lang="en"
+      tocInclude="true"
+      tocDepth="4"
+      symRefs="true"
+      sortRefs="true"
+      version="3">
+
+ <front>
+   <title>WebP Image Format</title>
+   <seriesInfo name="RFC" value="9649"/>
+   <author fullname="James Zern" initials="J." surname="Zern">
+     <organization>Google LLC</organization>
+     <address>
+       <postal>
+         <street>1600 Amphitheatre Parkway</street>
+         <city>Mountain View</city>
+         <region>CA</region>
+         <code>94043</code>
+         <country>United States of America</country>
+       </postal>
+       <phone>+1 650 253-0000</phone>
+       <email>jzern@google.com</email>
+     </address>
+   </author>
+   <author fullname="Pascal Massimino" initials="P." surname="Massimino">
+     <organization>Google LLC</organization>
+     <address>
+       <email>pascal.massimino@gmail.com</email>
+     </address>
+   </author>
+   <author fullname="Jyrki Alakuijala" initials="J." surname="Alakuijala">
+     <organization>Google LLC</organization>
+     <address>
+       <email>jyrki.alakuijala@gmail.com</email>
+     </address>
+   </author>
+   <date year="2024" month="November"/>
+   <area>art</area>
+
+   <keyword>VP8</keyword>
+   <keyword>WebP</keyword>
+
+   <abstract>
+   <t>This document defines the WebP image format and registers a media type
+     supporting its use.</t>
+   </abstract>
+ </front>
+
+ <middle>
+   <section numbered="true" toc="default">
+     <name>Introduction</name>
+     <t>WebP is an image file format based on the <xref target="RIFF-spec">Resource Interchange File Format
+       (RIFF)</xref> (<xref target="webp-container"/>)
+       that supports lossless and lossy
+       compression as well as alpha (transparency) and animation. It covers use
+       cases similar to <xref target="JPEG-spec">JPEG</xref>,
+       <xref target="RFC2083">PNG</xref>, and the
+       <xref target="GIF-spec">Graphics Interchange Format (GIF)</xref>.</t>
+     <t>WebP consists of two compression algorithms used to reduce the size of
+       image pixel data, including alpha (transparency) information. Lossy
+       compression is achieved using VP8 intra-frame encoding <xref
+       target="RFC6386"/>. The <xref target="webp-lossless">lossless
+       algorithm</xref> stores and restores the pixel values exactly,
+       including the color values for fully transparent pixels. A universal algorithm for sequential data compression
+       <xref target="LZ77"/>, <xref target="Huffman">prefix coding</xref>,
+       and a color cache are used for compression of the bulk data.</t>
+   </section>
+   <section anchor="webp-container" numbered="true" toc="default">
+     <name>WebP Container Specification</name>
+     <aside><t>Note that this section is based on the documentation in the <xref
+     target="webp-riff-src">libwebp source repository</xref>.</t></aside>
+     <section numbered="true" toc="default">
+       <name>Introduction (from "WebP Container Specification")</name>
+       <t>WebP is an image format that uses either (i) the VP8 intra-frame
+         encoding <xref target="RFC6386"/> to compress image data in a lossy
+           way or (ii) the <xref target="webp-lossless">WebP lossless
+             encoding</xref>. These encoding schemes should make it more
+               efficient than older formats, such as JPEG, GIF, and PNG. It is optimized for fast
+               image transfer over the network (for example, for websites). The WebP
+               format has feature parity (color profile, metadata, animation,
+               etc.) with other formats as well. This section describes the
+               structure of a WebP file.</t>
+       <t>The WebP container (that is, the RIFF container for WebP) allows feature
+         support over and above the basic use case of WebP (that is, a file
+         containing a single image encoded as a VP8 key frame). The WebP
+         container provides additional support for the following:</t>
+         <ul spacing="normal">
+           <li>Lossless Compression: An image can be losslessly compressed,
+           using the WebP lossless format.</li>
+           <li>Metadata: An image may have metadata stored in Exchangeable Image File Format <xref
+             target="Exif"/> or Extensible Metadata Platform <xref target="XMP"/> format.</li>
+           <li>Transparency: An image may have transparency, that is, an alpha
+           channel.</li>
+           <li>Color Profile: An image may have an embedded <xref
+           target="ICC">ICC profile (ICCP)</xref>.</li>
+           <li>Animation: An image may have multiple frames with pauses between
+             them, making it an animation.</li>
+         </ul>
+     </section>
+
+     <section anchor="terminology-amp-basics" numbered="true" toc="default">
+       <name>Terminology &amp; Basics</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/>
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+       <t>A WebP file contains either a still image (that is, an encoded matrix of
+         pixels) or an <xref target="animation">animation</xref>. Optionally,
+           it can also contain transparency information, a color profile, and
+           metadata. We refer to the matrix of pixels as the <em>canvas</em> of the
+           image.</t>
+       <t>Bit numbering in chunk diagrams starts at <tt>0</tt> for the most
+         significant bit ('MSB 0'), as described in <xref
+           target="RFC1166"/>.</t>
+
+       <t>Below are additional terms used throughout this section:</t>
+       <dl newline="true" spacing="normal" indent="4">
+         <dt>Reader/Writer</dt>
+         <dd>Code that reads WebP files is referred to as a <em>reader</em>,
+           while code that writes them is referred to as a
+         <em>writer</em>.</dd>
+         <dt>uint16</dt>
+         <dd>A 16-bit, little-endian, unsigned integer.</dd>
+         <dt>uint24</dt>
+         <dd>A 24-bit, little-endian, unsigned integer.</dd>
+         <dt>uint32</dt>
+         <dd>A 32-bit, little-endian, unsigned integer.</dd>
+         <dt>FourCC</dt>
+         <dd>A four-character code (FourCC) is a uint32 created by
+           concatenating four ASCII characters in little-endian order. This
+           means 'aaaa' (0x61616161) and 'AAAA' (0x41414141) are treated as
+           different FourCCs.</dd>
+         <dt>1-based</dt>
+         <dd>An unsigned integer field storing values offset by -1, for example, such
+           a field would store value <em>25</em> as <em>24</em>.</dd>
+         <dt>ChunkHeader('ABCD')</dt>
+         <dd>Used to describe the <em>FourCC</em> and <em>Chunk
+           Size</em> header of individual chunks, where 'ABCD' is the FourCC
+             for the chunk. This element's size is 8 bytes.</dd>
+       </dl>
+     </section>
+     <section anchor="riff-file-format" numbered="true" toc="default">
+       <name>RIFF File Format</name>
+
+       <t>The WebP file format is based on the <xref
+         target="RIFF-spec">RIFF</xref>
+           document format.</t>
+
+       <t>The basic element of a RIFF file is a <em>chunk</em>. It consists
+         of:</t>
+       <figure>
+         <name>'RIFF' Chunk Structure</name>
+         <artwork name="" type="ascii-art" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                         Chunk FourCC                          |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                          Chunk Size                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                         Chunk Payload                         :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+         </figure>
+         <dl newline="true" spacing="normal" indent="4">
+           <dt>Chunk FourCC: 32 bits</dt>
+           <dd>ASCII four-character code used for chunk identification.</dd>
+           <dt>Chunk Size: 32 bits (<em>uint32</em>)</dt>
+           <dd>The size of the chunk in bytes, not including this field, the
+             chunk identifier, or padding.</dd>
+           <dt>Chunk Payload: <em>Chunk Size</em> bytes</dt>
+           <dd>The data payload. If <em>Chunk Size</em> is odd, a single
+             padding byte -- which <bcp14>MUST</bcp14> be <tt>0</tt> to conform with <xref
+               target="RIFF-spec">RIFF</xref> -- is added.</dd>
+         </dl>
+         <aside><t>Note: RIFF has a convention that all uppercase chunk FourCCs are
+           standard chunks that apply to any RIFF file format, while FourCCs
+           specific to a file format are all lowercase. WebP does not follow
+           this convention.</t></aside>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>WebP File Header</name>
+       <figure>
+         <name>WebP File Header Chunk</name>
+         <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      'R'      |      'I'      |      'F'      |      'F'      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                           File Size                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      'W'      |      'E'      |      'B'      |      'P'      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+       </figure>
+
+       <dl newline="true" spacing="normal" indent="4">
+         <dt>'RIFF': 32 bits</dt>
+         <dd>The ASCII characters 'R', 'I', 'F', 'F'.</dd>
+         <dt>File Size: 32 bits (<em>uint32</em>)</dt>
+         <dd>The size of the file in bytes, starting at offset 8. The maximum
+           value of this field is 2<sup>32</sup> minus 10 bytes, and thus the size of the
+           whole file is at most 4 GiB minus 2 bytes.</dd>
+         <dt>'WEBP': 32 bits</dt>
+         <dd>The ASCII characters 'W', 'E', 'B', 'P'.</dd>
+       </dl>
+
+       <t>A WebP file <bcp14>MUST</bcp14> begin with a RIFF header with the FourCC 'WEBP'. The
+         file size in the header is the total size of the chunks that follow
+         plus <tt>4</tt> bytes for the 'WEBP' FourCC. The file <bcp14>SHOULD NOT</bcp14>
+         contain any data after the data specified by <em>File Size</em>.
+         Readers <bcp14>MAY</bcp14> parse such files, ignoring the trailing data. As the size
+         of any chunk is even, the size given by the RIFF header is also even.
+         The contents of individual chunks are described in the following
+         sections.</t>
+     </section>
+
+     <section anchor="simple-file-format-lossy" numbered="true" toc="default">
+       <name>Simple File Format (Lossy)</name>
+
+       <t>This layout <bcp14>SHOULD</bcp14> be used if the image requires lossy encoding and
+         does not require transparency or other advanced features provided by
+         the extended format. Files with this layout are smaller and supported
+       by older software.</t>
+
+       <figure>
+         <name>Simple WebP (Lossy) File Format</name>
+         <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                    WebP file header (12 bytes)                |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                        'VP8 ' Chunk                           :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+       </figure>
+       <figure>
+         <name>'VP8 ' Chunk</name>
+         <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('VP8 ')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                           VP8 data                            :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+       </figure>
+
+      <dl newline="true" spacing="normal" indent="4">
+        <dt>VP8 data: <em>Chunk Size</em> bytes</dt>
+        <dd>VP8 bitstream data.</dd>
+      </dl>
+
+      <aside><t>Note that the fourth character in the 'VP8 ' FourCC is an ASCII space
+        (0x20).</t></aside>
+
+      <t>The VP8 bitstream format specification is described in <xref
+        target="RFC6386"/>.</t><aside><t>Note that the VP8 frame header contains the VP8
+        frame width and height. That is assumed to be the width and height of
+        the canvas.</t></aside>
+
+      <t>The VP8 specification describes how to decode the image into Y'CbCr
+        format. To convert to RGB, <xref target="REC601">Recommendation 601</xref> <bcp14>SHOULD</bcp14>
+          be used. Applications <bcp14>MAY</bcp14> use another conversion method, but visual
+          results may differ among decoders.</t>
+     </section>
+     <section anchor="simple-file-format-lossless" numbered="true"
+       toc="default">
+       <name>Simple File Format (Lossless)</name>
+       <aside><t>Note: Older readers may not support files using the lossless
+         format.</t></aside>
+       <t>This layout <bcp14>SHOULD</bcp14> be used if the image requires lossless encoding
+         (with an optional transparency channel) and does not require advanced
+       features provided by the extended format.</t>
+
+       <figure>
+         <name>Simple WebP (Lossless) File Format</name>
+         <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                    WebP file header (12 bytes)                |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                         'VP8L' Chunk                          :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+       </figure>
+
+       <figure>
+         <name>'VP8L' Chunk</name>
+         <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('VP8L')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                           VP8L data                           :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+       </figure>
+
+       <dl newline="true" spacing="normal" indent="4">
+         <dt>VP8L data: <em>Chunk Size</em> bytes</dt>
+         <dd>VP8L bitstream data.</dd>
+       </dl>
+
+       <t>The specification of the VP8L bitstream can be found in <xref
+         target="webp-lossless"/>.</t><aside><t>Note that the VP8L header contains the
+         VP8L image width and height. That is assumed to be the width and
+         height of the canvas.</t></aside>
+     </section>
+
+     <section anchor="ext-file-form" numbered="true" toc="default">
+       <name>Extended File Format</name>
+       <aside><t>Note: Older readers may not support files using the extended
+         format.</t></aside>
+
+       <t>An extended format file consists of:</t>
+       <ul spacing="normal">
+         <li>A 'VP8X' Chunk with information about features used in the
+           file.</li>
+         <li>An optional 'ICCP' Chunk with a color profile.</li>
+         <li>An optional 'ANIM' Chunk with animation control data.</li>
+         <li>Image data.</li>
+         <li>An optional 'EXIF' Chunk with Exif metadata.</li>
+         <li>An optional 'XMP ' Chunk with XMP metadata.</li>
+         <li>An optional list of <xref target="unknown-chunks">unknown
+           chunks</xref>.</li>
+       </ul>
+
+       <t>For a <em>still image</em>, the <em>image data</em> consists of a
+         single frame, which is made up of:</t>
+
+       <ul spacing="normal">
+         <li>An optional <xref target="alpha">alpha subchunk</xref>.</li>
+         <li>A <xref target="bitstream-vp8vp8l">bitstream subchunk</xref>.</li>
+       </ul>
+
+       <t>For an <em>animated image</em>, the <em>image data</em> consists of
+         multiple frames. More details about frames can be found in <xref
+           target="animation"/>.</t>
+
+       <t>All chunks necessary for reconstruction and color correction, that is,
+         'VP8X', 'ICCP', 'ANIM', 'ANMF', 'ALPH', 'VP8 ', and 'VP8L',
+         <bcp14>MUST</bcp14> appear in the order described earlier. Readers
+         <bcp14>SHOULD</bcp14> fail when chunks necessary for reconstruction and
+         color correction are out of order.</t>
+
+       <t><xref target="metadata">Metadata</xref> and <xref
+         target="unknown-chunks">unknown chunks</xref> MAY appear out of
+           order.</t>
+
+       <aside><t>Rationale: The chunks necessary for reconstruction should
+         appear first in the file to allow a reader to begin decoding an image
+         before receiving all of the data. An application may benefit from
+         varying the order of metadata and custom chunks to suit the
+         implementation.</t></aside>
+
+       <figure anchor="extended_header">
+         <name>Extended WebP File Header</name>
+         <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
+|                   WebP file header (12 bytes)                 |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('VP8X')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Rsv|I|L|E|X|A|R|                   Reserved                    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Canvas Width Minus One               |             ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+...  Canvas Height Minus One    |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+           ]]></artwork>
+       </figure>
+
+       <dl newline="true" spacing="normal" indent="4">
+         <dt>Reserved (Rsv): 2 bits</dt>
+         <dd><bcp14>MUST</bcp14> be <tt>0</tt>. Readers <bcp14>MUST</bcp14> ignore this field.</dd>
+         <dt>ICC profile (I): 1 bit</dt>
+         <dd>Set if the file contains an 'ICCP' Chunk.</dd>
+         <dt>Alpha (L): 1 bit</dt>
+         <dd>Set if any of the frames of the image contain transparency
+           information ("alpha").</dd>
+         <dt>Exif metadata (E): 1 bit</dt>
+         <dd>Set if the file contains Exif metadata.</dd>
+         <dt>XMP metadata (X): 1 bit</dt>
+         <dd>Set if the file contains XMP metadata.</dd>
+         <dt>Animation (A): 1 bit</dt>
+         <dd>Set if this is an animated image. Data in 'ANIM' and 'ANMF' Chunks
+           should be used to control the animation.</dd>
+         <dt>Reserved (R): 1 bit</dt>
+         <dd><bcp14>MUST</bcp14> be <tt>0</tt>. Readers <bcp14>MUST</bcp14> ignore this field.</dd>
+         <dt>Reserved: 24 bits</dt>
+         <dd><bcp14>MUST</bcp14> be <tt>0</tt>. Readers <bcp14>MUST</bcp14> ignore this field.</dd>
+         <dt>Canvas Width Minus One: 24 bits</dt>
+         <dd><em>1-based</em> width of the canvas in pixels. The actual canvas
+           width is <tt>1 + Canvas Width Minus One</tt>.</dd>
+         <dt>Canvas Height Minus One: 24 bits</dt>
+         <dd><em>1-based</em> height of the canvas in pixels. The actual canvas
+           height is <tt>1 + Canvas Height Minus One</tt>.</dd>
+       </dl>
+
+       <t>The product of <em>Canvas Width</em> and <em>Canvas Height</em> <bcp14>MUST</bcp14>
+         be at most <tt>2<sup>32</sup> - 1</tt>.</t>
+       <t>Future specifications may add more fields. Unknown fields <bcp14>MUST</bcp14> be
+         ignored.</t>
+
+       <section numbered="true" toc="default">
+         <name>Chunks</name>
+         <section anchor="animation" numbered="true" toc="default">
+           <name>Animation</name>
+
+           <t>An animation is controlled by 'ANIM' and 'ANMF' Chunks.</t>
+
+           <figure anchor="anim_chunk">
+             <name>'ANIM' Chunk</name>
+             <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('ANIM')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                       Background Color                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|          Loop Count           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+               ]]></artwork>
+           </figure>
+
+           <t>For an animated image, this chunk contains the <em>global
+             parameters</em> of the animation.</t>
+
+           <dl newline="true" spacing="normal" indent="4">
+             <dt>Background Color: 32 bits (<em>uint32</em>)</dt>
+             <dd>
+               <t>The default background color of the canvas in [Blue, Green,
+                 Red, Alpha] byte order. This color <bcp14>MAY</bcp14> be used to fill the
+                 unused space on the canvas around the frames, as well as the
+                 transparent pixels of the first frame. The background color is
+                 also used when the Disposal method is <tt>1</tt>.</t>
+               <t>Notes:</t>
+               <ul spacing="normal">
+                 <li>The background color <bcp14>MAY</bcp14> contain a nonopaque alpha value,
+                   even if the <em>Alpha</em> flag in the <xref
+                     target="extended_header">'VP8X' Chunk</xref> is unset.</li>
+                 <li>Viewer applications <bcp14>SHOULD</bcp14> treat the background color value
+                   as a hint and are not required to use it.</li>
+                 <li>The canvas is cleared at the start of each loop. The
+                   background color <bcp14>MAY</bcp14> be used to achieve this.</li>
+               </ul>
+             </dd>
+
+             <dt>Loop Count: 16 bits (<em>uint16</em>)</dt>
+             <dd>The number of times to loop the animation. If it is <tt>0</tt>, this means
+               infinitely.</dd>
+           </dl>
+
+           <t>This chunk <bcp14>MUST</bcp14> appear if the <em>Animation</em> flag in the 'VP8X'
+             Chunk is set. If the <em>Animation</em> flag is not set and this
+               chunk is present, it <bcp14>MUST</bcp14> be ignored.</t>
+
+             <figure>
+               <name>'ANMF' Chunk</name>
+               <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('ANMF')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                        Frame X                |             ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+...          Frame Y            |   Frame Width Minus One     ...
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+...             |           Frame Height Minus One              |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                 Frame Duration                |  Reserved |B|D|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                         Frame Data                            :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+                 ]]></artwork>
+             </figure>
+
+             <t>For animated images, this chunk contains information about a
+             <em>single</em> frame. If the <em>Animation flag</em> is not set,
+               then this chunk <bcp14>SHOULD NOT</bcp14> be present.</t>
+
+             <dl newline="true" spacing="normal" indent="4">
+               <dt>Frame X: 24 bits (<em>uint24</em>)</dt>
+               <dd>The X coordinate of the upper left corner of the frame is
+                <tt>Frame X * 2</tt>.</dd>
+               <dt>Frame Y: 24 bits (<em>uint24</em>)</dt>
+               <dd>The Y coordinate of the upper left corner of the frame is
+                 <tt>Frame Y * 2</tt>.</dd>
+               <dt>Frame Width Minus One: 24 bits (<em>uint24</em>)</dt>
+               <dd>The <em>1-based</em> width of the frame. The frame width is
+                 <tt>1 + Frame Width Minus One</tt>.</dd>
+               <dt>Frame Height Minus One: 24 bits (<em>uint24</em>)</dt>
+               <dd>The <em>1-based</em> height of the frame. The frame height
+                 is <tt>1 + Frame Height Minus One</tt>.</dd>
+               <dt>Frame Duration: 24 bits (<em>uint24</em>)</dt>
+               <dd>The time to wait before displaying the next frame, in
+         1-millisecond units. Note that the interpretation of the Frame Duration
+                 of 0 (and often &lt;= 10) is defined by the implementation. Many
+                 tools and browsers assign a minimum duration similar to
+                 GIF.</dd>
+               <dt>Reserved: 6 bits</dt>
+               <dd><bcp14>MUST</bcp14> be <tt>0</tt>. Readers <bcp14>MUST</bcp14> ignore this field.</dd>
+               <dt>Blending method (B): 1 bit</dt>
+               <dd><t>Indicates how transparent pixels of <em>the current
+                 frame</em> are to be blended with corresponding pixels of the
+                   previous canvas:</t>
+                 <ul spacing="normal">
+                   <li><tt>0</tt>: Use alpha-blending. After disposing of the
+                     previous frame, render the current frame on the canvas
+                     using <xref target="alpha-blending" format="none">alpha-blending</xref>.
+                       If the current frame does not have an alpha channel,
+                       assume the alpha value is 255, effectively replacing the
+                       rectangle.</li>
+                   <li><tt>1</tt>: Do not blend. After disposing of the
+                     previous frame, render the current frame on the canvas by
+                     overwriting the rectangle covered by the current
+                     frame.</li>
+                 </ul>
+               </dd>
+               <dt>Disposal method (D): 1 bit</dt>
+               <dd><t>Indicates how <em>the current frame</em> is to be treated
+                 after it has been displayed (before rendering the next frame)
+                 on the canvas:</t>
+                 <ul spacing="normal">
+                   <li><tt>0</tt>: Do not dispose. Leave the canvas as is.</li>
+                   <li><tt>1</tt>: Dispose to the background color. Fill the
+                     <em>rectangle</em> on the canvas covered by the <em>current
+                     frame</em> with the background color specified in the <xref
+                       target="anim_chunk">'ANIM' Chunk</xref>.</li>
+                 </ul>
+                 <t>Notes:</t>
+                 <ul spacing="normal">
+                   <li>The frame disposal only applies to the <em>frame
+                     rectangle</em>, that is, the rectangle defined by
+                     <em>Frame X</em>, <em>Frame Y</em>, <em>frame width</em>,
+                     and <em>frame height</em>. It may or may not cover the
+                   whole canvas.</li>
+                   <li anchor="alpha-blending"><t>Alpha-blending:</t>
+                     <t>Given that each of the R, G, B, and A channels is 8 bits
+                       and the RGB channels are <em>not premultiplied</em> by
+                       alpha, the formula for blending 'dst' onto 'src' is:</t>
+
+                     <sourcecode type="pseudocode"><![CDATA[
+blend.A = src.A + dst.A * (1 - src.A / 255)
+if blend.A = 0 then
+  blend.RGB = 0
+else
+  blend.RGB =
+      (src.RGB * src.A +
+       dst.RGB * dst.A * (1 - src.A / 255)) / blend.A
+                       ]]></sourcecode>
+                   </li>
+                   <li>Alpha-blending <bcp14>SHOULD</bcp14> be done in linear color space by
+                     taking into account the <xref target="color-profile">color
+                       profile</xref> of the image. If the color profile is not
+                         present, standard RGB (sRGB) is to be assumed. (Note that sRGB also
+                         needs to be linearized due to a gamma of ~2.2.)</li>
+                 </ul>
+               </dd>
+               <dt>Frame Data: <em>Chunk Size</em> bytes - <tt>16</tt></dt>
+               <dd><t>Consists of:</t>
+                 <ul spacing="normal">
+                   <li>An optional <xref target="alpha">alpha subchunk</xref>
+                       for the frame.</li>
+                   <li>A <xref target="bitstream-vp8vp8l">bitstream
+                     subchunk</xref> for the frame.</li>
+                   <li>An optional list of <xref
+                     target="unknown-chunks">unknown chunks</xref>.</li>
+                 </ul>
+               </dd>
+             </dl>
+             <aside><t>Note: The 'ANMF' payload, <em>Frame Data</em>, consists
+               of individual <em>padded</em> chunks, as described by the <xref
+                 target="riff-file-format">RIFF file format</xref>.</t></aside>
+         </section>
+         <section anchor="alpha" numbered="true" toc="default">
+           <name>Alpha</name>
+           <figure>
+             <name>'ALPH' Chunk</name>
+             <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('ALPH')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|Rsv| P | F | C |     Alpha Bitstream...                        |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+               ]]></artwork>
+           </figure>
+
+           <dl newline="true" spacing="normal" indent="4">
+             <dt>Reserved (Rsv): 2 bits</dt>
+             <dd><bcp14>MUST</bcp14> be <tt>0</tt>. Readers <bcp14>MUST</bcp14> ignore this field.</dd>
+             <dt>Preprocessing (P): 2 bits</dt>
+             <dd><t>These informative bits are used to signal the
+               preprocessing that has been performed during compression. The
+               decoder can use this information to, for example, dither the values or
+               smooth the gradients prior to display.</t>
+               <ul spacing="normal">
+                 <li><tt>0</tt>: No preprocessing.</li>
+                 <li><tt>1</tt>: Level reduction.</li>
+               </ul>
+               <t>Decoders are not required to use this information in any
+                 specified way.</t>
+             </dd>
+             <dt>Filtering method (F): 2 bits</dt>
+             <dd><t>The filtering methods used are described as follows:</t>
+               <ul spacing="normal">
+                 <li><tt>0</tt>: None.</li>
+                 <li><tt>1</tt>: Horizontal filter.</li>
+                 <li><tt>2</tt>: Vertical filter.</li>
+                 <li><tt>3</tt>: Gradient filter.</li>
+               </ul>
+
+               <t>For each pixel, filtering is performed using the following
+                 calculations. Assume the alpha values surrounding the current
+               <tt>X</tt> position are labeled as:</t>
+               <figure>
+                 <name>Pixels Used in Alpha Filtering</name>
+                 <artwork name="" type="" align="left" alt=""><![CDATA[
+ C | B |
+---+---+
+ A | X |
+                   ]]></artwork>
+               </figure>
+
+               <t>We seek to compute the alpha value at position X. First, a
+                 prediction is made depending on the filtering method:</t>
+
+               <ul spacing="normal">
+                 <li>Method <tt>0</tt>: predictor = 0</li>
+                 <li>Method <tt>1</tt>: predictor = A</li>
+                 <li>Method <tt>2</tt>: predictor = B</li>
+                 <li>Method <tt>3</tt>: predictor = clip(A + B - C)</li>
+               </ul>
+
+               <t>where <tt>clip(v)</tt> is equal to:</t>
+               <ul spacing="normal">
+                 <li>0    if v &lt; 0,</li>
+                 <li>255  if v &gt; 255, or</li>
+                 <li>v    otherwise.</li>
+               </ul>
+
+               <t>The final value is derived by adding the decompressed value
+                 <tt>X</tt> to the predictor and using modulo-256 arithmetic to
+                 wrap the [256..511] range into the [0..255] one:</t>
+
+               <sourcecode type="c"><![CDATA[
+alpha = (predictor + X) % 256
+                 ]]></sourcecode>
+
+               <t>There are special cases for the left-most and top-most pixel
+                 positions.</t>
+                 <t>For example, the top-left value at location (0, 0) uses 0 as the predictor
+                 value. Otherwise:</t>
+               <ul spacing="normal">
+                 <li>For horizontal or gradient filtering methods, the
+                   left-most pixels at location (0, y) are predicted using the
+                   location (0, y-1) just above.</li>
+                 <li>For vertical or gradient filtering methods, the top-most
+                   pixels at location (x, 0) are predicted using the location
+                   (x-1, 0) on the left.</li>
+               </ul>
+             </dd>
+             <dt>Compression method (C): 2 bits</dt>
+             <dd><t>The compression method used:</t>
+               <ul spacing="normal">
+                 <li><tt>0</tt>: No compression.</li>
+                 <li><tt>1</tt>: Compressed using the WebP lossless format.</li>
+               </ul>
+             </dd>
+             <dt>Alpha bitstream: <em>Chunk Size</em> bytes - <tt>1</tt></dt>
+             <dd>Encoded alpha bitstream.</dd>
+           </dl>
+
+           <t>This optional chunk contains encoded alpha data for this frame. A
+             frame containing a 'VP8L' Chunk <bcp14>SHOULD NOT</bcp14> contain this chunk.</t>
+           <aside><t>Rationale: The transparency information is already part of the
+             'VP8L' Chunk.</t></aside>
+           <t>The alpha channel data is stored as uncompressed raw data
+             (when the compression method is '0') or compressed using the
+           lossless format (when the compression method is '1').</t>
+           <ul spacing="normal">
+             <li>Raw data: This consists of a byte sequence of length = width *
+               height, containing all the 8-bit transparency values in scan
+               order.</li>
+             <li><t>Lossless format compression: The byte sequence is a
+               compressed image-stream (as described in <xref
+                 target="webp-lossless"/>) of implicit dimensions width x
+                 height. That is, this image-stream does NOT contain any
+             headers describing the image dimensions.</t></li></ul>
+             <aside><t>Rationale: The dimensions are already known from other sources,
+             so storing them again would be redundant and prone to errors.</t></aside>
+	     <ul empty="true">
+              <li><t>Once the image-stream is decoded into Alpha, Red, Green, Blue (ARGB) color values,
+               following the process described in the lossless format
+               specification, the transparency information must be extracted
+               from the green channel of the ARGB quadruplet.</t></li></ul>
+               <aside><t>Rationale: The green channel is allowed extra transformation
+               steps in the specification -- unlike the other channels -- that
+               can improve compression.</t></aside>
+         </section>
+         <section anchor="bitstream-vp8vp8l" numbered="true" toc="default">
+           <name>Bitstream (VP8/VP8L)</name>
+           <t>This chunk contains compressed bitstream data for a single
+             frame.</t>
+           <t>A bitstream chunk may be either (i) a 'VP8 ' Chunk, using 'VP8 '
+             (note the significant fourth-character space) as its FourCC,
+           <em>or</em> (ii) a 'VP8L' Chunk, using 'VP8L' as its FourCC.</t>
+           <t>The formats of' VP8 ' and 'VP8L' Chunks are as described in Sections <xref
+             target="simple-file-format-lossy" format="counter"/> and <xref
+               target="simple-file-format-lossless" format="counter"/>, respectively.</t>
+         </section>
+         <section anchor="color-profile" numbered="true" toc="default">
+           <name>Color Profile</name>
+           <figure>
+             <name>'ICCP' Chunk</name>
+             <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('ICCP')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                       Color Profile                           :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+               ]]></artwork>
+           </figure>
+
+           <dl newline="true" spacing="normal" indent="4">
+             <dt>Color Profile: <em>Chunk Size</em> bytes</dt>
+             <dd>ICC profile.</dd>
+           </dl>
+           <t>This chunk <bcp14>MUST</bcp14> appear before the image data.</t>
+           <t>There <bcp14>SHOULD</bcp14> be at most one such chunk. If there are more such
+             chunks, readers <bcp14>MAY</bcp14> ignore all except the first one. See the <xref
+               target="ICC">ICC specification</xref> for details.</t>
+           <t>If this chunk is not present, sRGB <bcp14>SHOULD</bcp14> be assumed.</t>
+         </section>
+         <section anchor="metadata" numbered="true" toc="default">
+           <name>Metadata</name>
+           <t>Metadata can be stored in 'EXIF' or 'XMP ' Chunks.</t>
+           <t>There <bcp14>SHOULD</bcp14> be at most one chunk of each type ('EXIF' and 'XMP '). If there are more such chunks, readers <bcp14>MAY</bcp14> ignore all except
+             the first one.</t>
+             <t>The chunks are defined as follows:</t>
+
+           <figure>
+             <name>'EXIF' Chunk</name>
+             <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('EXIF')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                        Exif Metadata                          :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+               ]]></artwork>
+           </figure>
+
+           <dl newline="true" spacing="normal" indent="4">
+             <dt>Exif Metadata: <em>Chunk Size</em> bytes</dt>
+             <dd>Image metadata in <xref target="Exif"/> format.</dd>
+           </dl>
+           <figure>
+             <name>'XMP ' Chunk</name>
+             <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                      ChunkHeader('XMP ')                      |
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                        XMP Metadata                           :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+               ]]></artwork>
+           </figure>
+
+           <dl newline="true" spacing="normal" indent="4">
+             <dt>XMP Metadata: <em>Chunk Size</em> bytes</dt>
+             <dd>Image metadata in <xref target="XMP"/> format.</dd>
+           </dl>
+           <aside><t>Note that the fourth character in the 'XMP ' FourCC is an ASCII space
+             (0x20).</t></aside>
+           <t>Additional guidance about handling metadata can be found in the
+             Metadata Working Group's <xref target="MWG">"Guidelines For
+               Handling Image Metadata"</xref>.</t>
+         </section>
+         <section anchor="unknown-chunks" numbered="true" toc="default">
+           <name>Unknown Chunks</name>
+           <t>A RIFF chunk (described in <xref
+             target="riff-file-format"/>) whose <em>FourCC</em> is
+               different from any of the chunks described in this section is
+               considered an <em>unknown chunk</em>.</t>
+           <aside><t>Rationale: Allowing unknown chunks gives a provision for
+             future extension of the format and also allows storage of any
+             application-specific data.</t></aside>
+           <t>A file <bcp14>MAY</bcp14> contain unknown chunks:</t>
+           <ul spacing="normal">
+             <li>at the end of the file, as described in <xref
+               target="ext-file-form"/>, or</li>
+             <li>at the end of 'ANMF' Chunks, as described in <xref
+               target="animation"/>.</li>
+           </ul>
+           <t>Readers <bcp14>SHOULD</bcp14> ignore these chunks. Writers <bcp14>SHOULD</bcp14> preserve them
+             in their original order (unless they specifically intend to modify
+             these chunks).</t>
+         </section>
+       </section>
+       <section numbered="true" toc="default">
+         <name>Canvas Assembly from Frames</name>
+         <t>Here, we provide an overview of how a reader <bcp14>MUST</bcp14> assemble a canvas
+         in the case of an animated image.</t>
+         <t>The process begins with creating a canvas using the dimensions
+           given in the 'VP8X' Chunk, <tt>Canvas Width Minus One + 1</tt>
+           pixels wide by <tt>Canvas Height Minus One + 1</tt> pixels high.
+           The <tt>Loop Count</tt> field from the 'ANIM' Chunk controls how
+           many times the animation process is repeated. This is <tt>Loop
+           Count - 1</tt> for nonzero <tt>Loop Count</tt> values or
+           infinite if the <tt>Loop Count</tt> is zero.</t>
+
+         <t>At the beginning of each loop iteration, the canvas is filled using
+           the background color from the 'ANIM' Chunk or an application-defined
+           color.</t>
+
+         <t>'ANMF' Chunks contain individual frames given in display order.
+           Before rendering each frame, the previous frame's <tt>Disposal
+         method</tt> is applied.</t>
+
+         <t>The rendering of the decoded frame begins at the Cartesian
+           coordinates (<tt>2 * Frame X</tt>, <tt>2 * Frame Y</tt>), using the
+           top-left corner of the canvas as the origin. <tt>Frame Width Minus
+           One + 1</tt> pixels wide by <tt>Frame Height Minus One + 1</tt>
+           pixels high are rendered onto the canvas using the <tt>Blending
+           method</tt>.</t>
+
+         <t>The canvas is displayed for <tt>Frame Duration</tt> milliseconds.
+           This continues until all frames given by 'ANMF' Chunks have been
+           displayed. A new loop iteration is then begun, or the canvas is left
+           in its final state if all iterations have been completed.</t>
+
+         <t>The following pseudocode illustrates the rendering process. The
+           notation <em>VP8X.field</em> means the field in the 'VP8X' Chunk
+             with the same description.</t>
+
+         <sourcecode type="pseudocode"><![CDATA[
+VP8X.flags.hasAnimation MUST be TRUE
+canvas <- new image of size VP8X.canvasWidth x VP8X.canvasHeight with
+          background color ANIM.background_color or
+          application-defined color.
+loop_count <- ANIM.loopCount
+dispose_method <- Dispose to background color
+if loop_count == 0:
+  loop_count = inf
+frame_params <- nil
+next chunk in image_data is ANMF MUST be TRUE
+for loop = 0..loop_count - 1
+  clear canvas to ANIM.background_color or application-defined color
+  until eof or non-ANMF chunk
+    frame_params.frameX = Frame X
+    frame_params.frameY = Frame Y
+    frame_params.frameWidth = Frame Width Minus One + 1
+    frame_params.frameHeight = Frame Height Minus One + 1
+    frame_params.frameDuration = Frame Duration
+    frame_right = frame_params.frameX + frame_params.frameWidth
+    frame_bottom = frame_params.frameY + frame_params.frameHeight
+    VP8X.canvasWidth >= frame_right MUST be TRUE
+    VP8X.canvasHeight >= frame_bottom MUST be TRUE
+    for subchunk in 'Frame Data':
+      if subchunk.tag == "ALPH":
+        alpha subchunks not found in 'Frame Data' earlier MUST be
+          TRUE
+        frame_params.alpha = alpha_data
+      else if subchunk.tag == "VP8 " OR subchunk.tag == "VP8L":
+        bitstream subchunks not found in 'Frame Data' earlier MUST
+          be TRUE
+        frame_params.bitstream = bitstream_data
+    apply dispose_method.
+    render frame with frame_params.alpha and frame_params.bitstream
+      on canvas with top-left corner at (frame_params.frameX,
+      frame_params.frameY), using Blending method
+      frame_params.blendingMethod.
+    canvas contains the decoded image.
+    Show the contents of the canvas for
+    frame_params.frameDuration * 1 ms.
+    dispose_method = frame_params.disposeMethod
+           ]]></sourcecode>
+       </section>
+       <section numbered="true" toc="default">
+         <name>Example File Layouts</name>
+         <t>A lossy-encoded image with alpha may look as follows:</t>
+         <figure>
+     <name>A Lossy-Encoded Image with Alpha</name>
+           <artwork name="" type="" align="left" alt=""><![CDATA[
+RIFF/WEBP
++- VP8X (descriptions of features used)
++- ALPH (alpha bitstream)
++- VP8 (bitstream)
+             ]]></artwork>
+         </figure>
+         <t>A lossless-encoded image may look as follows:</t>
+         <figure>
+     <name>A Lossless-Encoded Image</name>
+           <artwork name="" type="" align="left" alt=""><![CDATA[
+RIFF/WEBP
++- VP8X (descriptions of features used)
++- VP8L (lossless bitstream)
++- XYZW (unknown chunk)
+             ]]></artwork>
+         </figure>
+         <t>A lossless image with an ICC profile and XMP metadata may look as
+           follows:</t>
+           <figure>
+       <name>A Lossless Image with an ICC Profile and XMP Metadata</name>
+           <artwork name="" type="" align="left" alt=""><![CDATA[
+RIFF/WEBP
++- VP8X (descriptions of features used)
++- ICCP (color profile)
++- VP8L (lossless bitstream)
++- XMP  (metadata)
+             ]]></artwork>
+         </figure>
+         <t>An animated image with Exif metadata may look as follows:</t>
+         <figure>
+     <name>An Animated Image with Exif Metadata</name>
+           <artwork name="" type="" align="left" alt=""><![CDATA[
+RIFF/WEBP
++- VP8X (descriptions of features used)
++- ANIM (global animation parameters)
++- ANMF (frame1 parameters + data)
++- ANMF (frame2 parameters + data)
++- ANMF (frame3 parameters + data)
++- ANMF (frame4 parameters + data)
++- EXIF (metadata)
+             ]]></artwork>
+         </figure>
+       </section>
+     </section>
+   </section>
+
+   <section anchor="webp-lossless" numbered="true" toc="default">
+     <name>Specification for WebP Lossless Bitstream</name>
+     <aside><t>Note that this section is based on the documentation in the <xref
+       target="webp-lossless-src">libwebp source repository</xref>.</t></aside>
+     <section numbered="true" toc="default">
+       <name>Abstract (from "Specification for WebP Lossless Bitstream")</name>
+       <t>WebP lossless is an image format for lossless compression of ARGB
+         images. The lossless format stores and restores the pixel values
+         exactly, including the color values for pixels whose alpha value is 0.
+         The format uses subresolution images, recursively embedded into the
+         format itself, for storing statistical data about the images, such as
+         the used entropy codes, spatial predictors, color space conversion,
+         and color table. A universal algorithm for sequential data compression <xref target="LZ77"/>, prefix coding, and a color cache are used for
+         compression of the bulk data. Decoding speeds faster than PNG have
+         been demonstrated, as well as 25% denser compression than can be
+         achieved using today's PNG format <xref
+           target="webp-lossless-study"/>.</t>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>Introduction (from "Specification for WebP Lossless Bitstream")
+</name>
+       <t>This section describes the compressed data representation of a WebP
+         lossless image.</t>
+       <t>In this section, we extensively use C programming language syntax
+         <xref target="ISO.9899.2018"/> to describe the bitstream and assume the
+         existence of a function for reading bits, <tt>ReadBits(n)</tt>. The
+         bytes are read in the natural order of the stream containing them, and
+         bits of each byte are read in least-significant-bit-first order. When
+         multiple bits are read at the same time, the integer is constructed
+         from the original data in the original order. The most significant
+         bits of the returned integer are also the most significant bits of the
+           original data. Thus, the statement</t>
+
+       <sourcecode type="c"><![CDATA[
+b = ReadBits(2);
+         ]]></sourcecode>
+
+       <t>is equivalent with the two statements below:</t>
+
+       <sourcecode type="c"><![CDATA[
+b = ReadBits(1);
+b |= ReadBits(1) << 1;
+         ]]></sourcecode>
+
+       <t>We assume that each color component (that is, alpha, red, blue, and
+         green) is represented using an 8-bit byte. We define the corresponding
+         type as uint8. A whole ARGB pixel is represented by a type called
+         uint32, which is an unsigned integer consisting of 32 bits. In the code showing
+         the behavior of the transforms, these values are codified in the following bits: alpha in bits
+         31..24, red in bits 23..16, green in bits 15..8, and blue in bits 7..0;
+         however, implementations of the format are free to use another
+       representation internally.</t>
+       <t>Broadly, a WebP lossless image contains header data, transform
+         information, and actual image data. Headers contain the width and height of
+         the image. A WebP lossless image can go through four different types
+         of transforms before being entropy encoded. The transform
+         information in the bitstream contains the data required to apply the
+         respective inverse transforms.</t>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>Nomenclature</name>
+       <dl newline="true" spacing="normal" indent="4">
+         <dt>ARGB</dt>
+         <dd>A pixel value consisting of alpha, red, green, and blue
+           values.</dd>
+         <dt>ARGB image</dt>
+         <dd>A two-dimensional array containing ARGB pixels.</dd>
+         <dt>color cache</dt>
+         <dd>A small hash-addressed array to store recently used colors to be
+           able to recall them with shorter codes.</dd>
+         <dt>color indexing image</dt>
+         <dd>A one-dimensional image of colors that can be indexed using a
+           small integer (up to 256 within WebP lossless).</dd>
+         <dt>color transform image</dt>
+         <dd>A two-dimensional subresolution image containing data about
+           correlations of color components.</dd>
+         <dt>distance mapping</dt>
+         <dd>Changes LZ77 distances to have the smallest values for pixels in
+           two-dimensional proximity.</dd>
+         <dt>entropy image</dt>
+         <dd>A two-dimensional subresolution image indicating which entropy
+           coding should be used in a respective square in the image, that is,
+         each pixel is a meta prefix code.</dd>
+         <dt>LZ77 <xref target="LZ77"/></dt>
+         <dd>A dictionary-based sliding window compression algorithm that either
+         emits symbols or describes them as sequences of past symbols.</dd>
+         <dt>meta prefix code</dt>
+         <dd>A small integer (up to 16 bits) that indexes an element in the
+         meta prefix table.</dd>
+         <dt>predictor image</dt>
+         <dd>A two-dimensional subresolution image indicating which spatial
+           predictor is used for a particular square in the image.</dd>
+         <dt>prefix code</dt>
+         <dd>A classic way to do entropy coding where a smaller number of bits
+           are used for more frequent codes.</dd>
+         <dt>prefix coding</dt>
+         <dd>A way to entropy code larger integers, which codes a few bits of the
+           integer using an entropy code and codifies the remaining bits raw.
+           This allows for the descriptions of the entropy codes to remain
+         relatively small even when the range of symbols is large.</dd>
+         <dt>scan-line order</dt>
+         <dd>A processing order of pixels (left to right and top to bottom),
+           starting from the left-hand-top pixel. Once
+           a row is completed, continue from the left-hand column of the next
+           row.</dd>
+       </dl>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>RIFF Header</name>
+       <t>The beginning of the header has the RIFF container. This consists of
+         the following 21 bytes:</t>
+
+       <ol spacing="normal">
+         <li>String 'RIFF'.</li>
+         <li>A little-endian, 32-bit value of the chunk length, which is the whole size
+           of the chunk controlled by the RIFF header. Normally, this equals the
+           payload size (file size minus 8 bytes: 4 bytes for the 'RIFF'
+           identifier and 4 bytes for storing the value itself).</li>
+         <li>String 'WEBP' (RIFF container name).</li>
+         <li>String 'VP8L' (FourCC for lossless-encoded image data).</li>
+         <li>A little-endian, 32-bit value of the number of bytes in the
+           lossless stream.</li>
+         <li>1-byte signature 0x2f.</li>
+       </ol>
+
+       <t>The first 28 bits of the bitstream specify the width and height of
+         the image. Width and height are decoded as 14-bit integers as
+         follows:</t>
+
+       <sourcecode type="c"><![CDATA[
+int image_width = ReadBits(14) + 1;
+int image_height = ReadBits(14) + 1;
+         ]]></sourcecode>
+
+       <t>The 14-bit precision for image width and height limits the maximum
+         size of a WebP lossless image to 16384x16384 pixels.</t>
+
+       <t>The alpha_is_used bit is a hint only and <bcp14>SHOULD NOT</bcp14> impact
+         decoding. It <bcp14>SHOULD</bcp14> be set to 0 when all alpha values are 255 in the
+         picture and 1 otherwise.</t>
+
+       <sourcecode type="c"><![CDATA[
+int alpha_is_used = ReadBits(1);
+         ]]></sourcecode>
+
+       <t>The version_number is a 3-bit code that <bcp14>MUST</bcp14> be set to 0. Any other
+         value <bcp14>MUST</bcp14> be treated as an error.</t>
+
+       <sourcecode type="c"><![CDATA[
+int version_number = ReadBits(3);
+         ]]></sourcecode>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>Transforms</name>
+       <t>The transforms are reversible manipulations of the image data that
+         can reduce the remaining symbolic entropy by modeling spatial and
+         color correlations. They can make the final compression
+         more dense.</t>
+
+       <t>An image can go through four types of transforms. A 1 bit
+         indicates the presence of a transform. Each transform is allowed to be
+         used only once. The transforms are used only for the main-level
+         ARGB image; the subresolution images (color transform image, entropy
+         image, and predictor image) have no transforms, not even the 0 bit
+         indicating the end of transforms.</t>
+
+       <aside><t>Typically, an encoder would use these transforms to reduce the
+         Shannon entropy in the residual image. Also, the transform data can be
+         decided based on entropy minimization.</t></aside>
+
+       <sourcecode type="c"><![CDATA[
+while (ReadBits(1)) {  // Transform present.
+  // Decode transform type.
+  enum TransformType transform_type = ReadBits(2);
+  // Decode transform data.
+  ...
+}
+
+// Decode actual image data.
+         ]]></sourcecode>
+
+       <t>If a transform is present, then the next two bits specify the
+         transform type. There are four types of transforms.</t>
+   <table align="left">
+     <name>Transform Types</name>
+     <thead>
+       <tr>
+         <th>Transform</th>
+         <th>Bit</th>
+       </tr>
+     </thead>
+     <tbody>
+       <tr>
+         <td>PREDICTOR_TRANSFORM</td>
+         <td>0</td>
+       </tr>
+       <tr>
+         <td>COLOR_TRANSFORM</td>
+         <td>1</td>
+       </tr>
+       <tr>
+         <td>SUBTRACT_GREEN_TRANSFORM</td>
+         <td>2</td>
+       </tr>
+       <tr>
+         <td>COLOR_INDEXING_TRANSFORM</td>
+         <td>3</td>
+       </tr>
+     </tbody>
+   </table>
+       <t>The transform type is followed by the transform data. Transform data
+         contains the information required to apply the inverse transform and
+         depends on the transform type. The inverse transforms are applied in
+         the reverse order that they are read from the bitstream, that is, last
+         one first.</t>
+       <t>Next, we describe the transform data for different types.</t>
+
+       <section anchor="predictor-transform" numbered="true" toc="default">
+         <name>Predictor Transform</name>
+         <t>The predictor transform can be used to reduce entropy by exploiting
+           the fact that neighboring pixels are often correlated. In the
+           predictor transform, the current pixel value is predicted from the
+           pixels already decoded (in scan-line order) and only the residual
+           value (actual - predicted) is encoded. The green component of a
+           pixel defines which of the 14 predictors is used within a particular
+           block of the ARGB image. The <em>prediction mode</em> determines the
+           type of prediction to use. We divide the image into squares, and all
+           the pixels in a square use the same prediction mode.</t>
+
+         <t>The first 3 bits of prediction data define the block width and
+           height in number of bits.</t>
+
+         <sourcecode type="c"><![CDATA[
+int size_bits = ReadBits(3) + 2;
+int block_width = (1 << size_bits);
+int block_height = (1 << size_bits);
+#define DIV_ROUND_UP(num, den) (((num) + (den) - 1) / (den))
+int transform_width = DIV_ROUND_UP(image_width, 1 << size_bits);
+           ]]></sourcecode>
+
+         <t>The transform data contains the prediction mode for each block of
+           the image. It is a subresolution image where the green component
+           of a pixel defines which of the 14 predictors is used for all the
+           <tt>block_width * block_height</tt> pixels within a particular
+           block of the ARGB image. This subresolution image is encoded using
+           the same techniques described in <xref target="image-data"/>.</t>
+
+         <t>The number of block columns,
+           <tt>transform_width</tt>, is used in two-dimensional indexing. For a pixel (x, y), one can compute the respective filter
+           block address by:</t>
+
+         <sourcecode type="c"><![CDATA[
+int block_index = (y >> size_bits) * transform_width +
+                  (x >> size_bits);
+           ]]></sourcecode>
+
+         <t>There are 14 different prediction modes. In each prediction mode,
+           the current pixel value is predicted from one or more neighboring
+           pixels whose values are already known.</t>
+
+         <t>We chose the neighboring pixels (TL, T, TR, and L) of the current
+           pixel (P) as follows:</t>
+
+         <figure>
+           <name>Neighboring Pixels of the Current Pixel (P)</name>
+           <artwork name="" type="ascii-art" align="left" alt=""><![CDATA[
+O    O    O    O    O    O    O    O    O    O    O
+O    O    O    O    O    O    O    O    O    O    O
+O    O    O    O    TL   T    TR   O    O    O    O
+O    O    O    O    L    P    X    X    X    X    X
+X    X    X    X    X    X    X    X    X    X    X
+X    X    X    X    X    X    X    X    X    X    X
+             ]]></artwork>
+         </figure>
+
+         <t>where TL means top-left, T means top, TR means top-right, and L means left. At the
+           time of predicting a value for P, all O, TL, T, TR, and L pixels have
+           already been processed, and the P pixel and all X pixels are
+           unknown.</t>
+
+         <t>Given the preceding neighboring pixels, the different prediction modes
+           are defined as follows.</t>
+
+     <table align="left">
+       <name>Prediction Modes</name>
+       <thead>
+         <tr>
+     <th>Mode</th>
+     <th>Predicted Value of Each Channel of the Current Pixel</th>
+         </tr>
+       </thead>
+       <tbody>
+         <tr>
+     <td>0</td>
+     <td>0xff000000 (represents solid black color in ARGB)</td>
+         </tr>
+         <tr>
+     <td>1</td>
+     <td>L</td>
+         </tr>
+         <tr>
+     <td>2</td>
+     <td>T</td>
+         </tr>
+         <tr>
+     <td>3</td>
+     <td>TR</td>
+         </tr>
+         <tr>
+     <td>4</td>
+     <td>TL</td>
+         </tr>
+         <tr>
+     <td>5</td>
+     <td>Average2(Average2(L, TR), T)</td>
+         </tr>
+         <tr>
+     <td>6</td>
+     <td>Average2(L, TL)</td>
+         </tr>
+         <tr>
+     <td>7</td>
+     <td>Average2(L, T)</td>
+         </tr>
+         <tr>
+     <td>8</td>
+     <td>Average2(TL, T)</td>
+         </tr>
+         <tr>
+     <td>9</td>
+     <td>Average2(T, TR)</td>
+         </tr>
+         <tr>
+     <td>10</td>
+     <td>Average2(Average2(L, TL), Average2(T, TR))</td>
+         </tr>
+         <tr>
+     <td>11</td>
+     <td>Select(L, T, TL)</td>
+         </tr>
+         <tr>
+     <td>12</td>
+     <td>ClampAddSubtractFull(L, T, TL)</td>
+         </tr>
+         <tr>
+     <td>13</td>
+     <td>ClampAddSubtractHalf(Average2(L, T), TL)</td>
+         </tr>
+       </tbody>
+     </table>
+         <t><tt>Average2</tt> is defined as follows for each ARGB
+           component:</t>
+
+         <sourcecode type="c"><![CDATA[
+uint8 Average2(uint8 a, uint8 b) {
+  return (a + b) / 2;
+}
+           ]]></sourcecode>
+
+         <t>The Select predictor is defined as follows:</t>
+
+         <sourcecode type="c"><![CDATA[
+uint32 Select(uint32 L, uint32 T, uint32 TL) {
+  // L = left pixel, T = top pixel, TL = top-left pixel.
+
+  // ARGB component estimates for prediction.
+  int pAlpha = ALPHA(L) + ALPHA(T) - ALPHA(TL);
+  int pRed = RED(L) + RED(T) - RED(TL);
+  int pGreen = GREEN(L) + GREEN(T) - GREEN(TL);
+  int pBlue = BLUE(L) + BLUE(T) - BLUE(TL);
+
+  // Manhattan distances to estimates for left and top pixels.
+  int pL = abs(pAlpha - ALPHA(L)) + abs(pRed - RED(L)) +
+           abs(pGreen - GREEN(L)) + abs(pBlue - BLUE(L));
+  int pT = abs(pAlpha - ALPHA(T)) + abs(pRed - RED(T)) +
+           abs(pGreen - GREEN(T)) + abs(pBlue - BLUE(T));
+
+  // Return either left or top, the one closer to the prediction.
+  if (pL < pT) {
+    return L;
+  } else {
+    return T;
+  }
+}
+           ]]></sourcecode>
+
+         <t>The functions <tt>ClampAddSubtractFull</tt> and
+           <tt>ClampAddSubtractHalf</tt> are performed for each ARGB component
+           as follows:</t>
+
+         <sourcecode type="c"><![CDATA[
+// Clamp the input value between 0 and 255.
+int Clamp(int a) {
+  return (a < 0) ? 0 : (a > 255) ? 255 : a;
+}
+
+int ClampAddSubtractFull(int a, int b, int c) {
+  return Clamp(a + b - c);
+}
+
+int ClampAddSubtractHalf(int a, int b) {
+  return Clamp(a + (a - b) / 2);
+}
+           ]]></sourcecode>
+
+         <t>There are special handling rules for some border pixels. If there
+           is a predictor transform, regardless of the mode [0..13] for these
+           pixels, the predicted value for the left-topmost pixel of the image
+           is 0xff000000, all pixels on the top row are L-pixel, and
+           all pixels on the leftmost column are T-pixel.</t>
+
+         <t>Addressing the TR-pixel for pixels on the rightmost column is
+           exceptional. The pixels on the rightmost column are predicted by
+           using the modes [0..13], just like pixels not on the border, but the
+           leftmost pixel on the same row as the current pixel is instead used
+           as the TR-pixel.</t>
+         <t>The final pixel value is obtained by adding each channel of the
+           predicted value to the encoded residual value.</t>
+
+         <sourcecode type="c"><![CDATA[
+void PredictorTransformOutput(uint32 residual, uint32 pred,
+                              uint8* alpha, uint8* red,
+                              uint8* green, uint8* blue) {
+  *alpha = ALPHA(residual) + ALPHA(pred);
+  *red = RED(residual) + RED(pred);
+  *green = GREEN(residual) + GREEN(pred);
+  *blue = BLUE(residual) + BLUE(pred);
+}
+           ]]></sourcecode>
+       </section>
+
+       <section anchor="color-transform" numbered="true" toc="default">
+         <name>Color Transform</name>
+         <t>The goal of the color transform is to decorrelate the R, G, and B
+           values of each pixel. The color transform keeps the green (G) value
+           as it is, transforms the red (R) value based on the green value, and transforms
+     the blue (B)
+           value based on the green value and then on the red value.</t>
+
+         <t>As is the case for the predictor transform, first the image is
+           divided into blocks, and the same transform mode is used for all the
+           pixels in a block. For each block, there are three types of color
+           transform elements.</t>
+
+         <sourcecode type="c"><![CDATA[
+typedef struct {
+  uint8 green_to_red;
+  uint8 green_to_blue;
+  uint8 red_to_blue;
+} ColorTransformElement;
+           ]]></sourcecode>
+
+         <t>The actual color transform is done by defining a color
+           transform delta. The color transform delta depends on the
+           <tt>ColorTransformElement</tt>, which is the same for all the pixels
+           in a particular block. The delta is subtracted during the color
+           transform. The inverse color transform then is just adding those
+           deltas.</t>
+
+         <t>The color transform function is defined as follows:</t>
+
+         <sourcecode type="c"><![CDATA[
+void ColorTransform(uint8 red, uint8 blue, uint8 green,
+                    ColorTransformElement *trans,
+                    uint8 *new_red, uint8 *new_blue) {
+  // Transformed values of red and blue components
+  int tmp_red = red;
+  int tmp_blue = blue;
+
+  // Applying the transform is just subtracting the transform deltas
+  tmp_red  -= ColorTransformDelta(trans->green_to_red,  green);
+  tmp_blue -= ColorTransformDelta(trans->green_to_blue, green);
+  tmp_blue -= ColorTransformDelta(trans->red_to_blue, red);
+
+  *new_red = tmp_red & 0xff;
+  *new_blue = tmp_blue & 0xff;
+}
+           ]]></sourcecode>
+
+         <t><tt>ColorTransformDelta</tt> is computed using a signed 8-bit
+           integer representing a 3.5-fixed-point number and a signed 8-bit
+           RGB color channel (c) [-128..127] and is defined as follows:</t>
+
+         <sourcecode type="c"><![CDATA[
+int8 ColorTransformDelta(int8 t, int8 c) {
+  return (t * c) >> 5;
+}
+           ]]></sourcecode>
+
+         <t>A conversion from the 8-bit unsigned representation
+           (<tt>uint8</tt>) to the 8-bit signed one (<tt>int8</tt>) is required
+           before calling <tt>ColorTransformDelta()</tt>.
+     The signed value should be interpreted as an 8-bit two's complement number (that is: uint8 range [128..255] is mapped
+           to the [-128..-1] range of its converted int8 value).</t>
+
+         <t>The multiplication is to be done using more precision (with at
+           least 16-bit precision). The sign extension property of the shift
+           operation does not matter here; only the lowest 8 bits are used from
+           the result, and in these bits, the sign extension shifting and
+           unsigned shifting are consistent with each other.</t>
+
+         <t>Now, we describe the contents of color transform data so that
+           decoding can apply the inverse color transform and recover the
+           original red and blue values. The first 3 bits of the color
+           transform data contain the width and height of the image block in
+           number of bits, just like the predictor transform:</t>
+
+         <sourcecode type="c"><![CDATA[
+int size_bits = ReadBits(3) + 2;
+int block_width = 1 << size_bits;
+int block_height = 1 << size_bits;
+           ]]></sourcecode>
+
+         <t>The remaining part of the color transform data contains
+           <tt>ColorTransformElement</tt> instances, corresponding to each block
+           of the image. Each <tt>ColorTransformElement</tt> <tt>'cte'</tt> is
+           treated as a pixel in a subresolution image whose alpha component is
+           <tt>255</tt>, red component is <tt>cte.red_to_blue</tt>, green
+           component is <tt>cte.green_to_blue</tt>, and blue component is
+           <tt>cte.green_to_red</tt>.</t>
+
+         <t>During decoding, <tt>ColorTransformElement</tt> instances of the
+           blocks are decoded and the inverse color transform is applied on the
+           ARGB values of the pixels. As mentioned earlier, that inverse color
+           transform is just adding <tt>ColorTransformElement</tt> values to
+           the red and blue channels. The alpha and green channels are left as
+           is.</t>
+
+         <sourcecode type="c"><![CDATA[
+void InverseTransform(uint8 red, uint8 green, uint8 blue,
+                      ColorTransformElement *trans,
+                      uint8 *new_red, uint8 *new_blue) {
+  // Transformed values of red and blue components
+  int tmp_red = red;
+  int tmp_blue = blue;
+
+  // Applying the inverse transform is just adding the
+  // color transform deltas
+  tmp_red  += ColorTransformDelta(trans->green_to_red, green);
+  tmp_blue += ColorTransformDelta(trans->green_to_blue, green);
+  tmp_blue +=
+      ColorTransformDelta(trans->red_to_blue, tmp_red & 0xff);
+
+  *new_red = tmp_red & 0xff;
+  *new_blue = tmp_blue & 0xff;
+}
+           ]]></sourcecode>
+       </section>
+
+       <section numbered="true" toc="default">
+         <name>Subtract Green Transform</name>
+         <t>The subtract green transform subtracts green values from red and
+           blue values of each pixel. When this transform is present, the
+           decoder needs to add the green value to both the red and blue values. There is
+           no data associated with this transform. The decoder applies the
+           inverse transform as follows:</t>
+
+         <sourcecode type="c"><![CDATA[
+void AddGreenToBlueAndRed(uint8 green, uint8 *red, uint8 *blue) {
+  *red  = (*red  + green) & 0xff;
+  *blue = (*blue + green) & 0xff;
+}
+           ]]></sourcecode>
+
+         <t>This transform is redundant, as it can be modeled using the color
+           transform, but since there is no additional data here, the subtract
+           green transform can be coded using fewer bits than a full-blown
+           color transform.</t>
+       </section>
+
+       <section anchor="color-indexing-transform" numbered="true"
+         toc="default">
+         <name>Color Indexing Transform</name>
+         <t>If there are not many unique pixel values, it may be more efficient
+           to create a color index array and replace the pixel values by the
+           array's indices. The color indexing transform achieves this. (In the
+           context of WebP lossless, we specifically do not call this a palette
+           transform because a similar but more dynamic concept exists in WebP
+           lossless encoding: color cache.)</t>
+
+         <t>The color indexing transform checks for the number of unique ARGB
+           values in the image. If that number is below a threshold (256), it
+           creates an array of those ARGB values, which is then used to replace
+           the pixel values with the corresponding index: the green channel of
+           the pixels are replaced with the index, all alpha values are set to
+           255, and all red and blue values are set to 0.</t>
+
+         <t>The transform data contains the color table size and the entries in the
+           color table. The decoder reads the color indexing transform data as
+           follows:</t>
+
+         <sourcecode type="c"><![CDATA[
+// 8-bit value for the color table size
+int color_table_size = ReadBits(8) + 1;
+           ]]></sourcecode>
+
+         <t>The color table is stored using the image storage format itself.
+           The color table can be obtained by reading an image, without the
+           RIFF header, image size, and transforms, assuming the height of 1
+           pixel and the width of <tt>color_table_size</tt>. The color table is
+             always subtraction-coded to reduce image entropy. The deltas of
+             palette colors contain typically much less entropy than the colors
+             themselves, leading to significant savings for smaller images. In
+             decoding, every final color in the color table can be obtained by
+             adding the previous color component values by each ARGB component
+             separately and storing the least significant 8 bits of the
+             result.</t>
+
+         <t>The inverse transform for the image is simply replacing the pixel
+           values (which are indices to the color table) with the actual color
+           table values. The indexing is done based on the green component of
+           the ARGB color.</t>
+
+         <sourcecode type="c"><![CDATA[
+// Inverse transform
+argb = color_table[GREEN(argb)];
+           ]]></sourcecode>
+
+         <t>If the index is equal to or larger than <tt>color_table_size</tt>, the
+           argb color value should be set to 0x00000000 (transparent
+           black).</t>
+
+         <t>When the color table is small (equal to or less than 16 colors),
+           several pixels are bundled into a single pixel. The pixel bundling
+           packs several (2, 4, or 8) pixels into a single pixel, reducing the
+           image width respectively.</t>
+         <aside><t>Pixel bundling allows for a more efficient
+           joint distribution entropy coding of neighboring pixels and gives
+           some arithmetic coding-like benefits to the entropy code, but it can
+           only be used when there are 16 or fewer unique values.</t></aside>
+
+         <t><tt>color_table_size</tt> specifies how many pixels are
+           combined:</t>
+     <table align="left">
+       <name>Color Table Size to Bundled Pixel Bit Width Mapping</name>
+       <thead>
+         <tr>
+     <th>color_table_size</th>
+     <th>width_bits value</th>
+         </tr>
+       </thead>
+       <tbody>
+         <tr>
+     <td>1..2</td>
+     <td>3</td>
+         </tr>
+         <tr>
+     <td>3..4</td>
+     <td>2</td>
+         </tr>
+         <tr>
+     <td>5..16</td>
+     <td>1</td>
+         </tr>
+         <tr>
+     <td>17..256</td>
+     <td>0</td>
+         </tr>
+       </tbody>
+     </table>
+         <t><tt>width_bits</tt> has a value of 0, 1, 2, or 3. A value of 0
+           indicates no pixel bundling is to be done for the image. A value of
+           1 indicates that two pixels are combined, and each pixel has a range
+           of [0..15]. A value of 2 indicates that four pixels are combined,
+           and each pixel has a range of [0..3]. A value of 3 indicates that
+           eight pixels are combined, and each pixel has a range of [0..1],
+           that is, a binary value.</t>
+
+           <t>The values are packed into the green component as follows:</t>
+         <ul spacing="normal">
+           <li><tt>width_bits</tt> = 1: For every x value, where x = 2k + 0, a
+             green value at x is positioned into the 4 least significant bits
+             of the green value at x / 2, and a green value at x + 1 is positioned
+             into the 4 most significant bits of the green value at x / 2.</li>
+           <li><tt>width_bits</tt> = 2: For every x value, where x = 4k + 0, a
+             green value at x is positioned into the 2 least significant bits
+             of the green value at x / 4, and green values at x + 1 to x + 3 are
+             positioned in order to the more significant bits of the green
+             value at x / 4.</li>
+           <li><tt>width_bits</tt> = 3: For every x value, where x = 8k + 0, a
+             green value at x is positioned into the least significant bit of
+             the green value at x / 8, and green values at x + 1 to x + 7 are
+             positioned in order to the more significant bits of the green
+             value at x / 8.</li>
+         </ul>
+
+         <t>After reading this transform, <tt>image_width</tt> is subsampled by
+           <tt>width_bits</tt>. This affects the size of subsequent transforms.
+           The new size can be calculated using <tt>DIV_ROUND_UP</tt>, as
+           defined in <xref target="predictor-transform"/>.</t>
+
+         <sourcecode type="c"><![CDATA[
+image_width = DIV_ROUND_UP(image_width, 1 << width_bits);
+           ]]></sourcecode>
+       </section>
+     </section>
+
+     <section anchor="image-data" numbered="true" toc="default">
+       <name>Image Data</name>
+       <t>Image data is an array of pixel values in scan-line order.</t>
+       <section anchor="roles-of-image-data" numbered="true" toc="default">
+         <name>Roles of Image Data</name>
+         <t>We use image data in five different roles:</t>
+
+         <ol spacing="normal">
+           <li>ARGB image: Stores the actual pixels of the image.</li>
+           <li>Entropy image: Stores the meta prefix
+             codes (see <xref
+             target="decoding-of-meta-prefix-codes">"Decoding of Meta Prefix Codes"</xref>).</li>
+           <li>Predictor image: Stores the metadata for the predictor transform (see <xref
+             target="predictor-transform">"Predictor Transform"</xref>).</li>
+           <li>Color transform image: Created by
+             <tt>ColorTransformElement</tt> values (defined in <xref
+             target="color-transform">"Color Transform"</xref>) for different
+               blocks of the image.</li>
+             <li>Color indexing image: An array of the size of
+               <tt>color_table_size</tt> (up to 256 ARGB values) that stores the
+               metadata for the color
+                 indexing transform (see <xref target="color-indexing-transform">"Color Indexing Transform"</xref>).</li>
+         </ol>
+       </section>
+
+       <section numbered="true" toc="default">
+         <name>Encoding of Image Data</name>
+         <t>The encoding of image data is independent of its role.</t>
+
+         <t>The image is first divided into a set of fixed-size blocks
+           (typically 16x16 blocks). Each of these blocks are modeled using
+           their own entropy codes. Also, several blocks may share the same
+           entropy codes.</t>
+
+         <aside><t>Rationale: Storing an entropy code incurs a cost. This cost
+           can be minimized if statistically similar blocks share an entropy
+           code, thereby storing that code only once. For example, an encoder
+           can find similar blocks by clustering them using their statistical
+           properties or by repeatedly joining a pair of randomly selected
+           clusters when it reduces the overall amount of bits needed to encode
+           the image.</t></aside>
+
+         <t>Each pixel is encoded using one of the three possible methods:</t>
+         <ol spacing="normal">
+           <li>Prefix-coded literals: Each channel (green, red, blue, and alpha)
+             is entropy-coded independently.</li>
+           <li>LZ77 backward reference: A sequence of pixels are copied from
+             elsewhere in the image.</li>
+           <li>Color cache code: Using a short multiplicative hash code (color
+             cache index) of a recently seen color.</li>
+         </ol>
+
+         <t>The following subsections describe each of these in detail.</t>
+
+         <section anchor="prefix-coded-literals" numbered="true"
+           toc="default">
+           <name>Prefix-Coded Literals</name>
+
+           <t>The pixel is stored as prefix-coded values of green, red, blue,
+             and alpha (in that order). See <xref
+               target="decoding-entropy-coded-image-data"/> for details.</t>
+         </section>
+
+         <section anchor="lz77-backward-reference" numbered="true"
+           toc="default">
+           <name>LZ77 Backward Reference</name>
+           <t>Backward references are tuples of <em>length</em> and
+            <em>distance code</em>:</t>
+
+           <ul spacing="normal">
+             <li>Length indicates how many pixels in scan-line order are to be
+               copied.</li>
+             <li>Distance code is a number indicating the position of a
+               previously seen pixel, from which the pixels are to be copied.
+               The exact mapping is described <xref
+                 target="distance-mapping">below</xref>.</li>
+           </ul>
+
+           <t>The length and distance values are stored using <strong>LZ77
+             prefix coding</strong>.</t>
+
+           <t>LZ77 prefix coding divides large integer values into two parts:
+             the <em>prefix code</em> and the <em>extra bits</em>. The prefix
+               code is stored using an entropy code, while the extra bits are
+               stored as they are (without an entropy code).</t>
+
+           <aside><t>Rationale: This approach reduces the storage requirement
+             for the entropy code. Also, large values are usually rare, so
+             extra bits would be used for very few values in the image. Thus,
+             this approach results in better compression overall.</t></aside>
+
+           <t>The following table denotes the prefix codes and extra bits used
+             for storing different ranges of values.</t>
+
+           <aside><t>Note: The maximum backward reference length is limited to 4096.
+             Hence, only the first 24 prefix codes (with the respective extra
+             bits) are meaningful for length values. For distance values,
+             however, all the 40 prefix codes are valid.</t></aside>
+       <table align="left">
+         <name>Value to Prefix Code and Extra Bits Mapping</name>
+         <thead>
+     <tr>
+       <th>Value Range</th>
+       <th>Prefix Code</th>
+       <th>Extra Bits</th>
+     </tr>
+         </thead>
+         <tbody>
+     <tr>
+       <td>1</td>
+       <td>0</td>
+       <td>0</td>
+     </tr>
+     <tr>
+       <td>2</td>
+       <td>1</td>
+       <td>0</td>
+     </tr>
+     <tr>
+       <td>3</td>
+       <td>2</td>
+       <td>0</td>
+     </tr>
+     <tr>
+       <td>4</td>
+       <td>3</td>
+       <td>0</td>
+     </tr>
+     <tr>
+       <td>5..6</td>
+       <td>4</td>
+       <td>1</td>
+     </tr>
+     <tr>
+       <td>7..8</td>
+       <td>5</td>
+       <td>1</td>
+     </tr>
+     <tr>
+       <td>9..12</td>
+       <td>6</td>
+       <td>2</td>
+     </tr>
+     <tr>
+       <td>13..16</td>
+       <td>7</td>
+       <td>2</td>
+     </tr>
+     <tr>
+       <td>...</td>
+       <td>...</td>
+       <td>...</td>
+     </tr>
+     <tr>
+       <td>3072..4096</td>
+       <td>23</td>
+       <td>10</td>
+     </tr>
+     <tr>
+       <td>...</td>
+       <td>...</td>
+       <td>...</td>
+     </tr>
+     <tr>
+       <td>524289..786432</td>
+       <td>38</td>
+       <td>18</td>
+     </tr>
+     <tr>
+       <td>786433..1048576</td>
+       <td>39</td>
+       <td>18</td>
+     </tr>
+         </tbody>
+       </table>
+           <t>The pseudocode to obtain a (length or distance) value from the
+             prefix code is as follows:</t>
+
+           <sourcecode type="c"><![CDATA[
+if (prefix_code < 4) {
+  return prefix_code + 1;
+}
+int extra_bits = (prefix_code - 2) >> 1;
+int offset = (2 + (prefix_code & 1)) << extra_bits;
+return offset + ReadBits(extra_bits) + 1;
+             ]]></sourcecode>
+
+           <section anchor="distance-mapping">
+             <name>Distance Mapping</name>
+
+           <t>As noted previously, a distance code is a number indicating the
+             position of a previously seen pixel, from which the pixels are to
+             be copied. This subsection defines the mapping between a distance
+             code and the position of a previous pixel.</t>
+
+           <t>Distance codes larger than 120 denote the pixel distance in
+             scan-line order, offset by 120.</t>
+
+           <t>The smallest distance codes [1..120] are special and are
+             reserved for a close neighborhood of the current pixel. This
+             neighborhood consists of 120 pixels:</t>
+
+           <ul spacing="normal">
+             <li>Pixels that are 1 to 7 rows above the current pixel and are
+               up to 8 columns to the left or up to 7 columns to the right of
+               the current pixel [Total such pixels = <tt>7 * (8 + 1 + 7) =
+               112</tt>].</li>
+             <li>Pixels that are in the same row as the current pixel and are up
+               to 8 columns to the left of the current pixel [<tt>8</tt> such
+               pixels].</li>
+           </ul>
+
+           <t>The mapping between distance code <tt>distance_code</tt> and the neighboring
+             pixel offset <tt>(xi, yi)</tt> is as follows:</t>
+
+           <figure>
+             <name>Distance Code to Neighboring Pixel Offset Mapping</name>
+             <artwork name="" type="ascii-art" align="left" alt=""><![CDATA[
+(0, 1),  (1, 0),  (1, 1),  (-1, 1), (0, 2),  (2, 0),  (1, 2),
+(-1, 2), (2, 1),  (-2, 1), (2, 2),  (-2, 2), (0, 3),  (3, 0),
+(1, 3),  (-1, 3), (3, 1),  (-3, 1), (2, 3),  (-2, 3), (3, 2),
+(-3, 2), (0, 4),  (4, 0),  (1, 4),  (-1, 4), (4, 1),  (-4, 1),
+(3, 3),  (-3, 3), (2, 4),  (-2, 4), (4, 2),  (-4, 2), (0, 5),
+(3, 4),  (-3, 4), (4, 3),  (-4, 3), (5, 0),  (1, 5),  (-1, 5),
+(5, 1),  (-5, 1), (2, 5),  (-2, 5), (5, 2),  (-5, 2), (4, 4),
+(-4, 4), (3, 5),  (-3, 5), (5, 3),  (-5, 3), (0, 6),  (6, 0),
+(1, 6),  (-1, 6), (6, 1),  (-6, 1), (2, 6),  (-2, 6), (6, 2),
+(-6, 2), (4, 5),  (-4, 5), (5, 4),  (-5, 4), (3, 6),  (-3, 6),
+(6, 3),  (-6, 3), (0, 7),  (7, 0),  (1, 7),  (-1, 7), (5, 5),
+(-5, 5), (7, 1),  (-7, 1), (4, 6),  (-4, 6), (6, 4),  (-6, 4),
+(2, 7),  (-2, 7), (7, 2),  (-7, 2), (3, 7),  (-3, 7), (7, 3),
+(-7, 3), (5, 6),  (-5, 6), (6, 5),  (-6, 5), (8, 0),  (4, 7),
+(-4, 7), (7, 4),  (-7, 4), (8, 1),  (8, 2),  (6, 6),  (-6, 6),
+(8, 3),  (5, 7),  (-5, 7), (7, 5),  (-7, 5), (8, 4),  (6, 7),
+(-6, 7), (7, 6),  (-7, 6), (8, 5),  (7, 7),  (-7, 7), (8, 6),
+(8, 7)
+               ]]></artwork>
+           </figure>
+
+           <t>For example, the distance code <tt>1</tt> indicates an offset of
+             <tt>(0, 1)</tt> for the neighboring pixel, that is, the pixel
+             above the current pixel (0 pixel difference in the X direction and
+             1 pixel difference in the Y direction). Similarly, the distance
+             code <tt>3</tt> indicates the top-left pixel.</t>
+
+             <t>The decoder can convert a distance code <tt>distance_code</tt> to a
+               scan-line order distance <tt>dist</tt> as follows:</t>
+
+           <sourcecode type="pseudocode"><![CDATA[
+(xi, yi) = distance_map[distance_code - 1]
+dist = xi + yi * image_width
+if (dist < 1) {
+  dist = 1
+}
+             ]]></sourcecode>
+
+           <t>where <tt>distance_map</tt> is the mapping noted above, and
+             <tt>image_width</tt> is the width of the image in pixels.</t>
+           </section>
+         </section>
+
+         <section anchor="color-cache-coding" numbered="true" toc="default">
+           <name>Color Cache Coding</name>
+           <t>Color cache stores a set of colors that have been recently used
+             in the image.</t>
+
+           <aside><t>Rationale: This way, the recently used colors can
+             sometimes be referred to more efficiently than emitting them using
+             the other two methods (described in Sections <xref
+               target="prefix-coded-literals" format="counter"/>
+             and <xref target="lz77-backward-reference"
+               format="counter"/>).</t></aside>
+
+           <t>Color cache codes are stored as follows. First, there is a 1-bit
+             value that indicates if the color cache is used. If this bit is 0,
+             no color cache codes exist, and they are not transmitted in the
+             prefix code that decodes the green symbols and the length prefix
+             codes. However, if this bit is 1, the color cache size is read
+             next:</t>
+
+           <sourcecode type="c"><![CDATA[
+int color_cache_code_bits = ReadBits(4);
+int color_cache_size = 1 << color_cache_code_bits;
+             ]]></sourcecode>
+           <t><tt>color_cache_code_bits</tt> defines the size of the
+             color cache (<tt>1 &lt;&lt; color_cache_code_bits</tt>). The
+               range of allowed values for <tt>color_cache_code_bits</tt> is
+                 [1..11]. Compliant decoders <bcp14>MUST</bcp14> indicate a corrupted
+                 bitstream for other values.</t>
+
+           <t>A color cache is an array of size <tt>color_cache_size</tt>. Each
+             entry stores one ARGB color. Colors are looked up by indexing them
+             by <tt>(0x1e35a7bd * color) &gt;&gt; (32 -
+             color_cache_code_bits)</tt>. Only one lookup is done in a
+               color cache; there is no conflict resolution.</t>
+
+           <t>In the beginning of decoding or encoding of an image, all entries
+             in all color cache values are set to zero. The color cache code is
+             converted to this color at decoding time. The state of the color
+             cache is maintained by inserting every pixel, be it produced by
+             backward referencing or as literals, into the cache in the order
+             they appear in the stream.</t>
+         </section>
+       </section>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>Entropy Code</name>
+       <section numbered="true" toc="default">
+         <name>Overview</name>
+
+         <t>Most of the data is coded using a <xref target="Huffman">canonical
+           prefix code</xref>. Hence, the codes are transmitted by sending the
+           <em>prefix code lengths</em>, as opposed to the actual <em>prefix
+             codes</em>.</t>
+
+         <t>In particular, the format uses <strong>spatially variant prefix
+           coding</strong>. In other words, different blocks of the image can
+             potentially use different entropy codes.</t>
+
+         <aside><t>Rationale: Different areas of the image may have different
+           characteristics. So, allowing them to use different entropy codes
+           provides more flexibility and potentially better compression.</t>
+         </aside>
+       </section>
+
+       <section numbered="true" toc="default">
+         <name>Details</name>
+         <t>The encoded image data consists of several parts:</t>
+         <ol spacing="normal">
+           <li>Decoding and building the prefix codes.</li>
+           <li>Meta prefix codes.</li>
+           <li>Entropy-coded image data.</li>
+         </ol>
+
+         <t>For any given pixel (x, y), there is a set of five prefix codes
+           associated with it. These codes are (in bitstream order):</t>
+
+         <ul spacing="normal">
+           <li><strong>Prefix code #1</strong>: Used for green channel,
+             backward-reference length, and color cache.</li>
+           <li><strong>Prefix code #2, #3, and #4</strong>: Used for red,
+             blue, and alpha channels, respectively.</li>
+           <li><strong>Prefix code #5</strong>: Used for backward-reference
+             distance.</li>
+         </ul>
+
+         <t>From here on, we refer to this set as a <strong>prefix code
+           group</strong>.</t>
+
+         <section anchor="decoding-and-building-the-prefix-codes"
+           numbered="true" toc="default">
+           <name>Decoding and Building the Prefix Codes</name>
+
+           <t>This section describes how to read the prefix code lengths from
+             the bitstream.</t>
+
+           <t>The prefix code lengths can be coded in two ways. The method
+             used is specified by a 1-bit value.</t>
+
+           <ul spacing="normal">
+             <li>If this bit is 1, it is a <em>simple code length code</em>.</li>
+             <li>If this bit is 0, it is a <em>normal code length
+               code</em>.</li>
+           </ul>
+
+           <t>In both cases, there can be unused code lengths that are still
+             part of the stream. This may be inefficient, but it is allowed by
+             the format. The described tree must be a complete binary tree. A
+             single leaf node is considered a complete binary tree and can be
+             encoded using either the simple code length code or the normal
+             code length code. When coding a single leaf node using the
+             <em>normal code length code</em>, all but one code length are
+             zeros, and the single leaf node value is marked with the length
+             of 1 -- even when no bits are consumed when that single leaf node
+             tree is used.</t>
+
+             <section anchor="simple-code-length">
+               <name>Simple Code Length Code</name>
+
+           <t>This variant is used in the special case when only 1 or 2 prefix
+             symbols are in the range [0..255] with code length <tt>1</tt>. All
+             other prefix code lengths are implicitly zeros.</t>
+
+           <t>The first bit indicates the number of symbols:</t>
+
+           <sourcecode type="c"><![CDATA[
+int num_symbols = ReadBits(1) + 1;
+             ]]></sourcecode>
+
+           <t>The following are the symbol values. This first symbol is coded using
+             1 or 8 bits, depending on the value of <tt>is_first_8bits</tt>. The
+             range is [0..1] or [0..255], respectively. The second symbol, if
+             present, is always assumed to be in the range [0..255] and coded
+             using 8 bits.</t>
+
+           <sourcecode type="c"><![CDATA[
+int is_first_8bits = ReadBits(1);
+symbol0 = ReadBits(1 + 7 * is_first_8bits);
+code_lengths[symbol0] = 1;
+if (num_symbols == 2) {
+  symbol1 = ReadBits(8);
+  code_lengths[symbol1] = 1;
+}
+             ]]></sourcecode>
+
+           <aside><t>The two symbols should be different. Duplicate symbols are
+             allowed, but inefficient.</t></aside>
+
+           <aside><t>Note: Another special case is when <em>all</em> prefix code
+             lengths are <em>zeros</em> (an empty prefix code). For example, a
+             prefix code for distance can be empty if there are no backward
+             references. Similarly, prefix codes for alpha, red, and blue can
+             be empty if all pixels within the same meta prefix code are
+             produced using the color cache. However, this case doesn't need
+             special handling, as empty prefix codes can be coded as those
+             containing a single symbol <tt>0</tt>.</t></aside>
+             </section>
+             <section anchor="normal-code-length">
+               <name>Normal Code Length Code</name>
+
+           <t>The code lengths of the prefix code fit in 8 bits and are read
+             as follows. First, <tt>num_code_lengths</tt> specifies the number
+             of code lengths.</t>
+
+           <sourcecode type="c"><![CDATA[
+int num_code_lengths = 4 + ReadBits(4);
+             ]]></sourcecode>
+
+           <t>The code lengths are themselves encoded using prefix codes;
+             lower-level code lengths, <tt>code_length_code_lengths</tt>, first
+             have to be read. The rest of those
+             <tt>code_length_code_lengths</tt> (according to the order in
+             <tt>kCodeLengthCodeOrder</tt>) are zeros.</t>
+
+           <sourcecode type="c"><![CDATA[
+int kCodeLengthCodes = 19;
+int kCodeLengthCodeOrder[kCodeLengthCodes] = {
+  17, 18, 0, 1, 2, 3, 4, 5, 16, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
+};
+int code_length_code_lengths[kCodeLengthCodes] = { 0 };  // All zeros
+for (i = 0; i < num_code_lengths; ++i) {
+  code_length_code_lengths[kCodeLengthCodeOrder[i]] = ReadBits(3);
+}
+             ]]></sourcecode>
+
+           <t>Next, if <tt>ReadBits(1) == 0</tt>, the maximum number of
+             different read symbols (<tt>max_symbol</tt>) for each symbol type
+             (A, R, G, B, and distance) is set to its alphabet size:</t>
+
+           <ul spacing="normal">
+             <li>G channel: 256 + 24 + <tt>color_cache_size</tt></li>
+             <li>Other literals (A, R, and B): 256</li>
+             <li>Distance code: 40</li>
+           </ul>
+
+           <t>Otherwise, it is defined as:</t>
+
+           <sourcecode type="c"><![CDATA[
+int length_nbits = 2 + 2 * ReadBits(3);
+int max_symbol = 2 + ReadBits(length_nbits);
+             ]]></sourcecode>
+
+           <t>If <tt>max_symbol</tt> is larger than the size of the alphabet
+             for the symbol type, the bitstream is invalid.</t>
+
+           <t>A prefix table is then built from
+             <tt>code_length_code_lengths</tt> and used to read up to
+             <tt>max_symbol</tt> code lengths.</t>
+
+           <ul spacing="normal">
+             <li><t>Code [0..15] indicates literal code lengths.</t>
+               <ul spacing="normal">
+                 <li>Value 0 means no symbols have been coded.</li>
+                 <li>Values [1..15] indicate the bit length of the respective
+                   code.</li>
+               </ul>
+             </li>
+             <li>Code 16 repeats the previous nonzero value [3..6] times,
+               that is, <tt>3 + ReadBits(2)</tt> times. If code 16 is used before
+                 a nonzero value has been emitted, a value of 8 is
+                 repeated.</li>
+             <li>Code 17 emits a streak of zeros of length [3..10], that is, <tt>3 +
+               ReadBits(3)</tt> times.</li>
+             <li>Code 18 emits a streak of zeros of length [11..138], that is,
+               <tt>11 + ReadBits(7)</tt> times.</li>
+           </ul>
+
+           <t>Once code lengths are read, a prefix code for each symbol type
+             (A, R, G, B, and distance) is formed using their respective alphabet
+             sizes.</t>
+         </section>
+       </section>
+         <section anchor="decoding-of-meta-prefix-codes" numbered="true"
+           toc="default">
+           <name>Decoding of Meta Prefix Codes</name>
+           <t>As noted earlier, the format allows the use of different prefix
+             codes for different blocks of the image. <em>Meta prefix
+               codes</em> are indexes identifying which prefix codes to use in
+                 different parts of the image.</t>
+
+           <t>Meta prefix codes may be used <em>only</em> when the image is
+             being used in the <xref target="roles-of-image-data">role</xref>
+               of an <em>ARGB image</em>.</t>
+
+           <t>There are two possibilities for the meta prefix codes, indicated
+             by a 1-bit value:</t>
+
+           <ul spacing="normal">
+             <li>If this bit is zero, there is only one meta prefix code used
+               everywhere in the image. No more data is stored.</li>
+             <li>If this bit is one, the image uses multiple meta prefix
+               codes. These meta prefix codes are stored as an <em>entropy
+                 image</em> (described below).</li>
+           </ul>
+
+           <t>The red and green components of a pixel define a 16-bit meta
+             prefix code used in a particular block of the ARGB image.</t>
+
+             <section anchor="entropy-image">
+               <name>Entropy Image</name>
+             <t>The entropy image defines which prefix codes are used in
+             different parts of the image.</t>
+
+           <t>The first 3 bits contain the <tt>prefix_bits</tt> value. The
+             dimensions of the entropy image are derived from
+             <tt>prefix_bits</tt>:</t>
+
+           <sourcecode type="c"><![CDATA[
+int prefix_bits = ReadBits(3) + 2;
+int prefix_image_width =
+    DIV_ROUND_UP(image_width, 1 << prefix_bits);
+int prefix_image_height =
+    DIV_ROUND_UP(image_height, 1 << prefix_bits);
+             ]]></sourcecode>
+
+           <t>where <tt>DIV_ROUND_UP</tt> is as defined in <xref
+             target="predictor-transform"/>.</t>
+
+           <t>The next bits contain an entropy image of width
+             <tt>prefix_image_width</tt> and height <tt>prefix_image_height</tt>.</t>
+             </section>
+
+             <section anchor="interp-meta-prefix-codes">
+               <name>Interpretation of Meta Prefix Codes</name>
+
+           <t>The number of prefix code groups in the ARGB image can be
+             obtained by finding the <em>largest meta prefix code</em> from
+               the entropy image:</t>
+
+           <sourcecode type="c"><![CDATA[
+int num_prefix_groups = max(entropy image) + 1;
+             ]]></sourcecode>
+           <t>where <tt>max(entropy image)</tt> indicates the largest prefix
+             code stored in the entropy image.</t>
+
+           <t>As each prefix code group contains five prefix codes, the
+             total number of prefix codes is:</t>
+
+           <sourcecode type="c"><![CDATA[
+int num_prefix_codes = 5 * num_prefix_groups;
+             ]]></sourcecode>
+
+           <t>Given a pixel (x, y) in the ARGB image, we can obtain the
+             corresponding prefix codes to be used as follows:</t>
+
+           <sourcecode type="c"><![CDATA[
+int position =
+    (y >> prefix_bits) * prefix_image_width + (x >> prefix_bits);
+int meta_prefix_code = (entropy_image[position] >> 8) & 0xffff;
+PrefixCodeGroup prefix_group = prefix_code_groups[meta_prefix_code];
+             ]]></sourcecode>
+
+           <t>where we have assumed the existence of <tt>PrefixCodeGroup</tt>
+             structure, which represents a set of five prefix codes. Also,
+             <tt>prefix_code_groups</tt> is an array of
+             <tt>PrefixCodeGroup</tt> (of size <tt>num_prefix_groups</tt>).</t>
+
+           <t>The decoder then uses prefix code group <tt>prefix_group</tt> to
+             decode the pixel (x, y), as explained in <xref
+               target="decoding-entropy-coded-image-data"/>.</t>
+             </section>
+         </section>
+
+         <section anchor="decoding-entropy-coded-image-data" numbered="true"
+           toc="default">
+           <name>Decoding Entropy-Coded Image Data</name>
+           <t>For the current position (x, y) in the image, the decoder first
+             identifies the corresponding prefix code group (as explained in
+             the last section). Given the prefix code group, the pixel is read
+             and decoded as follows.</t>
+
+           <t>Next, read symbol S from the bitstream using prefix code #1.</t>
+           <aside><t>Note that S is any integer in the range <tt>0</tt> to
+           <tt>(256 + 24 + color_cache_size - 1)</tt>. See <xref
+               target="color-cache-coding"/> for details about
+           <tt>color_cache_size</tt>.</t></aside>
+
+           <t>The interpretation of S depends on its value:</t>
+           <ol spacing="normal" type="1">
+             <li><t>If S &lt; 256</t>
+               <ol spacing="normal" type="i">
+                 <li>Use S as the green component.</li>
+                 <li>Read red from the bitstream using prefix code #2.</li>
+                 <li>Read blue from the bitstream using prefix code #3.</li>
+                 <li>Read alpha from the bitstream using prefix code #4.</li>
+               </ol>
+             </li>
+             <li><t>If S &gt;= 256 &amp; S &lt; 256 + 24</t>
+               <ol spacing="normal" type="i">
+                 <li>Use S - 256 as a length prefix code.</li>
+                 <li>Read extra bits for the length from the bitstream.</li>
+                 <li>Determine backward-reference length L from length prefix
+                   code and the extra bits read.</li>
+                 <li>Read the distance prefix code from the bitstream using prefix
+                   code #5.</li>
+                 <li>Read extra bits for the distance from the bitstream.</li>
+                 <li>Determine backward-reference distance D from the distance
+                 prefix code and the extra bits read.</li>
+                 <li>Copy L pixels (in scan-line order) from the sequence of pixels
+starting at the current position minus D pixels.</li>
+               </ol>
+             </li>
+             <li><t>If S &gt;= 256 + 24</t>
+               <ol spacing="normal" type="i">
+                 <li>Use S - (256 + 24) as the index into the color cache.</li>
+                 <li>Get ARGB color from the color cache at that index.</li>
+               </ol>
+             </li>
+           </ol>
+         </section>
+       </section>
+     </section>
+
+     <section numbered="true" toc="default">
+       <name>Overall Structure of the Format</name>
+       <t>Below is a view into the format in Augmented Backus-Naur Form <xref
+         target="RFC5234"/> <xref target="RFC7405"/>. It does not cover all details. The end-of-image (EOI)
+         is only implicitly coded into the number of pixels (image_width *
+       image_height).</t>
+       <aside><t>Note that <tt>*element</tt> means <tt>element</tt> can be repeated 0 or more times. <tt>5element</tt>
+means <tt>element</tt> is repeated exactly 5 times. <tt>%b</tt> represents a binary value.</t></aside>
+
+   <section numbered="true" toc="default">
+
+           <name>Basic Structure</name>
+<sourcecode type="abnf"><![CDATA[
+format        = RIFF-header image-header image-stream
+RIFF-header   = %s"RIFF" 4OCTET %s"WEBPVP8L" 4OCTET
+image-header  = %x2F image-size alpha-is-used version
+image-size    = 14BIT 14BIT ; width - 1, height - 1
+alpha-is-used = 1BIT
+version       = 3BIT ; 0
+image-stream  = optional-transform spatially-coded-image
+           ]]></sourcecode>
+        </section>
+
+        <section numbered="true" toc="default">
+          <name>Structure of Transforms</name>
+          <sourcecode type="abnf"><![CDATA[
+optional-transform   =  (%b1 transform optional-transform) / %b0
+transform            =  predictor-tx / color-tx / subtract-green-tx
+transform            =/ color-indexing-tx
+
+predictor-tx         =  %b00 predictor-image
+predictor-image      =  3BIT ; sub-pixel code
+                        entropy-coded-image
+
+color-tx             =  %b01 color-image
+color-image          =  3BIT ; sub-pixel code
+                        entropy-coded-image
+
+subtract-green-tx    =  %b10
+
+color-indexing-tx    =  %b11 color-indexing-image
+color-indexing-image =  8BIT ; color count
+                        entropy-coded-image
+            ]]></sourcecode>
+        </section>
+
+        <section numbered="true" toc="default">
+          <name>Structure of the Image Data</name>
+          <sourcecode type="abnf"><![CDATA[
+spatially-coded-image =  color-cache-info meta-prefix data
+entropy-coded-image   =  color-cache-info data
+
+color-cache-info      =  %b0
+color-cache-info      =/ (%b1 4BIT) ; 1 followed by color cache size
+
+meta-prefix           =  %b0 / (%b1 entropy-image)
+
+data                  =  prefix-codes lz77-coded-image
+entropy-image         =  3BIT ; subsample value
+                         entropy-coded-image
+
+prefix-codes          =  prefix-code-group *prefix-codes
+prefix-code-group     =
+    5prefix-code ; See "Interpretation of Meta Prefix Codes" to
+                 ; understand what each of these five prefix
+                 ; codes are for.
+
+prefix-code           =  simple-prefix-code / normal-prefix-code
+simple-prefix-code    =  ; see "Simple Code Length Code" for details
+normal-prefix-code    =  ; see "Normal Code Length Code" for details
+
+lz77-coded-image      =
+    *((argb-pixel / lz77-copy / color-cache-code) lz77-coded-image)
+            ]]></sourcecode>
+
+          <t>The following is a possible example sequence:</t>
+
+          <sourcecode type=""><![CDATA[
+RIFF-header image-size %b1 subtract-green-tx
+%b1 predictor-tx %b0 color-cache-info
+%b0 prefix-codes lz77-coded-image
+            ]]></sourcecode>
+        </section>
+     </section>
+   </section>
+
+   <section anchor="Security" numbered="true" toc="default">
+     <name>Security Considerations</name>
+     <t>Implementations of this format face security risks, such as integer
+       overflows, out-of-bounds reads and writes to both heap and stack,
+       uninitialized data usage, null pointer dereferences, resource (disk or
+       memory) exhaustion, and extended resource usage (long running time) as
+       part of the demuxing and decoding process. In particular,
+       implementations reading this format are likely to take input from
+       unknown and possibly unsafe sources -- both clients (for example, web browsers or
+       email clients) and servers (for example, applications that accept uploaded
+       images). These may result in arbitrary code execution, information
+       leakage (memory layout and contents), or crashes and thereby allow a
+       device to be compromised or cause a denial of service to an application
+       using the format <xref target="mitre-libwebp"/> <xref
+         target="issues-security"/>.</t>
+     <t>The format does not employ "active content" but does allow metadata
+     (for example, <xref target="XMP"/> and <xref target="Exif"/>) and custom chunks to be
+       embedded in a file. Applications that interpret these chunks may be
+       subject to security considerations for those formats.</t>
+   </section>
+
+   <section anchor="Interop" numbered="true" toc="default">
+     <name>Interoperability Considerations</name>
+     <t>The format is defined using little-endian byte ordering (see <xref
+       target="RFC2781" section="3.1"/>), but demuxing and decoding are
+       possible on platforms using a different ordering with the appropriate
+       conversion.
+
+       The container is based on RIFF and allows extension via user-defined
+       chunks, but nothing beyond the chunks defined by the container format
+       (<xref target="webp-container"/>) are required for decoding of the image.
+       These have been finalized, but they were extended in the format's early
+       stages, so some older readers may not support lossless or animated image
+       decoding.</t>
+   </section>
+
+   <section anchor="IANA" numbered="true" toc="default">
+     <name>IANA Considerations</name>
+     <t>IANA has registered the 'image/webp' media type <xref
+       target="RFC2046"/>.</t>
+
+     <section anchor="webp-media-type" numbered="true" toc="default">
+       <name>The 'image/webp' Media Type</name>
+       <t>This section contains the media type registration details per <xref
+         target="RFC6838"/>.</t>
+       <section numbered="true" toc="default">
+         <name>Registration Details</name>
+   <dl newline="false" spacing="normal">
+           <dt>Type name:</dt> <dd>image</dd>
+           <dt>Subtype name:</dt> <dd>webp</dd>
+           <dt>Required parameters:</dt> <dd>N/A</dd>
+           <dt>Optional parameters:</dt> <dd>N/A</dd>
+           <dt>Encoding considerations:</dt> <dd>Binary. The <xref target="RFC4648">Base64
+           encoding</xref> should be used on transports that cannot accommodate
+           binary data directly.</dd>
+           <dt>Security considerations:</dt> <dd>See RFC 9649, <xref target="Security"/>.</dd>
+           <dt>Interoperability considerations:</dt> <dd>See RFC 9649, <xref target="Interop"/>.</dd>
+           <dt>Published specification:</dt> <dd>RFC 9649</dd>
+           <dt>Applications that use this media type:</dt> <dd>Applications that are used to
+           display and process images, especially when smaller image file sizes
+           are important.</dd>
+           <dt>Fragment identifier considerations:</dt> <dd>N/A</dd>
+
+   <dt>Additional information:</dt>
+         <dd><t><br/></t>
+   <dl spacing="compact">
+           <dt>Deprecated alias names for this type:</dt> <dd>N/A</dd>
+           <dt>Magic number(s):</dt> <dd>The first 4 bytes are 0x52, 0x49, 0x46, 0x46
+             ('RIFF'), followed by 4 bytes for the 'RIFF' Chunk size. The next 7
+             bytes are 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38
+             ('WEBPVP8').</dd>
+     <dt>File extension(s):</dt> <dd>webp</dd>
+           <dt>Apple Uniform Type Identifier:</dt> <dd>org.webmproject.webp conforms to
+               public.image</dd>
+               <dt>Object Identifiers:</dt> <dd>N/A</dd>
+   </dl></dd>
+
+         <dt>Person &amp; email address to contact for further information:</dt>
+   <dd>James Zern &lt;jzern@google.com&gt;</dd></dl>
+   <dl newline="false" spacing="normal">
+         <dt>Intended usage:</dt> <dd>COMMON</dd>
+         <dt>Restrictions on usage:</dt> <dd>N/A</dd>
+         <dt>Author:</dt>
+   <dd>James Zern &lt;jzern@google.com&gt;</dd>
+             <dt>Change controller:</dt><dd>IETF</dd>
+   </dl>
+       </section>
+     </section>
+   </section>
+ </middle>
+ <back>
+   <references>
+     <name>References</name>
+     <references>
+       <name>Normative References</name>
+
+       <reference anchor="Exif"
+         target="https://www.cipa.jp/std/documents/e/DC-008-2012_E.pdf">
+         <front>
+           <title>Exchangeable image file format for digital still cameras:
+             Exif Version 2.3</title>
+           <author>
+             <organization>Camera &amp; Imaging Products Association
+               (CIPA)</organization>
+           </author>
+     <author>
+       <organization>Japan Electronics and Information Technology
+             Industries Association (JEITA)</organization>
+     </author>
+     <date month="December" year="2012"/>
+         </front>
+   <seriesInfo name="CIPA" value="DC-008-2012"/>
+   <seriesInfo name="JEITA" value="CP-3451C"/>
+       </reference>
+
+       <reference anchor="ICC"
+         target="https://www.color.org/specification/ICC1v43_2010-12.pdf">
+         <front>
+           <title>Image technology colour management -- Architecture, profile format, and data structure</title>
+           <author>
+             <organization>International Color Consortium</organization>
+           </author>
+           <date month="December" year="2010"/>
+         </front>
+   <seriesInfo name="Specification" value="ICC.1:2010"/>
+   <refcontent>Profile version 4.3.0.0, REVISION of ICC.1:2004-10</refcontent>
+       </reference>
+
+       <reference anchor="ISO.9899.2018" target="https://www.iso.org/standard/74528.html">
+         <front>
+           <title>Information technology -- Programming languages -- C</title>
+           <author>
+             <organization>
+               International Organization for Standardization
+             </organization>
+           </author>
+           <date month="June" year="2018"/>
+         </front>
+   <seriesInfo name="ISO/IEC" value="9899:2018"/>
+         <refcontent>Fourth Edition</refcontent>
+       </reference>
+
+       <reference anchor="REC601"
+         target="https://www.itu.int/rec/R-REC-BT.601/">
+         <front>
+           <title>Studio encoding parameters of digital television for
+             standard 4:3 and wide screen 16:9 aspect ratios</title>
+           <author>
+             <organization>ITU</organization>
+           </author>
+           <date month="March" year="2011" />
+         </front>
+   <seriesInfo name="ITU-R Recommendation" value="BT.601"/>
+       </reference>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1166.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2046.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2781.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4648.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6386.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6838.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7405.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+       <reference anchor="XMP"
+         target="https://www.adobe.com/devnet/xmp.html">
+         <front>
+           <title>XMP Specification</title>
+           <author>
+             <organization>Adobe Inc.</organization>
+           </author>
+         </front>
+       </reference>
+     </references>
+
+     <references>
+       <name>Informative References</name>
+
+       <reference anchor="mitre-libwebp"
+         target="https://cve.mitre.org/cgi-bin/cvekey.cgi?keyword=libwebp">
+         <front>
+           <title>libwebp CVE List</title>
+           <author>
+             <organization/>
+           </author>
+         </front>
+       </reference>
+
+       <reference anchor="GIF-spec"
+         target="https://www.w3.org/Graphics/GIF/spec-gif89a.txt">
+         <front>
+           <title>Graphics Interchange Format(sm)</title>
+           <author>
+             <organization>CompuServe Incorporated</organization>
+           </author>
+     <date month="July" year="1990"/>
+         </front>
+   <refcontent>Version 89a</refcontent>
+       </reference>
+
+       <reference anchor="Huffman">
+         <front>
+           <title>A Method for the Construction of Minimum-Redundancy
+             Codes</title>
+           <author initials="D." surname="Huffman">
+             <organization/>
+           </author>
+           <date month="September" year="1952" />
+         </front>
+   <seriesInfo name="DOI" value="10.1109/JRPROC.1952.273898"/>
+   <refcontent>Proceedings of the Institute of Radio Engineers, Vol. 40, Issue 9, pp. 1098-1101</refcontent>
+       </reference>
+
+       <reference anchor="issues-security"         target="https://issues.webmproject.org/issues?q=componentid:1618983%2B%20(%22Restrict-View-Security%22%20OR%20type:vulnerability)">
+         <front>
+           <title>libwebp Security Issues</title>
+           <author>
+             <organization/>
+           </author>
+         </front>
+       </reference>
+
+       <reference anchor="JPEG-spec"
+         target="https://www.w3.org/Graphics/JPEG/itu-t81.pdf">
+         <front>
+           <title>Information Technology - Digital Compression and Coding of Continuous-Tone Still Images - Requirements and Guidelines</title>
+           <author>
+             <organization/>
+           </author>
+     <date month="September" year="1992"/>
+         </front>
+   <seriesInfo name="ITU-T Recommendation" value="T.81"/>
+   <seriesInfo name="ISO/IEC" value="10918-1"/>
+       </reference>
+
+       <reference anchor="LZ77">
+         <front>
+           <title>A Universal Algorithm for Sequential Data Compression</title>
+           <author initials="J." surname="Ziv">
+             <organization/>
+           </author>
+           <author initials="A." surname="Lempel">
+             <organization/>
+           </author>
+           <date month="May" year="1977" />
+         </front>
+   <seriesInfo name="DOI" value="10.1109/TIT.1977.1055714"/>
+   <refcontent>IEEE Transactions on Information Theory, Vol. 23, Issue 3, pp. 337-343</refcontent>
+       </reference>
+
+       <reference anchor="MWG"         target="https://web.archive.org/web/20180919181934/http://www.metadataworkinggroup.org/pdf/mwg_guidance.pdf">
+         <front>
+           <title>Guidelines For Handling Image Metadata</title>
+           <author>
+             <organization>Metadata Working Group</organization>
+           </author>
+           <date month="November" year="2010"/>
+         </front>
+   <refcontent>Version 2.0</refcontent>
+       </reference>
+
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2083.xml"/>
+
+       <reference anchor="RIFF-spec"
+ target="https://www.loc.gov/preservation/digital/formats/fdd/fdd000025.shtml">
+         <front>
+           <title>RIFF (Resource Interchange File Format)</title>
+           <author>
+             <organization/>
+           </author>
+         </front>
+       </reference>
+
+       <reference anchor="webp-lossless-src"
+         target="https://chromium.googlesource.com/webm/libwebp/+/refs/tags/webp-rfc9649/doc/webp-lossless-bitstream-spec.txt">
+         <front>
+           <title>WebP Lossless Bitstream Specification</title>
+           <author>
+             <organization></organization>
+           </author>
+           <date month="July" year="2024" />
+         </front>
+       </reference>
+
+       <reference anchor="webp-lossless-study"         target="https://developers.google.com/speed/webp/docs/webp_lossless_alpha_study">
+         <front>
+           <title>Lossless and Transparency Encoding in WebP</title>
+           <author initials="J." surname="Alakuijala"
+             fullname="Jyrki Alakuijala">
+             <organization>Google LLC</organization>
+           </author>
+           <author initials="V." surname="Rabaud"
+             fullname="Vincent Rabaud">
+             <organization>Google LLC</organization>
+           </author>
+           <date month="August" year="2017" />
+         </front>
+       </reference>
+
+       <reference anchor="webp-riff-src"     target="https://chromium.googlesource.com/webm/libwebp/+/refs/tags/webp-rfc9649/doc/webp-container-spec.txt">
+         <front>
+           <title>WebP RIFF Container</title>
+           <author>
+             <organization></organization>
+           </author>
+           <date month="July" year="2024" />
+         </front>
+       </reference>
+     </references>
+   </references>
+ </back>
+</rfc>

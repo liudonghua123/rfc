@@ -1,0 +1,1040 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-dprive-unilateral-probing-13" number="9539" submissionType="IETF" category="exp" consensus="true" tocInclude="true" symRefs="true" updates="" obsoletes="" xml:lang="en" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.18.2 -->
+  <front>
+    <title abbrev="Unilateral Encrypted Authoritative DNS">Unilateral Opportunistic Deployment of Encrypted Recursive&nbhy;to&nbhy;Authoritative DNS</title>
+    <seriesInfo name="RFC" value="9539"/>
+    <author initials="D. K." surname="Gillmor" fullname="Daniel Kahn Gillmor" role="editor">
+      <organization abbrev="ACLU">American Civil Liberties Union</organization>
+      <address>
+        <postal>
+          <street>125 Broad St.</street>
+          <city>New York</city>
+	  <region>NY</region>
+	  <code>10004</code>
+          <country>United States of America</country>
+        </postal>
+        <email>dkg@fifthhorseman.net</email>
+      </address>
+    </author>
+    <author initials="J." surname="Salazar" fullname="Joey Salazar" role="editor">
+      <organization/>
+      <address>
+        <postal>
+          <city>Alajuela</city>
+          <code>20201</code>
+          <country>Costa Rica</country>
+        </postal>
+        <email>joeygsal@gmail.com</email>
+      </address>
+    </author>
+    <author initials="P." surname="Hoffman" fullname="Paul Hoffman" role="editor">
+      <organization>ICANN</organization>
+      <address>
+        <postal>
+          <country>United States of America</country>
+        </postal>
+        <email>paul.hoffman@icann.org</email>
+      </address>
+    </author>
+    <date year="2024" month="February"/>
+    <area>int</area>
+    <workgroup>dprive</workgroup>
+
+
+
+<keyword>DNS over TLS</keyword>
+<keyword>DNS over QUIC</keyword>
+<keyword>DoT</keyword>
+<keyword>DoQ</keyword>
+<keyword>encryption</keyword>
+<keyword>unilateral</keyword>
+<keyword>recursive</keyword>
+<keyword>authoritative</keyword>
+<keyword>DNS</keyword>
+
+<abstract>
+
+
+<t>This document sets out steps that DNS servers (recursive resolvers and authoritative servers) can take unilaterally (without any coordination with other peers) to defend DNS query privacy against a passive network monitor.
+The protections provided by the guidance in this document can be defeated by an active attacker, but they should be simpler and less risky to deploy than more powerful defenses.</t>
+      <t>The goal of this document is to simplify and speed up deployment of opportunistic encrypted transport in the recursive-to-authoritative hop of the DNS ecosystem.
+Wider easy deployment of the underlying encrypted transport on an opportunistic basis may facilitate the future specification of stronger cryptographic protections against more-powerful attacks.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>This document aims to provide guidance to DNS implementers and operators who want to simply enable protection against passive network observers.</t>
+      <t>In particular, it focuses on mechanisms that can be adopted
+      unilaterally by recursive resolvers and authoritative servers, without
+      any explicit coordination with the other parties.  This guidance
+      provides opportunistic security (see <xref target="RFC7435"/>), that is, 
+      encrypting things that would otherwise be in the clear, without
+      interfering with or weakening stronger forms of security.</t>
+      <t>This document also briefly introduces (but does not try to specify) how a future protocol might permit defense against an active attacker in <xref target="adding-auth"/>.</t>
+      <t>The protocol described here offers three concrete advantages to the DNS ecosystem:</t>
+      <ul spacing="normal">
+        <li>
+          <t>Protection from passive attackers of DNS queries in transit between recursive and authoritative servers.</t>
+        </li>
+        <li>
+          <t>A road map for gaining real-world experience at scale with encrypted protections of this traffic.</t>
+        </li>
+        <li>
+          <t>A bridge to some possible future protection against a more powerful attacker.</t>
+        </li>
+      </ul>
+      <section anchor="requirements-language">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+
+      </section>
+      
+      
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <dl>
+          <dt>Unilateral:</dt>
+          <dd>
+            <t>Capable of opportunistic probing without external coordination with any of the other parties.</t>
+          </dd>
+          <dt>Do53:</dt>
+          <dd>
+            <t>DNS over port 53 (<xref target="RFC1035"/>) for traditional cleartext transport.</t>
+          </dd>
+          <dt>DoQ:</dt>
+          <dd>
+            <t>DNS over QUIC (<xref target="RFC9250"/>).</t>
+          </dd>
+          <dt>DoT:</dt>
+          <dd>
+            <t>DNS over TLS (<xref target="RFC7858"/>).</t>
+          </dd>
+          <dt>Encrypted transports:</dt>
+          <dd>
+            <t>DoQ and DoT, collectively.</t>
+          </dd>
+        </dl>
+      </section>
+    </section>
+    <section anchor="priorities">
+
+      
+      <name>Priorities</name>
+      <t>The protocol described in this document was developed with two priorities: minimizing negative impacts and retaining flexibility in the underlying encrypted transport protocol.</t>
+      <section anchor="minimizing-negative-impacts">
+        <name>Minimizing Negative Impacts</name>
+        <t>The protocol described in this document aims to minimize potentially negative impacts caused by the probing of encrypted transports for the systems that adopt the protocol, for the parties that those systems communicate with, and for uninvolved third parties.
+The negative impacts that this protocol specifically tries to minimize are:</t>
+        <ul spacing="normal">
+          <li>
+            <t>excessive bandwidth use,</t>
+          </li>
+          <li>
+            <t>excessive use of computational resources (CPU and memory in particular), and</t>
+          </li>
+          <li>
+            <t>the potential for amplification attacks (where DNS resolution infrastructure is wielded as part of a DoS attack).</t>
+          </li>
+        </ul>
+      </section>
+      <section anchor="protocol-choices">
+        <name>Protocol Choices</name>
+        <t>Although this document focuses specifically on strategies used by DNS servers, it does not go into detail on the specific protocols used because those protocols, in particular DoT and DoQ, are described in other documents.
+The DoT specification (<xref target="RFC7858"/>) says that it:</t>
+
+        <blockquote>...focuses on securing stub-to-recursive traffic, as per the
+        charter of the DPRIVE Working Group.  It does not prevent future
+        applications of the protocol to recursive-to-authoritative
+        traffic.</blockquote>
+
+        <t>It further says:</t>
+
+        <blockquote>It might work equally between recursive clients and
+        authoritative servers...</blockquote>
+
+        <t>The DoQ specification (<xref target="RFC9250"/>) says:</t>
+
+        <blockquote>For the recursive to authoritative scenario,
+        authentication requirements are unspecified at the time of writing and
+        are the subject of ongoing work in the DPRIVE WG.</blockquote>
+
+        <t>The protocol described in this document specifies the use of DoT and DoQ without authentication of the server.</t>
+        <t>This document does not pursue the use of DNS over HTTPS, commonly called "DoH" (<xref target="RFC8484"/>), in this context because a DoH client needs to know the path part of a DoH endpoint URL. Currently, there are no mechanisms for a DNS recursive resolver to predict the path on its own, in an opportunistic or unilateral fashion, without incurring an excessive use of resources.
+If such mechanisms are later defined, the protocol in this document can be updated to accommodate them.</t>
+      </section>
+    </section>
+    <section anchor="authoritative-guidance">
+      <name>Guidance for Authoritative Servers</name>
+      <t>The protocol described in this document is <bcp14>OPTIONAL</bcp14> for authoritative servers.
+An authoritative server choosing to implement the protocol described in this document <bcp14>MUST</bcp14> implement at least one of either
+DoT or DoQ on port 853.</t>
+      <t>An authoritative server choosing to implement the protocol described in this document <bcp14>MAY</bcp14> require clients to use Application-Layer Protocol Negotiation (ALPN) (see <xref target="RFC7301"/>).
+      The ALPN strings the client will use are given in <xref target="recursive-requirements"/>.</t>
+
+      
+      <t>An authoritative server implementing DoT or DoQ <bcp14>MUST</bcp14> populate the response from the same authoritative zone data as the unencrypted DNS transports.
+Encrypted transports have their own characteristic response size that might be different from the unencrypted DNS transports, so response sizes and related options (e.g., Extension Mechanisms for DNS (EDNS0)) and flags (e.g., the TrunCation (TC) bit) might vary based on the transport.
+In other words, the content of the responses to a particular query <bcp14>MUST</bcp14> be the same regardless of the type of transport.</t>
+      <section anchor="authoritative-pools">
+        <name>Pooled Authoritative Servers behind a Load Balancer</name>
+        <t>Some authoritative DNS servers are structured as a pool of authoritatives standing behind a load balancer that runs on a single IP address, forwarding queries to members of the pool.
+In such a deployment, individual members of the pool typically get updated independently from each other.</t>
+        <t>A recursive resolver following the guidance in <xref target="recursive-guidance"/> and interacting with such a pool likely does not know that it is a pool.
+If some members of the pool follow the protocol specified in this document while others do not, the recursive client might see the pool as a single authoritative server that sometimes offers and sometimes refuses encrypted transport.</t>
+        <t>To avoid incurring additional minor timeouts for such a recursive resolver, the pool operator <bcp14>SHOULD</bcp14>:</t>
+        <ul spacing="normal">
+          <li>
+            <t>ensure that all members of the pool enable the same encrypted transport(s) within the span of a few seconds (such as within 30 seconds), or</t>
+          </li>
+          <li>
+            <t>ensure that the load balancer maps client requests to pool members based on client IP addresses, or</t>
+          </li>
+          <li>
+            <t>use a load balancer that forwards queries/connections on encrypted transports to only those members of the pool known (e.g., via monitoring) to support the given encrypted transport.</t>
+          </li>
+        </ul>
+        <t>Similar concerns apply to authoritative servers responding from an anycast IP address.
+As long as the pool of servers is in a heterogeneous state, any flapping route that switches a given client IP address to a different responder risks incurring an additional timeout.
+Frequent changes of routing for anycast listening IP addresses are also likely to cause problems for TLS, TCP, or QUIC connection state as well, so stable routes are important to ensure that the service remains available and responsive.
+The servers in a pool can share session information to increase the likelihood of successful resumptions.</t>
+      </section>
+      <section anchor="authentication">
+        <name>Authentication</name>
+        <t>For unilateral deployment, an authoritative server does not need to offer any particular form of authentication.</t>
+        <t>One simple deployment approach would just be to provide a self-issued, regularly updated X.509 certificate.
+Whether the certificates used are short-lived or long-lived is up to the deployment.
+This mechanism is supported by many TLS and QUIC clients and will be acceptable for any opportunistic connection.
+The server could provide a normal PKI-based certificate, but there is no advantage to doing so at this time.</t>
+      </section>
+      <section anchor="authoritative-sni">
+        <name>Server Name Indication</name>
+        <t>An authoritative DNS server that wants to handle unilateral queries <bcp14>MAY</bcp14> rely on Server Name Indication (SNI) to select alternate server credentials.
+However, such a server <bcp14>MUST NOT</bcp14> serve resource records that differ based on SNI (or on the lack of an SNI) provided by the client because a probing recursive resolver that offers SNI might or might not have used the right server name to get the records it is looking for.</t>
+      </section>
+      <section anchor="authoritative-resource-exhaustion">
+        <name>Resource Exhaustion</name>
+        <t>A well-behaved recursive resolver may keep an encrypted connection open to an authoritative server to amortize the costs of connection setup for both parties.</t>
+        <t>However, some authoritative servers may have insufficient resources available to keep many connections open concurrently.</t>
+        <t>To keep resources under control, authoritative servers should proactively manage their encrypted connections.
+<xref section="5.5" sectionFormat="of" target="RFC9250"/> offers useful guidance for servers managing DoQ connections.
+<xref section="3.4" sectionFormat="of" target="RFC7858"/> offers useful guidance for servers managing DoT connections.</t>
+        <t>An authoritative server facing unforeseen resource exhaustion <bcp14>SHOULD</bcp14> cleanly close open connections from recursive resolvers based on the authoritative server's preferred prioritization.</t>
+        <t>In the case of unanticipated resource exhaustion, close connections until resources are back in control.
+A reasonable prioritization scheme would be to close connections with no outstanding queries, ordered by idle time (longest idle time gets closed first), then close connections with outstanding queries, ordered by age of outstanding query (oldest outstanding query gets closed first).</t>
+        <t>When resources are especially tight, the authoritative server may also decline to accept new connections over encrypted transport.</t>
+      </section>
+      <section anchor="pad-responses-to-mitigate-traffic-analysis">
+        <name>Pad Responses to Mitigate Traffic Analysis</name>
+        <t>To increase the anonymity set for each response, the authoritative server <bcp14>SHOULD</bcp14> use a sensible padding mechanism for all responses it sends when possible.
+The ability for the authoritative server to add padding might be limited, such as by not receiving an EDNS0 option in the query.
+Specifically, a DoT server <bcp14>SHOULD</bcp14> use EDNS0 padding <xref target="RFC7830"/> if possible, and a DoQ server <bcp14>SHOULD</bcp14> follow the guidance in <xref section="5.4" sectionFormat="of" target="RFC9250"/>.
+How much to pad is out of scope of this document, but a reasonable suggestion can be found in <xref target="RFC8467"/>.</t>
+      </section>
+    </section>
+    <section anchor="recursive-guidance">
+      <name>Guidance for Recursive Resolvers</name>
+      <t>The protocol described in this document is <bcp14>OPTIONAL</bcp14> for recursive resolvers.
+This section outlines a probing policy suitable for unilateral adoption by any recursive resolver.
+Following this policy should not result in failed resolutions or significant delays.</t>
+      <section anchor="high-level-overview">
+        <name>High-Level Overview</name>
+
+
+        <t>In addition to querying on Do53, the recursive resolver will try DoT, DoQ, or both concurrently.
+The recursive resolver remembers what opportunistic encrypted transport protocols have worked recently based on a (clientIP, serverIP, protocol) tuple.</t>
+        <t>If a query needs to go to a given authoritative server, and the recursive resolver remembers a recent successful encrypted transport to that server, then it doesn't send the query over Do53 at all.
+Rather, it only sends the query using the encrypted transport protocol that was recently shown to be good.</t>
+
+<t>If the encrypted transport protocol fails, the recursive resolver falls back to Do53 for that serverIP.
+When any encrypted transport fails, the recursive resolver remembers that failure for a reasonable amount of time to avoid flooding an incompatible server with requests that it cannot accept.
+The description of how an encrypted transport protocol fails is in <xref target="establish-encrypted"/> and the sections following that.</t>
+        <t>See the subsections below for a more detailed description of this protocol.</t>
+      </section>
+      <section anchor="maintaining-authoritative-state-by-ip-address">
+        <name>Maintaining Authoritative State by IP Address</name>
+        <t>In designing a probing strategy, the recursive resolver could record its knowledge about any given authoritative server with different strategies, including at least:</t>
+        <ul spacing="normal">
+          <li>
+            <t>the authoritative server's IP address,</t>
+          </li>
+          <li>
+            <t>the authoritative server's name (the NS record used), or</t>
+          </li>
+          <li>
+            <t>the zone that contains the record being looked up.</t>
+          </li>
+        </ul>
+        <t>This document encourages the first strategy, to minimize timeouts or accidental delays,
+and does not describe the other two strategies.</t>
+        <t>A timeout (accidental delay) is most likely to happen when the recursive client believes that the authoritative server offers encrypted transport, but the actual server reached declines encrypted transport (or worse, filters the incoming traffic and does not even respond with an ICMP destination port unreachable message, such as during rate limiting).</t>
+        <t>By associating the state with the authoritative IP address, the client can minimize the number of accidental delays introduced (see also Sections <xref target="authoritative-pools" format="counter"/> and <xref target="conn-state" format="counter"/>).</t>
+        <t>For example, consider an authoritative server named <tt>ns0.example.com</tt> that is served by two installations: one at <tt>2001:db8::7</tt> that follows this guidance and one at <tt>2001:db8::8</tt> that is a legacy (cleartext port 53-only) deployment.
+A recursive client who associates state with the NS name and reaches <tt>2001:db8::7</tt> first will "learn" that <tt>ns0.example.com</tt> supports encrypted transport.
+A subsequent query over encrypted transport dispatched to <tt>2001:db8::8</tt> would fail, potentially delaying the response.</t>
+      </section>
+      <section anchor="overall-recursive-resolver-settings">
+        <name>Overall Recursive Resolver Settings</name>
+        <t>A recursive resolver implementing the protocol in this document needs to set system-wide values for some default parameters.
+These parameters may be set independently for each supported encrypted transport, though a simple implementation may keep the parameters constant across encrypted transports.</t>
+
+<table>
+          <name>Recursive Resolver System Parameters per Encrypted Transport</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Description</th>
+              <th align="left">Suggested Default</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>persistence</tt></td>
+              <td align="left">How long the recursive resolver remembers a successful encrypted transport connection</td>
+              <td align="left">3 days (259200 seconds)</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>damping</tt></td>
+              <td align="left">How long the recursive resolver remembers an unsuccessful encrypted transport connection</td>
+              <td align="left">1 day (86400 seconds)</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>timeout</tt></td>
+              <td align="left">How long the recursive resolver waits for an initiated encrypted connection to complete</td>
+              <td align="left">4 seconds</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>This document uses the notation <tt>&lt;transport&gt;-foo</tt> to refer to the <tt>foo</tt> parameter for the encrypted transport <tt>&lt;transport&gt;</tt>.
+For example, <tt>DoT-persistence</tt> would indicate the length of time that the recursive resolver will remember that an authoritative server had a successful connection over DoT.
+Additionally, when describing an arbitrary encrypted transport, we use <tt>E</tt> in place of <tt>&lt;transport&gt;</tt> to generically mean whatever encrypted transport is in use.
+For example, when handling a query sent over encrypted transport <tt>E</tt>, a reference to <tt>E-timeout</tt> should be understood to mean <tt>DoT-timeout</tt> if the query is sent over DoT, and to mean <tt>DoQ-timeout</tt> if the query is sent over DoQ.</t>
+        <t>This document also assumes that the recursive resolver maintains a list of outstanding cleartext queries destined for the authoritative server's IP address <tt>X</tt>.
+This list is referred to as "<tt>Do53-queries[X]</tt>"
+This document does not attempt to describe the specific operation of sending and receiving cleartext DNS queries (Do53) for a recursive resolver.
+Instead it describes a "bolt-on" mechanism that extends the recursive resolver's operation on a few simple hooks into the recursive resolver's existing handling of Do53.</t>
+        <t>Implementers or deployers of DNS recursive resolvers that follow the strategies in this document are encouraged to publish their preferred values of these parameters.</t>
+      </section>
+
+      
+      <section anchor="recursive-requirements">
+        <name>Recursive Resolver Requirements</name>
+        <t>To follow the strategies in this document, a recursive resolver <bcp14>MUST</bcp14> implement at least one of either DoT or DoQ in its capacity as a client of authoritative nameservers.
+A recursive resolver <bcp14>SHOULD</bcp14> implement the client side of DoT.
+A recursive resolver <bcp14>SHOULD</bcp14> implement the client side of DoQ.</t>
+        <t>DoT queries from the recursive resolver <bcp14>MUST</bcp14> target TCP port 853 using an ALPN of "<tt>dot</tt>".
+DoQ queries from the recursive resolver <bcp14>MUST</bcp14> target UDP port 853 using an ALPN of "<tt>doq</tt>".</t>
+        <t>While this document focuses on the recursive-to-authoritative hop, a recursive resolver implementing the strategies in this document <bcp14>SHOULD</bcp14> also accept queries from its clients over some encrypted transport unless it only accepts queries from the localhost.</t>
+      </section>
+      <section anchor="conn-state">
+        <name>Authoritative Server Encrypted Transport Connection State</name>
+        <t>The recursive resolver <bcp14>SHOULD</bcp14> keep a record of the state for each authoritative server it contacts, indexed by the IP address of the authoritative server and the encrypted transports supported by the recursive resolver.</t>
+
+        <t>Note that the recursive resolver might record this per-authoritative-IP state for each source IP address it uses as it sends its queries.
+For example, if a recursive resolver can send a packet to authoritative servers from IP addresses <tt>2001:db8::100</tt> and <tt>2001:db8::200</tt>, it could keep two distinct sets of per-authoritative-IP state: one for each source address it uses, if the recursive resolver knows the addresses in use.
+Keeping these state tables distinct for each source address makes it possible for a pooled authoritative server behind a load balancer to do a partial rollout while minimizing accidental timeouts (see <xref target="authoritative-pools"/>).</t>
+
+<t>In addition to tracking the state of connection attempts and outcomes, a recursive resolver <bcp14>SHOULD</bcp14> record the state of established sessions for encrypted protocols.
+The details of how sessions are identified are dependent on the transport protocol implementation (such as a TLS session ticket or TLS session ID, a QUIC connection ID, and so on).
+The use of session resumption as recommended here is limited somewhat because the tickets are only stored within the context defined by the (clientIP, serverIP, protocols) tuples used to track client-server interaction by the recursive resolver in a table like the one below.
+However, session resumption still offers the ability to optimize the handshake in some circumstances.</t>
+        <t>Each record should contain the following fields for each supported encrypted transport, each of which would initially be <tt>null</tt>:</t>
+        <table>
+          <name>Recursive Resolver State per-Authoritative-IP and per-Encrypted Transport</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Description</th>
+              <th align="left">Retain Across Restart</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>session</tt></td>
+              <td align="left">The associated state of any existing established session (the structure of this value is dependent on the encrypted transport implementation).  If <tt>session</tt> is not <tt>null</tt>, it may be in one of two states: <tt>pending</tt> or <tt>established</tt>.</td>
+              <td align="left">no</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>initiated</tt></td>
+              <td align="left">Timestamp of the most recent connection attempt</td>
+              <td align="left">yes</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>completed</tt></td>
+              <td align="left">Timestamp of the most recent completed handshake (which can include one where an existing session is resumed)</td>
+              <td align="left">yes</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>status</tt></td>
+              <td align="left">Enumerated value of <tt>success</tt>, <tt>fail</tt>, or <tt>timeout</tt> associated with the <tt>completed</tt> handshake</td>
+              <td align="left">yes</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>last-response</tt></td>
+              <td align="left">A timestamp of the most recent response received on the connection</td>
+              <td align="left">yes</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>resumptions</tt></td>
+              <td align="left">A stack of resumption tickets (and associated parameters) that could be used to resume a prior successful session</td>
+              <td align="left">yes</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>queries</tt></td>
+              <td align="left">A queue of queries intended for this authoritative server, each of which has additional status of <tt>early</tt>, <tt>unsent</tt>, or <tt>sent</tt></td>
+              <td align="left">no</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>last-activity</tt></td>
+              <td align="left">A timestamp of the most recent activity on the connection</td>
+              <td align="left">no</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>Note that the <tt>session</tt> fields in aggregate constitute a pool of open connections to different servers.</t>
+        <t>With the exception of the <tt>session</tt>, <tt>queries</tt>, and <tt>last-activity</tt> fields, this cache information should be kept across restart of the server unless explicitly cleared by administrative action.</t>
+        <t>This document uses the notation <tt>E-foo[X]</tt> to indicate the value of field <tt>foo</tt> for encrypted transport <tt>E</tt> to IP address <tt>X</tt>.</t>
+        <t>For example, <tt>DoT-initiated[192.0.2.4]</tt> represents the timestamp when the most recent DoT connection packet was sent to IP address <tt>192.0.2.4</tt>.</t>
+        <t>This document uses the notation <tt>any-E-queries</tt> to indicate any query on an encrypted transport.</t>
+      </section>
+      <section anchor="probing-policy">
+        <name>Probing Policy</name>
+        <t>When a recursive resolver discovers the need for an authoritative lookup to an authoritative DNS server using that server's IP address <tt>X</tt>, it retrieves the connection state records described in <xref target="conn-state"/> associated with <tt>X</tt> from its cache.</t>
+
+
+
+	
+        <t>Some of the subsections that follow offer pseudocode that corresponds roughly to an asynchronous programming model for a recursive resolver's interactions with authoritative servers.
+All subsections also presume that the time of the discovery of the need for lookup is time <tt>T0</tt>.</t>
+<t>If any of the records discussed here are absent, they are treated as <tt>null</tt>.</t>
+
+
+        <t>The recursive resolver must decide whether to initially send a query over Do53, or over either of the supported encrypted transports (DoT or DoQ).</t>
+        <t>Note that a recursive resolver might initiate this query via any or all of the known transports.
+When multiple queries are sent, the initial packets for each connection can be sent concurrently, similar to the method used in the document known as "Happy Eyeballs" (<xref target="RFC8305"/>).
+However, unlike Happy Eyeballs, when one transport succeeds, the other connections do not need to be terminated; instead they can be continued to establish whether the IP address <tt>X</tt> is capable of communicating on the relevant transport.</t>
+        <section anchor="sending-a-query-over-do53">
+          <name>Sending a Query over Do53</name>
+          <t>For any of the supported encrypted transports <tt>E</tt>, the recursive resolver <bcp14>SHOULD NOT</bcp14> send a query to <tt>X</tt>  over Do53 if either of the following holds true:</t>
+
+          <ul spacing="normal">
+            <li>
+              <t><tt>E-session[X]</tt> is in the <tt>established</tt> state, or</t>
+            </li>
+            <li>
+	      <t><tt>E-status[X]</tt> is <tt>success</tt> and <tt>(T0 - E-last-response[X]) &lt; persistence</tt>.</t>
+            </li>
+          </ul>
+          <t>This indicates that one successful connection to a server that the client then closed cleanly would result in the client not sending the next query over Do53.</t>
+          <t>Otherwise, if there is no outstanding session for any encrypted transport, and the last successful encrypted transport connection was long ago, the recursive resolver sends a query to <tt>X</tt> over Do53.
+When it does so, it inserts a handle for the query in <tt>Do53-queries[X]</tt>.</t>
+        </section>
+        <section anchor="receiving-a-response-over-do53">
+          <name>Receiving a Response over Do53</name>
+          <t>When any response <tt>R</tt> (a well-formed DNS response, asynchronous timeout, asynchronous destination port unreachable, etc.) for query <tt>Q</tt> arrives at the recursive resolver in cleartext sent over Do53 from an authoritative server with IP address <tt>X</tt>, the recursive resolver should perform the following.</t>
+          <t>If <tt>Q</tt> is not in <tt>Do53-queries[X]</tt>:</t>
+          <ul spacing="normal">
+            <li>
+              <t>process <tt>R</tt> no further (do not respond to a cleartext response to a query that is not outstanding).</t>
+            </li>
+          </ul>
+          <t>Otherwise, if <tt>Q</tt> was marked as already processed:</t>
+          <ul spacing="normal">
+            <li>
+              <t>remove <tt>Q</tt> from <tt>Do53-queries[X]</tt>,</t>
+            </li>
+            <li>
+              <t>discard any content from the response, and process <tt>R</tt> no further.</t>
+            </li>
+          </ul>
+          <t>If <tt>R</tt> is a well-formed DNS response:</t>
+          <ul spacing="normal">
+            <li>
+              <t>remove <tt>Q</tt> from <tt>Do53-queries[X]</tt>,</t>
+            </li>
+            <li>
+              <t>process <tt>R</tt> further, and</t>
+            </li>
+            <li>
+              <t>for each supported encrypted transport <tt>E</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>if <tt>Q</tt> is in <tt>E-queries[X]</tt>, then
+                  </t>
+                  <ul spacing="normal">
+                    <li>
+                      <t>mark <tt>Q</tt> as already processed.</t>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <t>However, if <tt>R</tt> is malformed or a failure (e.g., a timeout or destination port unreachable), and</t>
+          <ul spacing="normal">
+            <li>
+              <t>if <tt>Q</tt> is not in any of <tt>any-E-queries[X]</tt>, then
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>treat this as a failed query (i.e., follow the resolver's policy for unresponsive or non-compliant authoritatives, such as falling back to another authoritative server, returning <tt>SERVFAIL</tt> to the requesting client, and so on).</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </section>
+        <section anchor="initiating-a-connection-over-encrypted-transport">
+          <name>Initiating a Connection over Encrypted Transport</name>
+          <t>If any <tt>E-session[X]</tt> is in the <tt>established</tt> state, the recursive resolver <bcp14>SHOULD NOT</bcp14> initiate a new connection or resume a previous connection to <tt>X</tt> over Do53 or <tt>E</tt>, but should instead send queries to <tt>X</tt> through the existing session (see <xref target="sending"/>).</t>
+          <t>If the recursive resolver prefers one encrypted transport over another, but only the unpreferred encrypted transport is in the <tt>established</tt> state, it <bcp14>MAY</bcp14> also initiate a new connection to <tt>X</tt> over its preferred encrypted transport while concurrently sending the query over the <tt>established</tt> encrypted transport <tt>E</tt>.</t>
+          <t>Before considering whether to initiate a new connection over an encrypted transport, the timer should be examined, and its state possibly refreshed, for encrypted transport <tt>E</tt> to authoritative IP address <tt>X</tt>.</t>
+          <ul spacing="normal">
+            <li>
+              <t>If <tt>E-session[X]</tt> is in state <tt>pending</tt>, and</t>
+            </li>
+            <li>
+              <t><tt>T0 - E-initiated[X] &gt; E-timeout</tt>, then
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>set <tt>E-session[X]</tt> to <tt>null</tt>, and</t>
+                </li>
+                <li>
+                  <t>set <tt>E-status[X]</tt> to <tt>timeout</tt>.</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <t>When resources are available to attempt a new encrypted transport, the recursive resolver should only initiate a new connection to <tt>X</tt> over <tt>E</tt> as long as one of the following holds true:</t>
+          <ul spacing="normal">
+            <li>
+              <t><tt>E-status[X]</tt> is <tt>success</tt>, or</t>
+            </li>
+            <li>
+              <t><tt>E-status[X]</tt> is either <tt>fail</tt> or <tt>timeout</tt> and <tt>(T0 - E-completed[X]) &gt; damping</tt>, or</t>
+            </li>
+            <li>
+              <t><tt>E-status[X]</tt> is <tt>null</tt> and <tt>E-initiated[X]</tt> is <tt>null</tt>.</t>
+            </li>
+          </ul>
+          <t>When initiating a session to <tt>X</tt> over encrypted transport <tt>E</tt>, if <tt>E-resumptions[X]</tt> is not empty, one ticket should be popped off the stack and used to try to resume a previous session.
+Otherwise, the initial ClientHello handshake should not try to resume any session.</t>
+          <t>When initiating a connection, the recursive resolver should take the following steps:</t>
+          <ul spacing="normal">
+            <li>
+              <t>set <tt>E-initiated[X]</tt> to <tt>T0</tt>,</t>
+            </li>
+            <li>
+              <t>store a handle for the new session (which should have <tt>pending</tt> state) in <tt>E-session[X]</tt>, and</t>
+            </li>
+            <li>
+              <t>insert a handle for the query that prompted this connection in <tt>E-queries[X]</tt>, with status <tt>unsent</tt> or <tt>early</tt>, as appropriate (see below).</t>
+            </li>
+          </ul>
+          <section anchor="early-data">
+            <name>Early Data</name>
+            <t>Modern encrypted transports like TLS 1.3 offer the chance to send "early data" from the client in the initial ClientHello in some contexts.
+A recursive resolver that initiates a connection over an encrypted transport according to this guidance in a context where early data is possible <bcp14>SHOULD</bcp14> send the DNS query that prompted the connection in the early data, according to the sending guidance in <xref target="sending"/>.</t>
+            <t>If it does so, the status of <tt>Q</tt> in <tt>E-queries[X]</tt> should be set to <tt>early</tt> instead of <tt>unsent</tt>.</t>
+          </section>
+          <section anchor="resumption">
+            <name>Resumption Tickets</name>
+            <t>When initiating a new connection (whether by resuming an old session or not), the recursive resolver <bcp14>SHOULD</bcp14> request a session resumption ticket from the authoritative server.
+If the authoritative server supplies a resumption ticket, the recursive resolver pushes it into the stack at <tt>E-resumptions[X]</tt>.</t>
+          </section>
+          <section anchor="recursive-sni">
+            <name>Server Name Indication</name>
+            <t>For modern encrypted transports like TLS 1.3, most client implementations expect to send a Server Name Indication (SNI) in the ClientHello.</t>
+            <t>There are two complications with selecting or sending an SNI in this unilateral probing.</t>
+            <ul spacing="normal">
+              <li>
+                <t>Some authoritative servers are known by more than one name; selecting a single name to use for a given connection may be difficult or impossible.</t>
+              </li>
+              <li>
+                <t>In most configurations, the contents of the SNI field are exposed on the wire to a passive adversary.
+This potentially reveals additional information about which query is being made based on the NS of the query itself.</t>
+              </li>
+            </ul>
+            <t>To avoid additional leakage and complexity, a recursive resolver following this guidance <bcp14>SHOULD NOT</bcp14> send an SNI to the authoritative server when attempting encrypted transport.</t>
+            <t>If the recursive resolver needs to send an SNI to the authoritative server for some reason not found in this document, using Encrypted ClientHello (<xref target="I-D.ietf-tls-esni"/>) would reduce leakage.</t>
+          </section>
+          <section anchor="authoritative-server-authentication">
+            <name>Authoritative Server Authentication</name>
+            <t>Because this probing policy is unilateral and opportunistic, the client connecting under this policy <bcp14>MUST</bcp14> accept any certificate presented by the server.
+If the client cannot verify the server's identity, it <bcp14>MAY</bcp14> use that information for reporting, logging, or other analysis purposes; however, it <bcp14>MUST NOT</bcp14> reject the connection due to the authentication failure, as the result would be falling back to cleartext, which would leak the content of the session to a passive network monitor.</t>
+          </section>
+        </section>
+        <section anchor="establish-encrypted">
+          <name>Establishing an Encrypted Transport Connection</name>
+          <t>When an encrypted transport connection actually completes (e.g., the TLS handshake completes) at time <tt>T1</tt>, the recursive resolver sets <tt>E-completed[X]</tt> to <tt>T1</tt> and does the following.</t>
+          <t>If the handshake completed successfully, the recursive resolver:</t>
+          <ul spacing="normal">
+            <li>
+              <t>updates <tt>E-session[X]</tt> so that it is in state <tt>established</tt>,</t>
+            </li>
+            <li>
+              <t>sets <tt>E-status[X]</tt> to <tt>success</tt>,</t>
+            </li>
+            <li>
+              <t>sets <tt>E-last-response[X]</tt> to <tt>T1</tt>,</t>
+            </li>
+            <li>
+              <t>sets <tt>E-completed[X]</tt> to <tt>T1</tt>, and</t>
+            </li>
+            <li>
+              <t>for each query <tt>Q</tt> in <tt>E-queries[X]</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>if early data was accepted and <tt>Q</tt> is <tt>early</tt>, then
+                  </t>
+                  <ul spacing="normal">
+                    <li>
+                      <t>sets the status of <tt>Q</tt> to <tt>sent</tt>.</t>
+                    </li>
+                  </ul>
+                </li>
+                <li>
+                  <t>Otherwise:
+                  </t>
+                  <ul spacing="normal">
+                    <li>
+                      <t>sends <tt>Q</tt> through the session (see <xref target="sending"/>) and sets the status of <tt>Q</tt> to <tt>sent</tt>.</t>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </section>
+        <section anchor="failing-to-establish-an-encrypted-transport-connection">
+          <name>Failing to Establish an Encrypted Transport Connection</name>
+          <t>If, at time <tt>T2</tt>, an encrypted transport handshake completes with a failure (e.g., a TLS alert):</t>
+          <ul spacing="normal">
+            <li>
+              <t>set <tt>E-session[X]</tt> to <tt>null</tt>,</t>
+            </li>
+            <li>
+              <t>set <tt>E-status[X]</tt> to <tt>fail</tt>,</t>
+            </li>
+            <li>
+              <t>set <tt>E-completed[X]</tt> to <tt>T2</tt>, and</t>
+            </li>
+            <li>
+              <t>for each query <tt>Q</tt> in <tt>E-queries[X]</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>if <tt>Q</tt> is not present in any other <tt>any-E-queries[X]</tt> or in <tt>Do53-queries[X]</tt>, add <tt>Q</tt> to <tt>Do53-queries[X]</tt> and send query <tt>Q</tt> to <tt>X</tt> over Do53.</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <t>Note that this failure will trigger the recursive resolver to fall back to cleartext queries to the authoritative server at IP address <tt>X</tt>.
+It will retry encrypted transport to <tt>X</tt> once the <tt>damping</tt> timer has elapsed.</t>
+        </section>
+        <section anchor="e-failure">
+          <name>Encrypted Transport Failure</name>
+          <t>Once established, an encrypted transport might fail for a number of reasons (e.g., decryption failure or improper protocol sequence).</t>
+          <t>If this happens:</t>
+          <ul spacing="normal">
+            <li>
+              <t>set <tt>E-session[X]</tt> to <tt>null</tt>,</t>
+            </li>
+            <li>
+              <t>set <tt>E-status[X]</tt> to <tt>fail</tt>, and</t>
+            </li>
+            <li>
+              <t>for each query <tt>Q</tt> in <tt>E-queries[X]</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>if <tt>Q</tt> is not present in any other <tt>any-E-queries[X]</tt> or in <tt>Do53-queries[X]</tt>, add <tt>Q</tt> to <tt>Do53-queries[X]</tt> and send query <tt>Q</tt> to <tt>X</tt> over Do53.</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <t>Note that this failure will trigger the recursive resolver to fall back to cleartext queries to the authoritative server at IP address <tt>X</tt>.
+It will retry encrypted transport to <tt>X</tt> once the <tt>damping</tt> timer has elapsed.</t>
+        </section>
+        <section anchor="e-shutdown">
+          <name>Handling Clean Shutdown of an Encrypted Transport Connection</name>
+          <t>At time <tt>T3</tt>, the recursive resolver may find that authoritative server <tt>X</tt> cleanly closes an existing outstanding connection (most likely due to resource exhaustion, see <xref target="authoritative-resource-exhaustion"/>).</t>
+          <t>When this happens:</t>
+          <ul spacing="normal">
+            <li>
+              <t>set <tt>E-session[X]</tt> to <tt>null</tt>, and</t>
+            </li>
+            <li>
+              <t>for each query <tt>Q</tt> in <tt>E-queries[X]</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>if <tt>Q</tt> is not present in any other <tt>any-E-queries[X]</tt> or in <tt>Do53-queries[X]</tt>, add <tt>Q</tt> to <tt>Do53-queries[X]</tt> and send query <tt>Q</tt> to <tt>X</tt> over Do53.</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <t>Note that this premature shutdown will trigger the recursive resolver to fall back to cleartext queries to the authoritative server at IP address <tt>X</tt>.
+Any subsequent query to <tt>X</tt> will retry the encrypted connection promptly.</t>
+        </section>
+        <section anchor="sending">
+          <name>Sending a Query over Encrypted Transport</name>
+
+          <t>When sending a query to an authoritative server over encrypted transport at time <tt>T4</tt>, the recursive resolver should take a few reasonable steps to ensure privacy and efficiency.
+After sending query <tt>Q</tt>, the recursive resolver should:</t>
+<ul>
+<li>Ensure that <tt>Q</tt>'s state in <tt>E-queries[X]</tt> is set to <tt>sent</tt>.</li>
+<li>Set <tt>E-last-activity[X]</tt> to <tt>T4</tt>.</li>
+</ul>
+
+<t>The recursive resolver should also consider the guidance in the following subsections.</t>
+          <section anchor="pad-queries-to-mitigate-traffic-analysis">
+            <name>Pad Queries to Mitigate Traffic Analysis</name>
+            <t>To increase the anonymity set for each query, the recursive resolver <bcp14>SHOULD</bcp14> use a sensible padding mechanism for all queries it sends.
+Specifically, a DoT client <bcp14>SHOULD</bcp14> use EDNS0 padding <xref target="RFC7830"/>, and a DoQ client <bcp14>SHOULD</bcp14> follow the guidance in <xref section="5.4" sectionFormat="of" target="RFC9250"/>.
+How much to pad is out of scope of this document, but a reasonable suggestion can be found in <xref target="RFC8467"/>.</t>
+          </section>
+          <section anchor="send-queries-in-separate-channels">
+            <name>Send Queries in Separate Channels</name>
+            <t>When multiple queries are multiplexed on a single encrypted transport to a single authoritative server, the recursive resolver <bcp14>SHOULD</bcp14> pipeline queries and <bcp14>MUST</bcp14> be capable of receiving responses out of order.
+For guidance on how to best achieve this on a given encrypted transport, see <xref section="6.2.1.1" sectionFormat="of" target="RFC7766"/> (for DoT) and <xref section="5.6" sectionFormat="of" target="RFC9250"/> (for DoQ).</t>
+          </section>
+        </section>
+        <section anchor="receiving-encrypted">
+          <name>Receiving a Response over Encrypted Transport</name>
+          <t>Even though session-level events on encrypted transports like clean shutdown (see <xref target="e-shutdown"/>) or encrypted transport failure (see <xref target="e-failure"/>) can happen, some events happen on encrypted transports that are specific to a query and are not session-wide.
+This subsection describes how the recursive resolver deals with events related to a specific query.</t>
+          <t>When a query-specific response <tt>R</tt> (a well-formed DNS response or an asynchronous timeout) associated with query <tt>Q</tt> arrives at the recursive resolver over encrypted transport <tt>E</tt> from an authoritative server with IP address <tt>X</tt> at time <tt>T5</tt>, the recursive resolver should perform the following.</t>
+          <t>If <tt>Q</tt> is not in <tt>E-queries[X]</tt>:</t>
+          <ul spacing="normal">
+            <li>
+              <t>discard the response and process <tt>R</tt> no further (do not respond to an encrypted response to a query that is not outstanding).</t>
+            </li>
+          </ul>
+          <t>Otherwise:</t>
+          <ul spacing="normal">
+            <li>
+              <t>remove <tt>Q</tt> from <tt>E-queries[X]</tt>,</t>
+            </li>
+            <li>
+              <t>set <tt>E-last-activity[X]</tt> to <tt>T5</tt>, and</t>
+            </li>
+            <li>
+              <t>set <tt>E-last-response[X]</tt> to <tt>T5</tt>.</t>
+            </li>
+          </ul>
+          <t>If <tt>Q</tt> was marked as already processed:</t>
+          <ul spacing="normal">
+            <li>
+              <t>discard the response and process the response no further.</t>
+            </li>
+          </ul>
+          <t>If <tt>R</tt> is a well-formed DNS response:</t>
+          <ul spacing="normal">
+            <li>
+              <t>process <tt>R</tt> further, and</t>
+            </li>
+            <li>
+              <t>for each supported encrypted transport <tt>N</tt> other than <tt>E</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>if <tt>Q</tt> is in <tt>N-queries[X]</tt>, then
+                  </t>
+                  <ul spacing="normal">
+                    <li>
+                      <t>mark <tt>Q</tt> as already processed.</t>
+                    </li>
+                  </ul>
+                </li>
+              </ul>
+            </li>
+            <li>
+              <t>If <tt>Q</tt> is in <tt>Do53-queries[X]</tt>:
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>mark <tt>Q</tt> as already processed.</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+          <t>However, if <tt>R</tt> is malformed or a failure (e.g., timeout), and</t>
+          <ul spacing="normal">
+            <li>
+              <t>if <tt>Q</tt> is not in <tt>Do53-queries[X]</tt> or in any of <tt>any-E-queries[X]</tt>, then
+              </t>
+              <ul spacing="normal">
+                <li>
+                  <t>treat this as a failed query (i.e., follow the resolver's policy for unresponsive or non-compliant authoritative servers, such as falling back to another authoritative server, returning <tt>SERVFAIL</tt> to the requesting client, and so on).</t>
+                </li>
+              </ul>
+            </li>
+          </ul>
+        </section>
+        <section anchor="recursive-resource-exhaustion">
+          <name>Resource Exhaustion</name>
+          <t>To keep resources under control, a recursive resolver should proactively manage outstanding encrypted connections.
+<xref section="5.5" sectionFormat="of" target="RFC9250"/> offers useful guidance for clients managing DoQ connections.
+<xref section="3.4" sectionFormat="of" target="RFC7858"/> offers useful guidance for clients managing DoT connections.</t>
+          <t>Even with sensible connection management, a recursive resolver doing unilateral probing may find resources unexpectedly scarce and may need to close some outstanding connections.</t>
+          <t>In such a situation, the recursive resolver <bcp14>SHOULD</bcp14> use a reasonable prioritization scheme to close outstanding connections.</t>
+
+
+          <t>One reasonable prioritization scheme would be to close outstanding <tt>established</tt> sessions based on <tt>E-last-activity[X]</tt> (i.e, the oldest timestamp gets closed first).</t>
+          <t>Note that when resources are limited, a recursive resolver following this guidance may also choose not to initiate new connections for encrypted transport.</t>
+        </section>
+        <section anchor="maintaining-connections">
+          <name>Maintaining Connections</name>
+          <t>Some recursive resolvers looking to amortize connection costs and minimize latency <bcp14>MAY</bcp14> choose to synthesize queries to a particular authoritative server to keep an encrypted transport session active.</t>
+          <t>A recursive resolver that adopts this approach should try to align the synthesized queries with other optimizations.
+For example, a recursive resolver that "pre-fetches" a particular resource record to keep its cache "hot" can send that query over an established encrypted transport session.</t>
+        </section>
+        <section anchor="additional-tuning">
+          <name>Additional Tuning</name>
+          <t>A recursive resolver's state table for an authoritative server can contain additional information beyond what is described above.
+The recursive resolver might use that additional state to change the way it interacts with the authoritative server in the future.
+Some examples of additional states include the following.</t>
+          <ul spacing="normal">
+            <li>
+              <t>Whether the server accepts "early data" over a transport such as DoQ.</t>
+            </li>
+            <li>
+              <t>Whether the server fails to respond to queries after the handshake succeeds.</t>
+            </li>
+            <li>
+              <t>Tracking the round-trip time of queries to the server.</t>
+            </li>
+            <li>
+              <t>Tracking the number of timeouts (compared to the number of successful queries).</t>
+            </li>
+          </ul>
+        </section>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+    <section anchor="privacy-considerations">
+      <name>Privacy Considerations</name>
+      <section anchor="sni-considerations">
+        <name>Server Name Indication</name>
+        <t>A recursive resolver querying an authoritative server over DoT or DoQ that sends a Server Name Indication (SNI) in the clear in the cryptographic handshake leaks information about the intended query to a passive network observer.</t>
+        <t>In particular, if two different zones refer to the same nameserver IP addresses via differently named NS records, a passive network observer can distinguish the queries to one zone from the queries to the other.</t>
+        <t>Omitting SNI entirely, or using Encrypted ClientHello to hide the intended SNI, avoids this additional leakage.
+However, a series of queries that leak this information is still an improvement over cleartext.</t>
+      </section>
+      <section anchor="modeling-the-probability-of-encryption">
+        <name>Modeling the Probability of Encryption</name>
+        <t>Given that there are many parameter choices that can be made by recursive resolvers and authoritative servers, it is reasonable to consider the probability that queries would be encrypted.
+Such a measurement would also certainly be affected by the types of queries being sent by the recursive resolver, which, in turn, is also related to the types of queries that are sent to the recursive resolver by the stub resolvers and forwarders downstream.
+Doing this type of research would be valuable to the DNS community after initial implementation by a variety of recursive resolvers and authoritative servers because it would help assess the overall DNS privacy value of implementing the protocol.
+Thus, it would be useful if recursive resolvers and authoritative servers reported percentages of queries sent and received over the different transports.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The guidance in this document provides defense against passive network monitors for most queries.
+It does not defend against active attackers.
+It can also leak some queries and their responses due to Happy Eyeballs optimizations (<xref target="RFC8305"/>) when the recursive resolver's cache is cold.</t>
+      <t>Implementation of the guidance in this document should increase deployment of opportunistic encrypted DNS transport between recursive resolvers and authoritative servers at little operational risk.</t>
+      <t>However, implementers cannot rely on the guidance in this document for robust defense against active attackers: they should treat it as a stepping stone en route to stronger defense.</t>
+      <t>In particular, a recursive resolver following the guidance in this document can easily be forced by an active attacker to fall back to cleartext DNS queries.
+Or, an active attacker could position itself as a machine-in-the-middle, which the recursive resolver would not defend against or detect due to lack of server authentication.
+Defending against these attacks without risking additional unexpected protocol failures would require signaling and coordination that are out of scope for this document.</t>
+      <t>This guidance is only one part of operating a privacy-preserving DNS ecosystem.
+A privacy-preserving recursive resolver should adopt other practices as well, such as QNAME minimization (<xref target="RFC9156"/>), local root zone (<xref target="RFC8806"/>), etc., to reduce the overall leakage of query information that could infringe on the client's privacy.</t>
+    </section>
+    <section anchor="operational-considerations">
+      <name>Operational Considerations</name>
+      <t>As recursive resolvers implement this protocol, authoritative servers will see more probing on port 853 of IP addresses that are associated with NS records.
+Such probing of an authoritative server should generally not cause any significant problems.  If the authoritative server is not supporting this protocol, it will not respond on port 853; if it is supporting this protocol, it will act accordingly.</t>
+      <t>However, a system that is a public recursive resolver that supports DoT and/or DoQ may also have an IP address that is associated with NS records.
+This could be accidental (such as a glue record with the wrong target address) or intentional.
+In such a case, a recursive resolver following this protocol will look for authoritative answers to ports 53 and 853 on that IP address. Additionally, the DNS server answering on port 853 would need to be able to differentiate queries for recursive answers from queries for authoritative answers (e.g., by having the authoritative server handle all queries that have the Recursion Desired (RD) flag unset).</t>
+      <t>As discussed in <xref target="security-considerations"/>, the protocol described in this document provides no defense against active attackers.
+On a network where a captive portal is operating, some communications may be actively intercepted (e.g., when the network tries to redirect a user to complete an interaction with a captive portal server).
+A recursive resolver operating on a node that performs captive portal detection and Internet connectivity checks <bcp14>SHOULD</bcp14> delay encrypted transport probes to authoritative servers until after the node's Internet connectivity check policy has been satisfied.</t>
+    </section>
+
+  </middle>
+  <back>
+
+
+    <displayreference target="I-D.ietf-dnsop-dns-error-reporting" to="DNS-ER"/>
+    <displayreference target="I-D.ietf-tls-esni" to="TLS-ECH"/>
+
+
+
+    <references>
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7301.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7858.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9250.xml"/>
+
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7435.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7672.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7766.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7830.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8305.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8460.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8461.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8467.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8484.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8806.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9102.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9156.xml"/>
+
+<!-- [I-D.ietf-tls-esni] IESG state I-D Exists -->
+	<xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-tls-esni.xml"/>	
+
+<!-- [I-D.ietf-dnsop-dns-error-reporting] IESG state Waiting for AD Go-Ahead -->
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-dnsop-dns-error-reporting.xml"/>
+
+      </references>
+    </references>
+
+
+
+    <section anchor="assessing-the-experiment">
+      <name>Assessing the Experiment</name>
+      <t>This document is an Experimental RFC.
+In order to assess the success of the experiment, some key metrics could be collected by the technical community about the deployment of the protocol in this document.
+These metrics will be collected in recursive resolvers, authoritative servers, and the networks containing them.
+Some key metrics include the following.</t>
+      <ul spacing="normal">
+        <li>
+          <t>Comparison of the CPU and memory use between Do53 and encrypted transports.</t>
+        </li>
+        <li>
+          <t>Comparison of the query response rates between Do53 and encrypted transports.</t>
+        </li>
+        <li>
+          <t>Measurement of server authentication successes and failures.</t>
+        </li>
+        <li>
+          <t>Measurement and descriptions of observed attack traffic, if any.</t>
+        </li>
+        <li>
+          <t>Comparison of transactional bandwidth (ingress/egress, packets per second, bytes per second) between Do53 and encrypted transports.</t>
+        </li>
+      </ul>
+    </section>
+    <section anchor="adding-auth">
+      <name>Defense against Active Attackers</name>
+      <t>The protocol described in this document provides no defense against active attackers.
+A future protocol for recursive-to-authoritative DNS might want to provide such protection.</t>
+      <t>This appendix assumes that the use case for that future protocol is a recursive resolver that wants to prevent an active attack on communication between it and an authoritative server that has committed to offering encrypted DNS transport.
+An inherent part of this use case is that the recursive resolver would want to respond with a <tt>SERVFAIL</tt> response to its client if it cannot make an authenticated encrypted connection to any of the authoritative nameservers for a name.</t>
+      <t>However, an authoritative server that merely offers encrypted transport (for example, by following the guidance in <xref target="authoritative-guidance"/>) has made no such commitment, and no recursive resolver that prioritizes delivery of DNS records to its clients would want to "fail closed" unilaterally.</t>
+      <t>Therefore, such a future protocol would need at least three major distinctions from the protocol described in this document:</t>
+      <ul spacing="normal">
+        <li>
+          <t>A signaling mechanism that tells the recursive resolver that the authoritative server intends to offer authenticated encryption.</t>
+        </li>
+        <li>
+          <t>Authentication of the authoritative server.</t>
+        </li>
+        <li>
+          <t>A way to combine defense against an active attacker with the defenses described in this document.</t>
+        </li>
+      </ul>
+      <t>This can be thought of as a DNS analog to <xref target="RFC8461"/> or <xref target="RFC7672"/>.</t>
+      <section anchor="signaling-mechanism-properties">
+        <name>Signaling Mechanism Properties</name>
+        <t>To defend against an active attacker, the signaling mechanism needs to be able to indicate that the recursive resolver should fail closed if it cannot authenticate the server for a particular query.</t>
+        <t>The signaling mechanism itself would have to be resistant to downgrade attacks from active attackers.</t>
+        <t>One open question is how such a signal should be scoped.
+While this document scopes opportunistic state about encrypted transport based on the IP addresses of the client and server, signaled intent to offer encrypted transport is more likely to be scoped by the queried zone in the DNS or by the nameserver name than by the IP address.</t>
+        <t>A reasonable authoritative server operator or zone administrator probably doesn't want to risk breaking anything when they first enable the signal.
+Therefore, a signaling mechanism should probably also offer a means to report problems to the authoritative server operator without the client failing closed.
+Such a mechanism is likely to be similar to those described in <xref target="RFC8460"/> or <xref target="I-D.ietf-dnsop-dns-error-reporting"/>.</t>
+      </section>
+      <section anchor="authentication-of-authoritative-server">
+        <name>Authentication of Authoritative Servers</name>
+        <t>Forms of server authentication might include:</t>
+        <ul spacing="normal">
+          <li>
+            <t>An X.509 certificate issued by a widely known certification authority associated with the common NS names used for this authoritative server.</t>
+          </li>
+          <li>
+            <t>DNS-Based Authentication of Named Entities (DANE) (to avoid infinite recursion, the DNS records necessary to authenticate could be transmitted in the TLS handshake using the DNSSEC chain extension (see <xref target="RFC9102"/>)).</t>
+          </li>
+        </ul>
+        <t>A recursive resolver would have to verify the server's identity.
+When doing so, the identity would presumably be based on the NS name used for a given query or the IP address of the server.</t>
+      </section>
+      <section anchor="combining-protocols">
+        <name>Combining Protocols</name>
+        <t>If this protocol gains reasonable adoption, and a newer protocol that can offer defense against an active attacker were available, deployment is likely to be staggered and incomplete.
+This means that an operator that wants to maximize confidentiality for their users will want to use both protocols together.</t>
+        <t>Any new stronger protocol should consider how it interacts with the opportunistic protocol defined here, so that operators are not faced with the choice between widespread opportunistic protection against passive attackers (this document) and more narrowly targeted protection against active attackers.</t>
+      </section>
+    </section>
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>Many people contributed to the development of this document beyond the authors, including
+<contact fullname="Alexander Mayrhofer"/>,
+<contact fullname="Brian Dickson"/>,
+<contact fullname="Christian Huitema"/>,
+<contact fullname="Dhruv Dhody"/>,
+<contact fullname="Eric Nygren"/>,
+<contact fullname="Erik Kline"/>,
+<contact fullname="Florian Obser"/>,
+<contact fullname="Haoyu Song"/>,
+<contact fullname="Jim Reid"/>,
+<contact fullname="Kris Shrishak"/>,
+<contact fullname="Peter Thomassen"/>,
+<contact fullname="Peter van Dijk"/>,
+<contact fullname="Ralf Weber"/>,
+<contact fullname="Rich Salz"/>,
+<contact fullname="Robert Evans"/>,
+<contact fullname="Sara Dickinson"/>,
+<contact fullname="Scott Hollenbeck"/>,
+<contact fullname="Stephane Bortzmeyer"/>,
+<contact fullname="Yorgos Thessalonikefs"/>,
+and the DPRIVE Working Group.</t>
+    </section>
+  </back>
+</rfc>

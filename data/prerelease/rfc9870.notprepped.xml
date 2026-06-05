@@ -1,0 +1,553 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-opsawg-tsvwg-udp-ipfix-14" number="9870" category="std" updates="" obsoletes="" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="IPFIX IE for UDP Options">Export of UDP Options Information in IP Flow Information Export (IPFIX)</title>
+    <seriesInfo name="RFC" value="9870"/>
+    <author fullname="Mohamed Boucadair" surname="Boucadair" initials="M.">
+      <organization>Orange</organization>
+      <address>
+        <postal>
+          <city>Rennes</city>
+          <code>35000</code>
+          <country>France</country>
+        </postal>
+        <email>mohamed.boucadair@orange.com</email>
+      </address>
+    </author>
+    <author fullname="Tirumaleswar Reddy.K" surname="Reddy.K" initials="T.">
+      <organization>Nokia</organization>
+      <address>
+        <postal>
+          <country>India</country>
+        </postal>
+        <email>kondtir@gmail.com</email>
+      </address>
+    </author>
+    <date year="2025" month="October"/>
+    <area>OPS</area>
+    <workgroup>opsawg</workgroup>
+    <keyword>surplus area</keyword>
+    <keyword>UDP options</keyword>
+    <abstract>
+      <t>This document specifies new IP Flow Information Export (IPFIX) Information Elements for UDP Options.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>IP Flow Information Export (IPFIX) <xref target="RFC7011"/> is a protocol that is widely deployed in networks for traffic management purposes (<xref section="2" sectionFormat="of" target="RFC6632"/>). The protocol specifies the encoding of a set of basic data types and how the various Information Elements (IEs) are transmitted. In order to support the export of new Flow-related measurement data, new IEs can be defined and registered in a dedicated IANA registry <xref target="IANA-IPFIX"/> for interoperability.</t>
+      <t>This document specifies new IPFIX Information Elements for UDP Options (<xref target="sec-IE"/>). A brief overview of UDP Options is provided in <xref target="uo"/>.</t>
+      <t>The IE specified in <xref target="udpOptions"/> uses the new abstract data type ("unsigned256") defined in <xref target="RFC9740"/>.</t>
+      <t>Transport (including MTU) considerations are discussed in <xref section="10" sectionFormat="of" target="RFC7011"/>.</t>
+      <t>Examples to illustrate the use of the new IPFIX Information Elements are provided in <xref target="sec-ex"/>.</t>
+    </section>
+    <section anchor="conventions-and-definitions">
+      <name>Conventions and Definitions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+
+<t>This document uses the IPFIX-specific terminology (e.g., Flow) defined in <xref section="2" sectionFormat="of" target="RFC7011"/>.
+As in the base IPFIX specification <xref target="RFC7011"/>, these IPFIX-specific terms have the first letter of a word capitalized.</t>
+      <t>The document adheres to the naming conventions for Information Elements per <xref section="2.3" sectionFormat="of" target="RFC7012"/>.</t>
+      <t>Also, this document uses the terms defined in <xref section="3" sectionFormat="of" target="RFC9868"/>, especially "datagram" and "surplus area".</t>
+    </section>
+    <section anchor="uo">
+      <name>UDP Options at a Glance</name>
+      <t>UDP <xref target="RFC0768"/> does not support an extension mechanism similar to the options supported by other transport protocols, such as TCP <xref target="RFC9293"/>, Stream Control Transmission Protocol (SCTP) <xref target="RFC9260"/>, or Datagram Congestion Control Protocol (DCCP) <xref target="RFC4340"/>. Such a mechanism can be useful for various applications, e.g., to discover a path MTU or share timestamps. To fill that void, <xref target="RFC9868"/> extends UDP with a mechanism to insert extensions in datagrams. To do so, and unlike the conventional approach that relies upon transport headers, <xref target="RFC9868"/> uses trailers. Concretely, UDP Options are placed in the surplus area (that is, the area of an IP payload that follows a UDP packet). See <xref target="spa"/>. An example of the use of UDP Options for Datagram Packetization Layer Path MTU Discovery (DPLPMTUD) is described in <xref target="RFC9869"/>.</t>
+      <figure anchor="spa">
+        <name>Surplus Area</name>
+        <artwork align="center"><![CDATA[
+                       IP transport payload
+          <------------------------------------------------->
++--------+---------+----------------------+------------------+
+| IP Hdr | UDP Hdr |     UDP user data    |   surplus area   |
++--------+---------+----------------------+------------------+
+          <------------------------------>
+                     UDP Length]]></artwork>
+      </figure>
+      <t>Sections <xref format="counter" target="udpOptions"/> and <xref format="counter" target="udpUnsafeOptions"/> introduce new IEs to export the observed UDP Options.</t>
+      <t>UDP Options are unambiguously identified by means of a 1-byte field, called "Kind".</t>
+      <t>Options indicated by Kind values in the range 0-191 are called SAFE Options. Such options can be silently ignored by legacy receivers because they do not alter the UDP user data (<xref section="11" sectionFormat="of" target="RFC9868"/>). SAFE Options are exported using the IE defined in <xref target="udpOptions"/>.</t>
+      <t>Options indicated by Kind values in the range 192-255 are called UNSAFE Options. Such options are not safe for legacy receivers to ignore because they alter the UDP user data (<xref section="12" sectionFormat="of" target="RFC9868"/>). UNSAFE Options are exported using the IE defined in <xref target="udpUnsafeOptions"/>.</t>
+      <t>UDP Options occur per-packet within a Flow and can be inserted at any time in the Flow.</t>
+      <t><xref target="RFC9868"/> reserves two options for experiments: the Experimental (EXP, Kind=127) Option for SAFE Options and the UNSAFE Experimental (UEXP, Kind=254) Option. For both options, Experiment Identifiers (ExIDs) are used to differentiate concurrent use of these options. Known ExIDs are expected to be registered within IANA. <xref target="udpExID"/> specifies a new IPFIX IE to export observed ExIDs in the EXP Options. Also, <xref target="udpUExID"/> specifies a new IPFIX IE to export observed ExIDs in the UEXP Options. Only 16-bit ExIDs are supported in <xref target="RFC9868"/>.</t>
+      <t>This document does not intend to elaborate operational guidance/implications of UDP Options. The document focuses exclusively on exporting observed UDP Options in datagrams.</t>
+    </section>
+    <section anchor="sec-IE">
+      <name>New UDP IPFIX Information Elements</name>
+      <t>Given the Kind structure of SAFE and UNSAFE UDP Options, using one
+   single IE that would multiplex both types of options will limit the
+   benefits of reduced-size encoding in the presence of UNSAFE Options.
+   For example, at least 24 octets would be needed to report mandatory SAFE
+   Options that are observed in a Flow.
+   In order to use less bits to report observed UDP Options, distinct
+   IEs are thus defined to report SAFE (<xref target="udpOptions"/>) and UNSAFE
+   (<xref target="udpUnsafeOptions"/>) UDP Options. As further detailed in <xref target="sec-ex-rs"/>, only
+   one octet is needed to report mandatory SAFE Options.</t>
+      <section anchor="udpOptions">
+        <name>udpSafeOptions</name>
+        <dl>
+          <dt>Name:</dt>
+          <dd>
+            <t>udpSafeOptions</t>
+          </dd>
+          <dt>ElementID:</dt>
+          <dd>
+            <t>525</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>Observed SAFE UDP Options in a Flow. The information is encoded in a set of bit fields.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>Options are mapped to bits according to their option numbers. UDP
+Option Kind 0 corresponds to the least significant bit in the
+udpSafeOptions IE, while Kind 191 corresponds to the 65th most significant bit of the IE. The bit is set to 1 if the corresponding SAFE UDP Option is observed at least once in the Flow. The bit is set to 0 if the option is never observed in the Flow. The 64 most significant bits <bcp14>MUST</bcp14> be set to 0.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>The reduced-size encoding per <xref section="6.2" sectionFormat="of" target="RFC7011"/> is followed whenever fewer octets are needed to report observed SAFE UDP Options. For example, if only option Kinds &lt;= 31 are observed, then the value of the udpSafeOptions IE can be encoded as unsigned32, or if only option Kinds &lt;= 63 are observed, then the value of the udpSafeOptions IE can be encoded as unsigned64.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>The presence of udpSafeExIDList is an indication that the SAFE Experimental Option is observed in a Flow. The presence of udpSafeExIDList takes precedence over setting the corresponding bit in the udpSafeOptions IE for the same Flow. In order to optimize the use of the reduced-size encoding in the presence of udpSafeExIDList IE, the Exporter <bcp14>MUST NOT</bcp14> set the EXP flag of the udpSafeOptions IE that is reported for the same Flow to 1.</t>
+          </dd>
+          <dt>Abstract Data Type:</dt>
+          <dd>
+            <t>unsigned256</t>
+          </dd>
+          <dt>Data Type Semantics:</dt>
+          <dd>
+            <t>flags</t>
+          </dd>
+          <dt>Additional Information:</dt>
+          <dd>
+            <t>See the "UDP Option Kind Numbers" registry at <xref target="UDP_OPTIONS"/>.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>See <xref target="RFC9868"/> for more details about UDP Options.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9870</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="udpUnsafeOptions">
+        <name>udpUnsafeOptions</name>
+        <dl>
+          <dt>Name:</dt>
+          <dd>
+            <t>udpUnsafeOptions</t>
+          </dd>
+          <dt>ElementID:</dt>
+          <dd>
+            <t>526</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>Observed UNSAFE UDP Options in a Flow. The information is encoded in a set of bit fields.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>Options are mapped to bits according to their option numbers. UDP
+Option Kind 192 corresponds to the least significant bit in the
+udpUnsafeOptions IE, while Kind 255 corresponds to the most significant bit of the IE. The bit is set to 1 if the corresponding UNSAFE UDP Option is observed at least once in the Flow. The bit is set to 0 if the option is never observed in the Flow.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>The reduced-size encoding per <xref section="6.2" sectionFormat="of" target="RFC7011"/> is followed whenever fewer octets are needed to report observed UNSAFE UDP Options.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>The presence of udpUnsafeExIDList is an indication that the UNSAFE Experimental Option is observed in a Flow. The presence of udpUnsafeExIDList takes precedence over setting the corresponding bit in the udpUnsafeOptions IE for the same Flow. In order to optimize the use of the reduced-size encoding in the presence of udpUnsafeExIDList IE, the Exporter <bcp14>MUST NOT</bcp14> set the UEXP flag of the udpUnsafeOptions IE that is reported for the same Flow to 1.</t>
+          </dd>
+          <dt>Abstract Data Type:</dt>
+          <dd>
+            <t>unsigned64</t>
+          </dd>
+          <dt>Data Type Semantics:</dt>
+          <dd>
+            <t>flags</t>
+          </dd>
+          <dt>Additional Information:</dt>
+          <dd>
+            <t>See the "UDP Option Kind Numbers" registry at <xref target="UDP_OPTIONS"/>.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>See <xref target="RFC9868"/> for more details about UDP Options.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9870</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="udpBasicExID">
+        <name>udpExID</name>
+        <dl>
+          <dt>Name:</dt>
+          <dd>
+            <t>udpExID</t>
+          </dd>
+          <dt>ElementID:</dt>
+          <dd>
+            <t>527</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>Observed ExID in an Experimental (EXP, Kind=127) Option or an UNSAFE Experimental (UEXP, Kind=254) Option.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>A basicList of udpExID is used to report udpSafeExIDList and udpUnsafeExIDList values.</t>
+          </dd>
+          <dt>Abstract Data Type:</dt>
+          <dd>
+            <t>unsigned16</t>
+          </dd>
+          <dt>Data Type Semantics:</dt>
+          <dd>
+            <t>identifier</t>
+          </dd>
+          <dt>Additional Information:</dt>
+          <dd>
+            <t>See the "TCP/UDP Experimental Option Experiment Identifiers (TCP/UDP ExIDs)" registry at <xref target="UDP_ExIDs"/>.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>See <xref target="RFC9868"/> for more details about ExIDs.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9870</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="udpExID">
+        <name>udpSafeExIDList</name>
+        <dl>
+          <dt>Name:</dt>
+          <dd>
+            <t>udpSafeExIDList</t>
+          </dd>
+          <dt>ElementID:</dt>
+          <dd>
+            <t>528</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>Observed ExIDs in the Experimental (EXP, Kind=127) Option.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>A basicList of udpExID Information Elements in which each udpExID Information Element carries the ExID observed in an EXP Option.</t>
+          </dd>
+          <dt>Abstract Data Type:</dt>
+          <dd>
+            <t>basicList</t>
+          </dd>
+          <dt>Data Type Semantics:</dt>
+          <dd>
+            <t>list</t>
+          </dd>
+          <dt>Additional Information:</dt>
+          <dd>
+            <t>See the "TCP/UDP Experimental Option Experiment Identifiers (TCP/UDP ExIDs)" registry at <xref target="UDP_ExIDs"/>.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>See <xref target="RFC9868"/> for more details about ExIDs.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9870</t>
+          </dd>
+        </dl>
+      </section>
+      <section anchor="udpUExID">
+        <name>udpUnsafeExIDList</name>
+        <dl>
+          <dt>Name:</dt>
+          <dd>
+            <t>udpUnsafeExIDList</t>
+          </dd>
+          <dt>ElementID:</dt>
+          <dd>
+            <t>529</t>
+          </dd>
+          <dt>Description:</dt>
+          <dd>
+            <t>Observed ExIDs in the UNSAFE Experimental (UEXP, Kind=254) Option.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>A basicList of udpExID Information Elements in which each udpExID Information Element carries the ExID observed in an UEXP Option.</t>
+          </dd>
+          <dt>Abstract Data Type:</dt>
+          <dd>
+            <t>basicList</t>
+          </dd>
+          <dt>Data Type Semantics:</dt>
+          <dd>
+            <t>list</t>
+          </dd>
+          <dt>Additional Information:</dt>
+          <dd>
+            <t>See the "TCP/UDP Experimental Option Experiment Identifiers (TCP/UDP ExIDs)" registry at <xref target="UDP_ExIDs"/>.</t>
+          </dd>
+          <dt/>
+          <dd>
+            <t>See <xref target="RFC9868"/> for more details about ExIDs.</t>
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <t>RFC 9870</t>
+          </dd>
+        </dl>
+      </section>
+    </section>
+    <section anchor="sec-ex">
+      <name>Examples</name>
+      <section anchor="sec-ex-rs">
+        <name>Reduced-Size Encoding</name>
+        <t>Given the UDP Kind allocation in <xref section="10" sectionFormat="of" target="RFC9868"/> and the option mapping defined in <xref target="udpOptions"/> of this document, fewer octets are likely to be used for Flows with mandatory UDP Options.</t>
+        <t><xref target="ex-udp"/> shows an example of the Kind/bit mappings in the udpSafeOptions IE for a Flow in which End of Options List (EOL, Kind=0) and Additional Payload Checksum (APC, Kind=2) Options are observed. Only the bits that corresponds to EOL and APC Options are set to 1.</t>
+        <figure anchor="ex-udp">
+          <name>An Example of udpSafeOptions IE with EOL and APC Options</name>
+          <artwork align="center"><![CDATA[
+MSB                                                       LSB
+                     1                          25
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 ... 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+...+-+-+-+-+-+-+-+-+
+|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|0|   |0|0|0|0|0|1|0|1|
++-+-+-+-+-+-+-+-+-+-+-+-+-+-++-++-+-+-+-+...+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+        <t>One octet is sufficient to report these observed options because the leading zeros are dropped per the reduced-size encoding guidance. Concretely, the reported udpSafeOptions IE will be set to 0x05 (<xref target="ex-udp-wire"/>).</t>
+        <figure anchor="ex-udp-wire">
+          <name>An Example of the Wire udpSafeOptions IE Value with EOL and APC Options</name>
+          <artwork align="center"><![CDATA[
+MSB           LSB
+ 0 1 2 3 4 5 6 7
++-+-+-+-+-+-+-+-+
+|0|0|0|0|0|1|0|1|
++-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+      </section>
+      <section anchor="safe-experimental-option">
+        <name>SAFE Experimental Option</name>
+        <t>Let us now consider a UDP Flow in which SAFE Experimental Options are observed. If a udpSafeOptions IE is exported for this Flow, then that IE will have the EXP bit set to 1 (<xref target="ex-udp-shared"/>). This example does not make any assumption about the presence of other UDP Options ("X" can be set to 0 or 1).</t>
+        <figure anchor="ex-udp-shared">
+          <name>An Example of udpSafeOptions with EXP Option</name>
+          <artwork align="center"><![CDATA[
+MSB                                                     LSB
+                  12                          25
+ 0 1 2 3 ... 7 8 9 0 1 2 3 4 5 6 7 8 9 ... 8 9 0 1 2 3 4 5
++-+-+-+-+...+-+-+-+-+-+-+-+-+-+-+-+-+-+-+...+-+-+-+-+-+-+-+
+|X|X|X|X|   |X|X|X|X|X|X|X|X|X|X|X|1|X|X|   |X|X|X|X|X|X|X|
++-+-+-+-+...+-+-+-+-+-+-+-+-++-++-+-+-+-+...+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+      </section>
+      <section anchor="exids-and-reduced-size-encoding">
+        <name>ExIDs and Reduced-Size Encoding</name>
+        <t>Now assume that EOL, APC, EXP, and UEXP Options are observed in a Flow. Let us also consider that the observed SAFE Experimental Options have ExIDs set to 0x9858 and 0xE2D4 and UNSAFE Experimental Options have ExIDs set to 0xC3D9 and 0x1234. <xref target="ex-sho"/> shows an excerpt of the Data Set encoding with a focus on SAFE Experimental Options that have ExIDs. The fields are defined in <xref target="RFC6313"/>.</t>
+        <figure anchor="ex-sho">
+          <name>Example of UDP Experimental Option ExID IEs</name>
+          <artwork align="center"><![CDATA[
+ MSB                                                          LSB
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+:                           ...                                 :
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      255      |        List Length = 9        |semantic=allof |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           udpExID = 527       |         Field Length = 2      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| SAFE ExID =  0x9858           | SAFE ExID = 0xE2D4            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|      255      |        List Length = 9        |semantic=allof |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|           udpExID = 527       |         Field Length = 2      |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| UNSAFE ExID =  0xC3D9         | UNSAFE ExID =  0x1234         |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+:                           ...                                 :]]></artwork>
+        </figure>
+        <t>Following the guidance in <xref target="udpOptions"/>, the reported udpSafeOptions IE will be set to 0x05 even in the presence of EXP Options.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document does not introduce new security considerations other than those already discussed in <xref section="11" sectionFormat="of" target="RFC7011"/> and <xref section="8" sectionFormat="of" target="RFC7012"/>.</t>
+      <t>The reader may refer to <xref section="24" sectionFormat="of" target="RFC9868"/> for the security considerations related to UDP Options.</t>
+    </section>
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <section anchor="ipfix-information-elements">
+        <name>IPFIX Information Elements</name>
+        <t>IANA has added the following new IEs to the "IPFIX Information Elements" registry under the "IP Flow Information Export (IPFIX) Entities" registry group <xref target="IANA-IPFIX"/>:</t>
+        <table>
+          <name>New IPFIX Information Elements</name>
+          <thead>
+            <tr>
+              <th align="left">ElementID</th>
+              <th align="left">Name</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">525</td>
+              <td align="left">udpSafeOptions</td>
+              <td align="left">
+                <xref target="udpOptions"/> of RFC 9870</td>
+            </tr>
+            <tr>
+              <td align="left">526</td>
+              <td align="left">udpUnsafeOptions</td>
+              <td align="left">
+                <xref target="udpUnsafeOptions"/> of RFC 9870</td>
+            </tr>
+            <tr>
+              <td align="left">527</td>
+              <td align="left">udpExID</td>
+              <td align="left">
+                <xref target="udpBasicExID"/> of RFC 9870</td>
+            </tr>
+            <tr>
+              <td align="left">528</td>
+              <td align="left">udpSafeExIDList</td>
+              <td align="left">
+                <xref target="udpExID"/> of RFC 9870</td>
+            </tr>
+            <tr>
+              <td align="left">529</td>
+              <td align="left">udpUnsafeExIDList</td>
+              <td align="left">
+                <xref target="udpUExID"/> of RFC 9870</td>
+            </tr>
+          </tbody>
+        </table>
+
+            <t>udpSafeOptions uses the abstract data type ("unsigned256")
+            defined in <xref target="RFC9740"/>.</t>
+
+      </section>
+    </section>
+  </middle>
+  <back>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7011.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9740.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7012.xml"/>
+
+<reference anchor="RFC9868" target="https://www.rfc-editor.org/info/rfc9868">
+  <front>
+      <title>Transport Options for UDP</title>
+      <author initials="J." surname="Touch" fullname="Dr. Joseph D. Touch">
+         <organization>Independent Consultant</organization>
+      </author>
+      <author initials="C." surname="Heard" fullname="C. M. Heard" role="editor">
+         <organization>Unaffiliated</organization>
+      </author>
+      <date month="October" year="2025" />
+  </front>
+  <seriesInfo name="RFC" value="9868"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9868"/>
+</reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.0768.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6313.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="IANA-IPFIX" target="https://www.iana.org/assignments/ipfix">
+          <front>
+            <title>IP Flow Information Export (IPFIX) Entities</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="UDP_OPTIONS" target="https://www.iana.org/assignments/udp">
+          <front>
+            <title>UDP Option Kind Numbers</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="UDP_ExIDs" target="https://www.iana.org/assignments/udp">
+          <front>
+            <title>TCP/UDP Experimental Option Experiment Identifiers (TCP/UDP ExIDs)</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6632.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9293.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9260.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4340.xml"/>
+
+<reference anchor="RFC9869" target="https://www.rfc-editor.org/info/rfc9869">
+<front>
+<title>Datagram Packetization Layer Path MTU Discovery (DPLPMTUD) for UDP Options</title>
+<author fullname="Gorry Fairhurst" initials="G." surname="Fairhurst">
+<organization>University of Aberdeen</organization>
+</author>
+<author fullname="Tom Jones" initials="T." surname="Jones">
+<organization>University of Aberdeen</organization>
+</author>
+<date month="October" year="2025"/>
+</front>
+  <seriesInfo name="RFC" value="9869"/>
+  <seriesInfo name="DOI" value="10.17487/RFC9869"/>
+</reference>
+
+      </references>
+    </references>
+
+<section numbered="false" anchor="acknowledgments">
+      <name>Acknowledgments</name>
+      <t>Thanks to <contact fullname="Benoît Claise"/> for the discussion on
+      the ordering of IPFIX IEs. Thanks to <contact fullname="Paul Aitken"/>
+      for the review and comments.</t>
+      <t>Thanks to <contact fullname="Tommy Pauly"/> for the TSVART review,
+      <contact fullname="Joe Touch"/> for the INTDIR review, <contact
+      fullname="Robert Sparks"/> for the GENART review, <contact
+      fullname="Watson Ladd"/> for the SECDIR review, and <contact
+      fullname="Jouni Korhonen"/> for the OPSDIR review.</t>
+      <t>Thanks to <contact fullname="Thomas Graf"/> for the shepherd review.</t>
+      <t>Thanks to <contact fullname="Mahesh Jethanandani"/> for the AD review.</t>
+      <t>Thanks to <contact fullname="Éric Vyncke"/>, <contact fullname="Roman
+      Danyliw"/>, and <contact fullname="Zahed Sarker"/> for the IESG
+      review.</t>
+    </section>
+  </back>
+</rfc>

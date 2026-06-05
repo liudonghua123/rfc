@@ -1,0 +1,635 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-bess-evpn-fast-df-recovery-12" number="9722" updates="8584" obsoletes="" consensus="true" submissionType="IETF" ipr="trust200902" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3" xml:lang="en">
+
+ <front>
+   <title abbrev="Fast Recovery for EVPN DF Election">Fast Recovery for EVPN Designated Forwarder Election</title>
+    <seriesInfo name="RFC" value="9722"/>
+  <author fullname="Patrice Brissette" initials="P." surname="Brissette">
+      <organization>Cisco</organization>
+      <address>
+        <email>pbrisset@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Ali Sajassi" initials="A." surname="Sajassi">
+      <organization>Cisco</organization>
+      <address>
+        <email>sajassi@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="Luc André Burdet" initials="LA." surname="Burdet" role="editor">
+      <organization>Cisco</organization>
+      <address>
+        <email>lburdet@cisco.com</email>
+      </address>
+    </author>
+    <author fullname="John Drake" initials="J." surname="Drake">
+      <organization>Independent</organization>
+      <address>
+        <email>je_drake@yahoo.com</email>
+      </address>
+    </author>
+    <author fullname="Jorge Rabadan" initials="J." surname="Rabadan">
+      <organization>Nokia</organization>
+      <address>
+        <email>jorge.rabadan@nokia.com</email>
+      </address>
+    </author>
+    <date year="2025" month="May"/>
+
+    <area>RTG</area>
+    <workgroup>bess</workgroup>
+
+    <keyword>EVPN</keyword>
+    <keyword>Designated Forwarder</keyword>
+    <keyword>Convergence</keyword>
+    <keyword>Recovery</keyword>
+    <abstract>
+      <t>The Ethernet Virtual Private Network (EVPN) solution in RFC 7432
+      provides Designated Forwarder (DF) election procedures for multihomed
+      Ethernet Segments. These procedures have been enhanced further by
+      applying the Highest Random Weight (HRW) algorithm for DF election to
+      avoid unnecessary DF status changes upon a failure.  This document
+      improves these procedures by providing a fast DF election upon recovery
+      of the failed link or node associated with the multihomed Ethernet
+      Segment.  This document updates RFC 8584 by optionally introducing
+      delays between some of the events therein.</t>
+      <t>The solution is independent of the number of EVPN Instances (EVIs)
+      associated with that Ethernet Segment, and it is performed via a simple
+      signaling in BGP between the recovered node and each of the other nodes
+      in the multihoming group.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro">
+      <name>Introduction</name>
+      <t>The Ethernet Virtual Private Network (EVPN) solution <xref target="RFC7432"/> is
+     widely used in data center (DC) applications for Network
+     Virtualization Overlay (NVO) and Data Center Interconnect (DCI) services and
+     in service provider (SP) applications for next-generation virtual
+     private LAN services.</t>
+      <t><xref target="RFC7432"/> describes Designated Forwarder (DF) election procedures for
+     multihomed Ethernet Segments. These procedures are enhanced further in
+     <xref target="RFC8584"/> by applying the Highest Random Weight (HRW) algorithm for DF
+     election in order to avoid unnecessary DF status changes upon a link
+     or node failure associated with the multihomed Ethernet Segment.</t>
+      <t>This document makes further improvements to the DF election procedures in
+     <xref target="RFC8584"/> by providing an option for a fast DF election upon
+     recovery of the failed link or node associated with the multihomed
+     Ethernet Segment. This DF election is achieved independent of the number
+     of EVPN Instances (EVIs) associated with that Ethernet Segment, and it is performed via
+     straightforward signaling in BGP between the recovered node and each of the other nodes
+     in the multihomed Ethernet Segment redundancy group.</t>
+     <t>This document updates the DF Election Finite State Machine (FSM)
+     described in <xref target="RFC8584" section="2.1"/> by optionally
+     introducing delays between some events, as further detailed in <xref
+     target="fsm_8584"/>.  The solution is based on a simple one-way signaling
+     mechanism.</t>
+      <section>
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+      </section>
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <dl>
+          <dt>PE:</dt>
+          <dd>Provider Edge</dd>
+          <dt>DF:</dt>
+          <dd>Designated Forwarder. A PE that is currently forwarding
+           (encapsulating/decapsulating) traffic for a given VLAN in and out of
+           a site.</dd>
+          <dt>NDF:</dt>
+          <dd>Non-Designated Forwarder. A PE that is currently blocking traffic (see
+           DF above).</dd>
+          <dt>EVI:</dt>
+          <dd>EVPN Instance. It spans the PE devices participating in that
+          EVPN.</dd>
+          <dt>HRW:</dt>
+          <dd>Highest Random Weight algorithm <xref target="HRW98"/></dd>
+          <dt>Service carving:</dt>
+          <dd>This refers to DF election, as defined in <xref target="RFC7432"/>.</dd>
+          <dt>SCT:</dt>
+          <dd>Service Carving Time. Defined in this document as the time at
+           which all nodes participating in an Ethernet Segment perform DF Election.</dd>
+        </dl>
+      </section>
+      <section anchor="challenges">
+        <name>Challenges with Existing Mechanism</name>
+        <t>In EVPN technology, multiple PE devices encapsulate
+        and decapsulate data belonging to the same VLAN. Under certain conditions, this
+        may cause duplicated Ethernet packets and potential loops if there is a momentary
+        overlap in forwarding roles between two or more PE devices, potentially also leading
+        to broadcast storms of frames forwarded back into the VLAN.</t>
+        <t>EVPN <xref target="RFC7432"/> currently specifies timer-based synchronization among PE
+        devices within an Ethernet Segment redundancy group. This approach can lead to duplications and potential
+        loops due to multiple DFs if the timer interval is too short
+        or can lead to packet drops if the timer interval is too long.</t>
+        <t>Split-horizon filtering, as described in <xref target="RFC7432" section="8.3"/>,
+        can prevent loops but does not address duplicates.
+        However, if there are overlapping DFs of two
+        different sites simultaneously for the same VLAN, the site identifier will differ when the
+        packet re-enters the Ethernet Segment. Consequently, the split-horizon check will fail,
+        resulting in Layer 2 loops.</t>
+        <t>The updated DF procedures outlined in <xref target="RFC8584"/>
+        use the well-known
+        HRW algorithm to prevent the reshuffling of VLANs among
+        PE devices within the Ethernet Segment redundancy group during failure or recovery events. This
+        approach minimizes the impact on VLANs not assigned to the failed or recovered ports
+        and eliminates the occurrence of loops or duplicates during such events.</t>
+        <t>However, upon PE insertion or a port being newly added to a multihomed Ethernet Segment,
+        the HRW cannot help either, as a transfer of the DF role to the new port must occur
+        while the old DF is still active.</t>
+        <figure anchor="topology">
+          <name>CE1 Multihomed to PE1 and PE2</name>
+          <artwork><![CDATA[
+                                  +---------+
+               +-------------+    |         |
+               |             |    |         |
+             / |    PE1      |----|         |   +-------------+
+            /  |             |    |  MPLS/  |   |             |---CE3
+           /   +-------------+    |  VxLAN/ |   |     PE3     |
+      CE1 -                       |  Cloud  |   |             |
+           \   +-------------+    |         |---|             |
+            \  |             |    |         |   +-------------+
+             \ |     PE2     |----|         |
+               |             |    |         |
+               +-------------+    |         |
+                                  +---------+]]></artwork>
+        </figure>
+        <t>In <xref target="topology"/>, when PE2 is inserted in the Ethernet Segment or its
+        CE1-facing interface is recovered, PE1 will transfer
+        the DF role of some VLANs to PE2 to achieve load-balancing. However,
+        because there is no handshake mechanism between PE1 and PE2,
+        overlapping of DF roles for a given VLAN is possible, which leads to duplication of
+        traffic as well as Layer 2 loops.</t>
+        <t>Current EVPN specifications <xref target="RFC7432"/> and <xref target="RFC8584"/>
+        rely on a timer-based approach for transferring the DF role to the newly inserted device.
+        This can cause the following issues:</t>
+        <ul>
+          <li>Loops and duplicates, if the timer value is too short</li>
+          <li>Prolonged traffic loss, if the timer value is too long</li>
+        </ul>
+      </section>
+      <section anchor="advantages">
+        <name>Design Principles for a Solution</name>
+        <t>The clock-synchronization solution for fast DF recovery presented in this document
+        follows several design principles and offers
+        multiple advantages, namely:
+        </t>
+        <ul>
+          <li>Complex handshake signaling mechanisms and state machines are
+            avoided in favor of a simple unidirectional signaling approach.</li>
+          <li>The fast DF recovery solution maintains backwards compatibility (see <xref target="ntpcompat"/>) by ensuring that PEs reject any unrecognized new BGP EVPN Extended Community.</li>
+          <li>Existing DF Election algorithms remain supported.</li>
+          <li>The fast DF recovery solution is independent of any BGP delays in propagation of Ethernet Segment
+          routes (Route Type 4)</li>
+          <li>The fast DF recovery solution is agnostic of the actual time synchronization mechanism
+          used; however, an NTP-based representation of time is used for EVPN signaling.</li>
+        </ul>
+        <t>The solution in this document relies on nodes in the topology, more specifically
+        the peering nodes of each Ethernet-Segment, to be clock-synchronized and to advertise the Time
+        Synchronization capability.
+        When this is not the case, or when clocks are badly desynchronized, network convergence and DF
+        Election is no worse than that described in <xref target="RFC7432"/> due to the timestamp range checking (<xref target="timestamp_verification"/>).
+        </t>
+      </section>
+    </section>
+    <section anchor="sync">
+      <name>DF Election Synchronization Solution</name>
+      <t>The fast DF recovery solution relies on the concept of common clock alignment between partner PEs participating
+      in a common Ethernet Segment, i.e., PE1 and PE2 in <xref target="topology"/>. The main idea is to have all peering PEs of that
+      Ethernet Segment perform DF election and apply the result at the same previously announced time. </t>
+      <t>The DF Election procedure, as described in <xref target="RFC7432"/> and as optionally
+      signaled in <xref target="RFC8584"/>, is applied.
+      All PEs attached to a given Ethernet Segment are clock-synchronized
+      using a networking protocol for clock synchronization (e.g., NTP, Precision Time Protocol (PTP)).
+      Whenever possible, recovery activities for failed PEs <bcp14>SHOULD NOT</bcp14> be initiated until after the
+      underlying clock synchronization protocol has converged to benefit from this document's fast DF recovery
+      procedures.  
+      When a new PE is inserted in an Ethernet Segment or when a failed PE of the Ethernet
+      Segment recovers, that PE communicates to peering partners the current time plus the value of
+      the timer for partner discovery from step 2 in <xref target="RFC7432" section="8.5"/>.
+      This constitutes an "end time" or "absolute time" as seen from the local PE.
+      That absolute time is called the Service Carving Time (SCT).</t>
+      <t>A new BGP EVPN Extended Community, the Service Carving Time, is advertised along with
+      the Ethernet Segment Route Type 4 (RT-4) and communicates the SCT to other
+      partners to ensure an orderly transfer of forwarding duties.</t>
+      <t>Upon receipt of the new BGP EVPN Extended Community, partner PEs can determine the SCT
+      of the newly inserted PE. To eliminate any potential for duplicate traffic or loops, the
+      concept of "skew" is introduced: a small time offset to ensure a controlled and orderly
+      transition when multiple PE devices are involved.
+
+      The previously inserted PE(s) must perform service carving first for NDF to DF transitions.
+      The receiving PEs subtract this skew (default = 10 ms) to the Service Carving Time and apply NDF
+      to DF transitions first. This is followed shortly by the NDF to DF transitions on both PEs, after the skew delay.
+      On the recovering PE, all services are already in NDF state, and no
+      skew for DF to NDF transitions is required.</t>
+      <t>This document proposes a default skew value of 10 ms to allow completion of programming the DF
+      to NDF transitions, but implementations may make the skew larger (or configurable) taking
+      into consideration scale, hardware capabilities, and clock accuracy.</t>
+      <t>To summarize, all peering PEs perform service carving almost
+      simultaneously at the time announced by the newly added/recovered
+      PE. The newly inserted PE initiates the SCT and triggers service carving
+      immediately on its local timer expiry. The previously inserted PE(s)
+      receiving Ethernet Segment route (RT-4) with an SCT BGP extended
+      community perform service carving shortly before the SCT for DF to NDF
+      transitions and at the SCT for NDF to DF transitions.</t>
+      <section anchor="ntpencoding">
+        <name>BGP Encoding</name>
+        <t>A BGP extended community, with Type 0x06 and Sub-Type 0x0F, is defined to communicate the
+        SCT for each Ethernet Segment:</t>
+        <figure>
+          <name>Service Carving Time</name>
+          <artwork><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Type = 0x06   | Sub-Type(0x0F)|      Timestamp Seconds        ~
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~  Timestamp Seconds            |      Timestamp Fraction       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+        <t>The timestamp exchanged uses the NTP prime epoch of 0 h 1 January 
+   1900 UTC <xref target="RFC5905"/> and an adapted form of the 64-bit NTP timestamp format.</t>
+        <t>The 64-bit NTP timestamp format consists of a 32-bit unsigned seconds
+   field and a 32-bit fraction field, which are encoded in the
+        Service Carving Time as follows:</t>
+        <dl spacing="normal" newline="false">
+          <dt>Timestamp Seconds:</dt><dd>32-bit NTP seconds are encoded in this field.</dd>
+          <dt>Timestamp Fraction:</dt><dd>The high-order 16 bits of
+          the NTP "Fraction" field are encoded in this field.</dd>
+        </dl>
+        <t>When rebuilding a 64-bit NTP timestamp format using the values from a received SCT BGP extended community, the lower-order 16 bits of the
+        NTP "Fraction" field are set to 0. The use of a 16-bit fractional seconds value yields adequate precision of 15 microseconds
+        (2<sup>-16</sup> s).</t>
+        <t>The format of the DF Election Extended Community that is used in this document is:</t>
+                <figure>
+          <name>DF Election Extended Community (RFC 8584)</name>
+          <artwork><![CDATA[
+                     1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| Type = 0x06   | Sub-Type(0x06)| RSV |  DF Alg |    Bitmap     ~
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+~     Bitmap    |            Reserved                           |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+        <t>The Bitmap field (2 octets) encodes "capabilities" <xref target="RFC8584"/>, where this
+        document introduces a new Time Synchronization capability indicated by "T".</t>
+
+        <figure>
+          <name>Bitmap Field in the DF Election Extended Community</name>
+          <artwork><![CDATA[
+                     1         1
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+| |A| |T|                       |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+        </figure>
+
+        <dl spacing="normal" newline="false">
+          <dt>Bit 3:</dt><dd>Time Synchronization (corresponds to Bit 27 of
+          the DF Election Extended Community). When set to 1, it indicates the
+          desire to use the Time Synchronization capability with the rest of the
+          PEs in the Ethernet Segment.</dd>
+        </dl>
+        <t>
+        This capability is utilized in conjunction with the agreed-upon DF Election Type.
+        For instance, if all the PE devices in the Ethernet Segment indicate the desire to use the
+        Time Synchronization capability and request the DF Election Type to be the HRW,
+        then the HRW algorithm is used in conjunction with this capability. A PE that does not
+        support the procedures set out in this document or that receives a route from another PE in
+        which the capability is not set <bcp14>MUST NOT</bcp14> delay DF election as this could
+        lead to duplicate traffic in some instances (overlapping DFs).</t>
+      </section>
+      <section anchor="timestamp_verification">
+        <name>Timestamp Verification</name>
+        <t>The NTP Era value is not exchanged, and participating PEs may consider the timestamps to be in the same Era as their local value.
+        A DF Election operation occurring exactly at the next Era transition will be some time on
+        February 7, 2036. Implementors and operators may address credible
+        cases of rollover ambiguity (adjacent Eras n and n+1) as well as the security issue of unreasonably
+        large or unreasonably small NTP timestamps in the following manner.</t>
+        <t>The procedures in this document address implicitly what occurs with receiving an SCT value
+        in the past. This would be a naturally occurring event with a large BGP propagation delay:
+        the receiving PE treats
+        the DF Election at the peer as having already occurred and proceeds without starting any
+        timer to further delay service carving, effectively falling back on behavior as specified in <xref target="RFC7432"/>.
+        A PE that receives an SCT value smaller than its current time <bcp14>MUST</bcp14> discard the Service Carving Time and <bcp14>SHALL</bcp14> treat the DF Election at
+   the peer as having occurred already.</t>
+        <t>The more problematic scenario is the PE in Era n+1 that receives an SCT advertised by
+        the PE still in Era n, with a very large SCT value. To address this Era rollover as well as
+        the large values attack vector, implementations <bcp14>MUST</bcp14> validate the received SCT against
+        an upper bound.</t>
+        <t>It is left to implementations to decide what constitutes an "unreasonably large" SCT value.
+        A recommended approach, however, is to compare the received offset to the local peering timer value.
+        In practice, peering timer values are configured uniformly across Ethernet Segment peers and
+        may be treated as an upper bound on the offset of received SCT values.
+        A PE that receives an SCT representing an offset larger than the local peering timer <bcp14>MUST</bcp14>
+        discard the SCT and <bcp14>SHALL</bcp14> treat
+        the DF Election at the peer as having already occurred, as above.</t>
+      </section>
+      <section anchor="fsm_8584">
+        <name>Updates to RFC 8584</name>
+        <t>This document introduces an additional delay to the events and
+        transitions defined for the default DF election algorithm FSM in
+        <xref target="RFC8584" section="2.1"/> without changing the FSM state or event definitions
+        themselves.</t>
+        <t>Upon receiving an RCVD_ES message, the peering PE's FSM transitions
+        from the DF_DONE state (indicating the DF election process was complete) to the DF_CALC state
+        (indicating that a new DF calculation is needed). Due to the 
+        SCT included in the Ethernet Segment update, the completion of the DF_CALC state and the
+        subsequent transition back to the DF_DONE state are delayed. This delay ensures proper
+        synchronization and prevents conflicts. Consequently, the accompanying forwarding updates to
+        the DF and NDF states are also deferred.</t>
+
+        <t>Item 9 in <xref target="RFC8584" section="2.1"/>, in the list "Corresponding actions when transitions
+are performed or states are entered/exited", is changed as follows:</t>
+
+<blockquote>
+        <ol start="9" spacing="normal">
+          <li><t>DF_CALC on CALCULATED: Mark the election result for the VLAN
+          or VLAN bundle.</t>
+
+          <ol type="9.%d" spacing="normal">
+            <li>If no Service Carving Time is present during the RCVD_ES event of Action 11,
+            proceed to step 9.4</li>
+
+            <li>If a Service Carving Time is present during the RCVD_ES event of
+            Action 11, wait until the time indicated by the SCT minus skew before proceeding to step
+            9.3.</li>
+            <li>Assume the role of NDF for the local PE concerning the VLAN or VLAN bundle.
+            Wait the remaining skew time before proceeding to step 9.4.</li>
+
+            <li>Assume the election result's role (DF or NDF) for the local PE concerning the VLAN or
+            VLAN bundle and transition to the DF_DONE state.</li>
+            </ol>
+          </li>
+        </ol>
+</blockquote>
+
+        <t>This revised approach ensures proper timing and synchronization in the DF election
+        process, avoiding conflicts and ensuring accurate forwarding updates.</t>
+      </section>
+    </section>
+    <section anchor="example">
+      <name>Synchronization Scenarios</name>
+      <t>Consider <xref target="topology"/> as an example, where initially PE2
+      has failed and PE1 has taken over.  This scenario illustrates the
+      problem with the DF Election mechanism described in <xref
+      target="RFC7432" section="8.5"/>, specifically in the context of the
+      timer value configured for all PEs on the Ethernet Segment.</t>
+      <t>The following procedure is based on <xref target="RFC7432"
+      section="8.5"/> with the default 3-second timer in step 2.  </t>
+      <ol spacing="normal">
+        <li>Initial state: PE1 is in a steady-state and PE2 is recovering.</li>
+        <li>Recovery: PE2 recovers at an absolute time of t=99.</li>
+        <li>Advertisement: PE2 advertises RT-4, sent at t=100, to its partner (PE1).</li>
+        <li>Timer Start: PE2 starts a 3-second timer to allow the reception of
+        RT-4 from other PE nodes.</li>
+        <li>Immediate carving: PE1 performs service carving immediately upon
+        RT-4 reception, i.e., t=100 plus some BGP propagation delay.</li>
+        <li>Delayed Carving: PE2 performs service carving at time t=103.</li>
+      </ol>
+      <t><xref target="RFC7432"/> favors traffic drops over duplicate traffic.
+      With the above procedure, traffic drops will occur as part of each PE
+      recovery sequence since PE1 transitions some VLANs to
+      an NDF immediately upon RT-4 reception. The timer value
+      (default = 3 seconds) directly affects the duration of the packet
+      drops. A shorter (or zero) timer may result in duplicate traffic or
+      traffic loops.</t>
+      <t>The following procedure is based on the SCT approach:
+      </t>
+      <ol spacing="normal">
+        <li>Initial state: PE1 is in a steady state, and PE2 is recovering.</li>
+        <li>Recovery: PE2 recovers at an absolute time of t=99.</li>
+        <li>Timer Start: PE2 starts at t=100 a 3-second timer to allow the reception of RT-4 from other PE
+          nodes.</li>
+        <li>Advertisement: PE2 advertises RT-4, sent at t=100, with a target SCT value of t=103 to
+          its partner (PE1).</li>
+        <li>Service Carving Timer: PE1 starts the service carving timer, with the remaining time
+          until t=103.</li>
+        <li>Simultaneous Carving: Both PE1 and PE2 carve at an absolute time of t=103.</li>
+      </ol>
+      <t>
+        To maintain the preference for minimal loss over duplicate traffic, PE1 <bcp14>SHOULD</bcp14> carve
+        slightly before PE2 (with skew). The recovering PE2 performs both DF-to-NDF and NDF-to-DF
+        transitions per VLAN at the timer's expiry. The original PE1, which received the SCT, applies the following:
+      </t>
+      <ul spacing="normal">
+        <li>DF-to-NDF Transition(s): at t=SCT minus skew, where both PEs are NDF for the skew duration.</li>
+        <li>NDF-to-DF Transition(s): at t=SCT.</li>
+      </ul>
+      <t>
+        This split behavior ensures a smooth DF role transition with minimal loss.
+      </t>
+      <t>The SCT approach mitigates the negative effect of requiring a timer for discovery of
+      Ethernet Segment (ES) RT-4 from other PE nodes. Furthermore, the BGP
+        transmission delay (from PE2 to PE1) of the ES RT-4 becomes a non-issue. The SCT approach shortens the
+        3-second timer window to the order of milliseconds.</t>
+      <t>The peering timer is a configurable value where 3 seconds represents the default.
+        Configuring a timer value of 0, or so small as to expire during propagation of the BGP
+        routes, is outside the scope of this document.
+        In reality, the use of the SCT approach presented in this document encourages the use of
+        larger peering timer values to overcome any sort of BGP route propagation delays.</t>
+      <section anchor="concurrent">
+        <name>Concurrent Recoveries</name>
+        <t>In the eventuality that two or more PEs in a peering Ethernet Segment group are recovering
+        concurrently or roughly at the same time, each will advertise a SCT.
+        This SCT value would correspond to what each recovering PE considers the "end time" for DF
+        Election. A similar situation arises in sequentially recovering PEs, when a second PE
+        recovers approximately at the time of the first PE's advertised SCT expiry and with its own
+        new SCT-2 outside of the initial SCT window.</t>
+        <t>In the case of multiple concurrent DF elections, each initiated by one of the recovering
+        PEs, the SCTs must be ordered chronologically. All PEs <bcp14>SHALL</bcp14> execute only a single DF
+        Election at the service carving time corresponding to the largest (latest) received timestamp value.
+        This DF Election will lead peering PEs into a single coordinated DF Election update.</t>
+        <t>Example:
+        </t>
+        <ol>
+          <li>Initial State: PE1 is in a steady state, with services elected at PE1.</li>
+          <li>Recovery of PE2: PE2 recovers at time t=100 and advertises RT-4 with a target SCT
+          value of t=103 to its partner (PE1).</li>
+          <li>Timer Initiation by PE2: PE2 starts a 3-second timer to allow the reception of RT-4
+          from other PE nodes.</li>
+          <li>Timer Initiation by PE1: PE1 starts the service carving timer, with the remaining time
+          until t=103.</li>
+          <li>Recovery of PE3: PE3 recovers at time t=102 and advertises RT-4 with a target SCT
+          value of t=105 to its partners (PE1, PE2).</li>
+          <li>Timer Initiation by PE3: PE3 starts a 3-second timer to allow the reception of RT-4
+          from other PE nodes.</li>
+          <li>Timer Update by PE2: PE2 cancels the running timer and starts the service carving
+          timer with the remaining time until t=105.</li>
+          <li>Timer Update by PE1: PE1 updates its service carving timer, with the remaining time
+          until t=105.</li>
+          <li>Service Carving: PE1, PE2, and PE3 perform service carving at the absolute time of t=105.</li>
+        </ol>
+        <t>In the eventuality that a PE in an Ethernet Segment group recovers during the discovery window
+        specified in <xref target="RFC7432" section="8.5"/> and does not support or advertise the
+        T-bit, all PEs in the current peering sequence <bcp14>SHALL</bcp14> immediately revert to the default
+        behavior described in <xref target="RFC7432"/>.</t>
+      </section>
+    </section>
+    <section anchor="ntpcompat">
+      <name>Backwards Compatibility</name>
+      <t>For the DF election procedures to achieve global convergence and unanimity within a
+          redundancy group, it is essential that all participating PEs agree on the DF election
+          algorithm to be employed. However, it is possible that some PEs may continue to use the
+          existing modulo-based DF election algorithm from <xref target="RFC7432"/> and not utilize the new 
+          SCT BGP extended community. PEs that operate using the baseline DF election mechanism
+          will simply discard the new SCT BGP extended community as unrecognized.</t>
+      <t>A PE can indicate its willingness to support clock-synchronized carving by signaling
+          the new "T" DF Election Capability and including the new SCT BGP extended community along
+          with the Ethernet Segment Route Type 4. If one or more PEs attached to the Ethernet
+          Segment do not signal T=1, then all PEs in the Ethernet Segment <bcp14>SHALL</bcp14> revert to the
+          timer-based approach as specified in <xref target="RFC7432"/>. This reversion is particularly crucial in
+          preventing VLAN shuffling when more than two PEs are involved.</t>
+      <t>In the event a new or extra RT-4 is received without the new "T" DF Election
+          Capability in the midst of an ongoing DF Election sequence, all SCT-based delays are
+          canceled, and the DF Election is immediately applied as specified in <xref target="RFC7432"/>, as if no SCT had been previously exchanged.</t>
+    </section>
+    <section anchor="security">
+      <name>Security Considerations</name>
+      <t>The mechanisms in this document use the EVPN control plane as defined
+      in <xref target="RFC7432"/>. Security considerations described in <xref
+      target="RFC7432"/> are equally applicable.</t>
+      <t>For the new SCT Extended Community, attack vectors may be setting the
+      value to zero, to a value in the past, or to large times in the
+      future. Handling of this attack vector is addressed in <xref
+      target="timestamp_verification"/> alongside NTP Era rollover
+      ambiguity.</t>
+      <t>This document uses MPLS- and IP-based tunnel technologies to support
+      data plane transport.  Security considerations described in <xref
+      target="RFC7432"/> and <xref target="RFC8365"/> are equally
+      applicable.</t>
+    </section>
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <t>IANA has made the following assignment in the "EVPN Extended
+      Community Sub-Types" registry set up by <xref target="RFC7153"/>.
+      </t>
+      <table>
+	<name></name>
+	<thead>
+	  <tr>
+	    <th>Sub-Type Value</th>
+	    <th>Name</th>
+            <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>0x0F</td>
+	    <td>Service Carving Time</td>
+            <td>RFC 9722</td>
+	  </tr>
+	</tbody>
+      </table>
+ 
+      <t>IANA has made the following assignment in the "DF Election
+      Capabilities" registry set up by <xref target="RFC8584"/>.</t>
+
+      <table>
+	<name></name>
+	<thead>
+	  <tr>
+	    <th>Bit</th>
+            <th>Name</th>
+            <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>3</td>
+            <td>Time Synchronization</td>
+            <td>RFC 9722</td>
+	  </tr>
+	</tbody>
+      </table>
+
+    </section>
+  </middle>
+
+<back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.7153.xml"/>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.7432.xml"/>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.8365.xml"/>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.8584.xml"/>
+        <xi:include href="https://www.rfc-editor.org/refs/bibxml/reference.RFC.5905.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <reference anchor="HRW98" target="https://www.microsoft.com/en-us/research/wp-content/uploads/2017/02/HRW98.pdf">
+          <front>
+            <title>Using Name-Based Mappings to Increase Hit Rates</title>
+            <author initials="D" surname="Thaler">
+              <organization/>
+            </author>
+            <author initials="C" surname="Ravishankar">
+              <organization/>
+            </author>
+            <date month="February" year="1998"/>
+          </front>
+	  <refcontent>IEEE/ACM Transactions on Networking, vol. 6, no. 1</refcontent>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>Authors would like to acknowledge helpful comments and contributions
+      of <contact fullname="Satya Mohanty"/> and <contact fullname="Bharath
+      Vasudevan"/>.  Also thank you to <contact fullname="Anoop Ghanwani"/>
+      and <contact fullname="Gunter van de Velde"/> for their thorough review
+      with valuable comments and corrections.</t>
+    </section>
+
+
+    <section anchor="contributors" numbered="false">
+      <name>Contributors</name>
+      <t>In addition to the authors listed on the front page, the following
+      coauthors have also contributed substantially to this document:</t>
+
+    <contact fullname="Gaurav Badoni">
+      <organization>Cisco</organization>
+      <address>
+        <email>gbadoni@cisco.com</email>
+      </address>
+    </contact>
+
+    <contact fullname="Dhananjaya Rao">
+      <organization>Cisco</organization>
+      <address>
+        <email>dhrao@cisco.com</email>
+      </address>
+    </contact>
+
+    </section>
+
+
+  </back>
+
+
+</rfc>

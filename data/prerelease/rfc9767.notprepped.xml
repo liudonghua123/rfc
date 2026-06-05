@@ -1,0 +1,1970 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-gnap-resource-servers-09" number="9767" updates="" obsoletes="" submissionType="IETF" category="std" consensus="true" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="GNAP RS Connections">Grant Negotiation and Authorization Protocol Resource Server Connections</title>
+    <seriesInfo name="RFC" value="9767"/>
+    <author initials="J." surname="Richer" fullname="Justin Richer" role="editor">
+      <organization>Bespoke Engineering</organization>
+      <address>
+        <email>ietf@justin.richer.org</email>
+        <uri>https://bspk.io/</uri>
+      </address>
+    </author>
+    <author initials="F." surname="Imbault" fullname="Fabien Imbault">
+      <organization>acert.io</organization>
+      <address>
+        <email>fabien.imbault@acert.io</email>
+        <uri>https://acert.io/</uri>
+      </address>
+    </author>
+    <date year="2025" month="April"/>
+    <area>SEC</area>
+    <workgroup>gnap</workgroup>
+
+    <abstract>
+<t>The Grant Negotiation and Authorization Protocol (GNAP) defines a mechanism for delegating authorization to a piece of
+software (the client) and conveying the results and artifacts of that delegation
+to the software. This extension defines methods for resource servers (RSs) to connect with authorization servers (ASs) in an interoperable fashion.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>The core GNAP specification <xref target="RFC9635"/> defines distinct roles for the authorization
+server (AS) and the resource server (RS). However, the core specification
+does not define how the RS gets answers to important questions, such as whether
+a given access token is still valid or what set of access rights the access
+token is approved for.</t>
+      <t>While it's possible for the AS and RS to be tightly coupled, such as a single
+deployed server with a shared storage system, GNAP does not presume or require
+such a tight coupling. It is increasingly common for the AS and RS to be run
+and managed separately, particularly in cases where a single AS protects multiple
+RSs simultaneously.</t>
+      <t>This specification defines a set of RS-facing APIs that an AS can make
+available for advanced loosely coupled deployments. Additionally, this document
+defines a general-purpose model for access tokens, which can be used in
+structured, formatted access tokens or in token introspection responses.
+This specification also defines a method
+for an RS to derive a downstream token for calling another chained RS.</t>
+      <t>The means for the authorization server to issue the
+access token to the client instance and the means for the client instance
+to present the access token to the resource server are subjects of the
+core GNAP specification <xref target="RFC9635"/>.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+"<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they
+appear in all capitals, as shown here.</t>
+        <?line -18?>
+
+	<t>This document contains non-normative examples of partial and complete HTTP messages, JSON structures, URLs, query components, keys, and other elements. Some examples use a single trailing backslash <tt>\</tt> to indicate line wrapping for long values, as per <xref target="RFC8792"/>. The <tt>\</tt> character and leading spaces on wrapped lines are not part of the value.</t>
+	
+        <t>Terminology specific to GNAP is defined in the terminology
+        section of the core specification; see <xref
+        target="RFC9635" sectionFormat="of" section="1.1"/>. The following protocol roles are defined:
+        authorization server, client, end user, resource owner, and resource server. The following protocol
+        elements are defined: access token, attribute, grant,
+        privilege, protected resource, right, subject, and subject
+        information. The same definitions are used in this
+        document.</t>
+      </section>
+    </section>
+    <section anchor="structure">
+      <name>Access Tokens</name>
+      <t>Access tokens are used as a mechanism for an AS to provide a
+      client instance limited access to an RS.  These access tokens
+      are artifacts representing a particular set of access rights
+      granted to the client instance to act on behalf of the RO. While
+      the format of access tokens varies in different systems (see
+      discussion in <xref target="token-format"/>), the concept of an
+      access token is consistent across all GNAP systems.</t>
+      <section anchor="general-purpose-access-token-model">
+        <name>General-Purpose Access Token Model</name>
+        <t>The core GNAP specification <xref target="RFC9635"/>
+        focuses on the relationship between the client and the
+        AS. Since the access token is opaque to the client, the core
+        specification does not define a token model. However, the AS
+        will need to create tokens, and the RS will need to understand
+        tokens. To facilitate a level of structural interoperability,
+        a common access token model is presented here.  Access tokens
+        represent a common set of aspects across different GNAP
+        deployments. This list is not intended to be universal or
+        comprehensive but rather serves as guidance to implementers in
+        developing data structures and associated systems across a
+        GNAP deployment. These data structures are communicated
+        between the AS and RS by using either a structured token or an
+        API-like mechanism such as token introspection (see <xref
+        target="introspection"/>).</t>
+        <t>This general-purpose data model does not assume either
+        approach; in fact, both approaches can be used together to
+        convey different pieces of information. Where possible,
+        mappings to the JSON Web Token (JWT) <xref target="RFC7519"/>
+        standard format are provided for each item in the model.</t>
+        <section anchor="value">
+          <name>Value</name>
+          <t>All access tokens have a <em>value</em>, which is the string that is passed on the wire between parties.
+In order for different access tokens to be differentiated at runtime, the value of a token needs to be unique
+within a security domain (such as all systems controlled by an AS). Otherwise, two separate tokens would be confused for each other, which would lead to security issues.
+The AS chooses the value, which can be structured (see <xref target="token-format"/>) or unstructured. When the token is
+structured, the token value also has a <em>format</em> known to the AS and RS, and the other items
+in this token model are contained within the token's value in some fashion.
+When the token is unstructured, the values are usually retrieved by the RS using a service
+	  such as token introspection described in <xref target="introspection"/>.</t>
+	  
+          <t>The access token value is conveyed in the <tt>value</tt> field of an <tt>access_token</tt> response; see <xref section="3.2" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>The format and content of the access token value is opaque to the client software.
+While the client software needs to be able to carry and present the access token
+value, the client software is never expected nor intended to be able to understand
+the token value itself.</t>
+          <t>If structured tokens like those in <xref target="RFC7519"/> are used, the value of the token might not be stored by the AS. Instead,
+a token identifier can be used along with protection by an AS-generated signature to validate and
+identify an individual token.</t>
+        </section>
+        <section anchor="issuer">
+          <name>Issuer</name>
+          <t>The access token is issued by the AS as defined in <xref target="RFC9635"/>. The AS will
+need to identify itself in order to allow an RS to recognize tokens that the AS has issued, particularly
+in cases where tokens from multiple different ASs could be presented to the same RS.</t>
+<t>This information is not usually conveyed directly to the client instance, since the client instance should know this information based on where it receives the token from.</t>
+
+          <t>In the payload of a JSON Web Token <xref target="RFC7519"/> or a token introspection response, this corresponds to the <tt>iss</tt> claim.</t>
+        </section>
+        <section anchor="audience">
+          <name>Audience</name>
+          <t>The access token is intended for use at one or more RSs. The AS can list a token's intended RSs to allow each RS to ensure that the RS is not receiving a token intended for someone else.
+The AS and RS have to agree on the nature of any audience identifiers represented by the token,
+but the URIs of the RS are a common pattern.</t>
+          <t>In the payload of a JSON Web Token <xref target="RFC7519"/> or token introspection response, this corresponds to the <tt>aud</tt> claim.</t>
+          <t>In cases where more complex access is required, the <tt>location</tt> field of objects in the <tt>access</tt>
+array can also convey audience information.
+In such cases, the client instance might need to know the audience information in order to differentiate between
+possible RSs to present the token to.</t>
+        </section>
+        <section anchor="key-binding">
+          <name>Key Binding</name>
+          <t>Access tokens in GNAP are bound to the client instance's registered or presented key, except in
+cases where the access token is a bearer token. For all tokens bound to a key, the AS and RS need to
+be able to identify which key the token is bound to; otherwise, an attacker could substitute their
+own key during presentation of the token. In the case of an asymmetric algorithm, the
+AS and RS need to know only the public key, while the client instance will also need to know the private
+key in order to present the token. In the case of a symmetric algorithm, all parties
+will need to either know or be able to derive the shared key.</t>
+          <t>The source of this key information can vary depending on deployment decisions. For example, an AS
+could decide that all tokens issued to a client instance are always bound to that client instance's current key.
+When the key needs to be dereferenced, the AS looks up the client instance to which the token was issued
+and finds the key information there. Alternatively, the AS could bind each token to a specific key that is managed separately from client instance
+information. In such a case, the AS determines the key information directly. This approach allows the client
+instance to use a different key for each request or allows the AS to issue a key for the client instance
+to use with the particular token.</t>
+          <t>In all cases, the key binding also includes a proofing mechanism, along with any parameters needed for that
+mechanism such as a signing or digest algorithm. If such information is not included with the proofing key, an attacker could
+present a token with a seemingly valid key using an insecure and incorrect proofing mechanism.</t>
+          <t>This value is conveyed to the client instance in the <tt>key</tt> field of the <tt>access_token</tt> response in <xref section="3.2" sectionFormat="of" target="RFC9635"/>.
+Since the common case is that the token is bound to the client instance's registered key, this field can be omitted in this case
+since the client will be aware of its own key.</t>
+          <t>In the payload of a JSON Web Token <xref target="RFC7519"/>, this corresponds to the <tt>cnf</tt> (confirmation) claim. In a token introspection response, this corresponds to the <tt>key</tt> claim.</t>
+          <t>In the case of a bearer token, all parties need to know that a token has no key bound to it and will therefore reject any attempts to use the bearer token with a key in an undefined way.</t>
+        </section>
+        <section anchor="flags">
+          <name>Flags</name>
+	  
+          <t>GNAP access tokens can have multiple associated data
+          flags that indicate special processing or considerations for
+          a token. For example, the data flags can indicate whether
+          a token is a bearer token or should be expected to be
+          durable across grant updates.</t>
+          <t>The client can request a set of flags using the <tt>flags</tt> field of the <tt>access_token</tt> grant request parameter in <xref section="2.1.1" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>These flags are conveyed from the AS to the client in the <tt>flags</tt> field of the <tt>access_token</tt> section of the grant response in <xref section="3.2" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>For token introspection, flags are returned in the <tt>flags</tt> field of the response.</t>
+        </section>
+        <section anchor="access-rights">
+          <name>Access Rights</name>
+          <t>Access tokens are tied to a limited set of access rights. These rights specify in some detail what the token
+can be used for, how it can be used, and where it can be used. The internal structure of access rights is detailed in <xref section="8" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>The access rights associated with an access token are calculated from the rights available to the client
+instance making the request, the rights available to be approved by the RO, the rights actually approved
+by the RO, and the rights corresponding to the RS in question. The rights for a specific access token
+are a subset of the overall rights in a grant request.</t>
+          <t>These rights are requested by the client instance in the <tt>access</tt> field of the <tt>access_token</tt> request; see <xref section="2.1" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>The rights associated with an issued access token are conveyed to the client instance in the <tt>access</tt> field of the <tt>access_token</tt> response in <xref section="3.2" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>In token introspection responses, access rights correspond to the <tt>access</tt> claim.</t>
+        </section>
+        <section anchor="time-validity-window">
+          <name>Time Validity Window</name>
+          <t>The access token can be limited to a certain time window outside of which it is no longer
+valid for use at an RS. This window can be explicitly bounded by an expiration time and a
+not-before time, or it could be calculated based on the issuance time of the token. For example,
+an RS could decide that it will accept tokens for most calls within an hour of a token's
+issuance, but only within five minutes of the token's issuance for certain high-value calls.</t>
+          <t>Since access tokens could be revoked at any time for any reason outside of a client instance's control,
+the client instance often does not know or concern itself with the validity time window of
+an access token. However, this information can be made available to it by using the <tt>expires_in</tt> field
+of an access token response; see <xref section="3.2" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>The issuance time of the token is conveyed in the <tt>iat</tt> claim in the payload of a JSON Web Token <xref target="RFC7519"/> or a token introspection response.</t>
+          <t>The expiration time of a token, after which it is to be rejected, is conveyed in the <tt>exp</tt> claim in the payload of a JSON Web Token <xref target="RFC7519"/> or a token introspection response.</t>
+          <t>The starting time of a token's validity window, before which it is to be rejected, is conveyed in the <tt>nbf</tt> claim in the payload of a JSON Web Token <xref target="RFC7519"/> or a token introspection response.</t>
+        </section>
+        <section anchor="token-identifier">
+          <name>Token Identifier</name>
+          <t>Individual access tokens often need a unique internal identifier to allow the AS to differentiate
+between multiple separate tokens. This value of the token can often be used as the
+identifier, but in some cases, a separate identifier is used.</t>
+          <t>This separate identifier can be conveyed in the <tt>jti</tt> claim in the payload of a JSON Web Token <xref target="RFC7519"/> or a token introspection response.</t>
+          <t>This identifier is not usually exposed to the client instance using the token, because the client
+instance only needs to use the token by value.</t>
+        </section>
+        <section anchor="authorizing-resource-owner">
+          <name>Authorizing Resource Owner</name>
+          <t>Access tokens are approved on behalf of a resource owner (RO). The identity of this RO can be used by
+the RS to determine exactly which resource to access or which kinds of access to allow. For example,
+an access token used to access identity information can hold a user identifier to allow the RS to
+determine which profile information to return. The nature of this information is subject to agreement
+by the AS and RS.</t>
+          <t>This corresponds to the <tt>sub</tt> claim in the payload of a JSON Web Token <xref target="RFC7519"/> or a token introspection response.</t>
+          <t>Detailed RO information is not returned to the client instance
+when an access token is requested alone, and in many cases, returning
+this information to the client instance would be a privacy violation on the part of the AS. Since the
+access token represents a specific delegated access, the client instance needs only to use the token
+at its target RS. Following the profile example, the client instance does not need to know
+the account identifier to get specific attributes about the account represented by the token.</t>
+          <t>GNAP does allow for the return of subject information separately from the access token, in the form
+of identifiers and assertions. These values are returned directly to the client separately from any
+access tokens that are requested, though it's common that they represent the same party.</t>
+        </section>
+        <section anchor="end-user">
+          <name>End User</name>
+          <t>The end user is the party operating the client software. The client instance can facilitate the end user
+interacting with the AS in order to determine the end user's identity, gather authorization, and provide
+the results of that information back to the client instance.</t>
+          <t>In many instances, the end user is the same party as the resource owner. However, in some cases,
+the two roles can be fulfilled by different people, where the RO is consulted asynchronously.
+The token model should be able to reflect these kinds of situations by representing the end user
+and RO separately.
+For example, an end user can request a financial payment, but the RO is the holder of the account
+that the payment would be withdrawn from. The RO would be consulted for approval by the AS outside
+of the flow of the GNAP request. A token in such circumstances would need to show both the
+RO and end user as separate entities.</t>
+        </section>
+        <section anchor="client-instance">
+          <name>Client Instance</name>
+          <t>Access tokens are issued to a specific client instance by the AS. The identity of this instance can
+be used by the RS to allow specific kinds of access or other attributes about the access token.
+For example, an AS that binds all access tokens issued to a particular client instance to that
+client instance's most recent key rotation would need to be able to look up the client instance
+in order to find the key binding detail.</t>
+          <t>This corresponds to the <tt>client_id</tt> claim in the payload of a JSON Web Token <xref target="RFC7519"/> or the <tt>instance_id</tt> field of a token introspection response.</t>
+          <t>The client is not normally informed of this information separately, since a client instance can
+usually correctly assume that it is the client instance to which a token that
+it receives was issued.</t>
+        </section>
+        <section anchor="label">
+          <name>Label</name>
+          <t>When multiple access tokens are requested or a client instance uses token labels, the parties
+will need to keep track of which labels were applied to each individual token. Since labels can
+be reused across different grant requests, the token label alone is not sufficient to
+uniquely identify a given access token in a system. However, within the context of a grant
+request, these labels are required to be unique.</t>
+          <t>A client instance can request a specific label using the <tt>label</tt> field of an <tt>access_token</tt> request; see <xref section="2.1" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>The AS can inform the client instance of a token's label using the <tt>label</tt> field of an <tt>access_token</tt> response; see <xref section="3.2" sectionFormat="of" target="RFC9635"/>.</t>
+          <t>This corresponds to the <tt>label</tt> field of a token introspection response.</t>
+        </section>
+        <section anchor="parent-grant-request">
+          <name>Parent Grant Request</name>
+          <t>All access tokens are issued in the context of a specific grant request from a client instance. The
+grant request itself represents a unique tuple of:</t>
+          <ul spacing="normal">
+            <li>
+              <t>The AS processing the grant request</t>
+            </li>
+            <li>
+              <t>The client instance making the grant request</t>
+            </li>
+            <li>
+              <t>The RO (or set of ROs) approving the grant request (or needing to approve it)</t>
+            </li>
+            <li>
+              <t>The access rights granted by the RO</t>
+            </li>
+            <li>
+              <t>The current state of the grant request, as defined in <xref section="1.5" sectionFormat="of" target="RFC9635"/></t>
+            </li>
+          </ul>
+          <t>The AS can use this information to tie common information to a specific token. For instance,
+instead of specifying a client instance for every issued access token for a grant, the AS
+can store the client information in the grant itself and look it up by reference from the
+access token.</t>
+          <t>The AS can also use this information when a grant request is updated. For example, if the client
+instance asks for a new access token from an existing grant, the AS can use this link to revoke
+older non-durable access tokens that had been previously issued under the grant.</t>
+          <t>A client instance will have its own model of an ongoing grant request, especially if that
+grant request can be continued using the API defined in <xref section="5" sectionFormat="of" target="RFC9635"/> where several
+pieces of statefulness need to be kept in hand. The client instance might need to keep an
+association with the grant request that issued the token in case the access token expires or
+does not have sufficient access rights, so that the client instance can get a new access
+token without having to restart the grant request process from scratch.</t>
+          <t>Since the grant itself does not need to be identified in any of the protocol messages, GNAP
+does not define a specific grant identifier to be conveyed between any parties in the protocol.
+Only the AS needs to keep an explicit connection between an issued access token and the
+parent grant that issued it.</t>
+        </section>
+        <section anchor="as-specific-access-tokens">
+          <name>AS-Specific Access Tokens</name>
+	  
+          <t>When an access token is used for the grant continuation API defined in <xref section="5" sectionFormat="of" target="RFC9635"/> (the continuation access token),
+the token management API defined in <xref section="6" sectionFormat="of" target="RFC9635"/> (the token management access token),
+or the RS-facing API defined in <xref target="rs-facing-api"/> (the resource server management access token),
+the AS <bcp14>MUST</bcp14> separate these access tokens from other access tokens used at one or more RSs. The AS can
+do this through the use of a flag on the access token data structure, by using a special internal
+access right, or any other means at its disposal. Just like other access tokens in GNAP,
+the contents of these AS-specific access tokens are opaque to the software presenting the token.
+	  Unlike other access tokens, the contents of these AS-specific access tokens are also opaque to the RS.</t>
+
+          <t>The client instance is given continuation access tokens only as part of the <tt>continue</tt> field
+of the grant response in <xref section="3.1" sectionFormat="of" target="RFC9635"/>.
+The client instance is given token management access tokens only as part of the <tt>manage</tt> field
+of the grant response in <xref section="3.2.1" sectionFormat="of" target="RFC9635"/>.
+The means by which the RS is given resource server management access tokens is out of
+scope of this specification, but methods could include preconfiguration of the token value with
+	  the RS software or granting the access token through a standard GNAP process.</t>
+
+          <t>For continuation access tokens and token management access tokens,
+a client instance <bcp14>MUST</bcp14> take steps to differentiate these special-purpose access tokens from
+access tokens used at one or more RSs.
+To facilitate this, a client instance can store AS-specific access tokens separately from
+other access tokens in order to keep them from being confused with each other and used at the
+wrong endpoints.</t>
+          <t>An RS should never see an AS-specific access token presented, so any attempts to process one <bcp14>MUST</bcp14>
+fail. When introspection is used, the AS <bcp14>MUST NOT</bcp14> return an <tt>active</tt> value of <tt>true</tt> for
+AS-specific access tokens to the RS. If an AS implements its protected endpoints in such a way
+that it uses token introspection internally, the AS <bcp14>MUST</bcp14> differentiate these AS-specific access tokens
+from those issued for use at an external RS.</t>
+        </section>
+      </section>
+      <section anchor="token-format">
+        <name>Access Token Formats</name>
+        <t>When the AS issues an access token for use at an RS, the RS
+needs to have some means of understanding what the access token is for
+in order to determine how to respond to the request. The core GNAP
+protocol makes neither assumptions nor demands on the format or contents
+of the access token, and in fact, the token format and contents are opaque
+to the client instance. However, such token formats can be the topic of agreements
+between the AS and RS.</t>
+        <t>Self-contained structured token formats allow for the conveyance
+of information between the AS and RS without requiring the RS to
+call the AS at runtime as described in <xref target="introspection"/>. Structured tokens
+can also be used in combination with introspection, allowing the token itself
+to carry one class of information and the introspection response to carry
+another.</t>
+        <t>Some token formats, such as Macaroons <xref target="MACAROON"/> and Biscuits <xref target="BISCUIT"/>, allow for
+the RS to derive sub-tokens without having to call the AS
+as described in <xref target="token-chaining"/>.</t>
+        <t>The supported token formats can be communicated dynamically at runtime
+between the AS and RS in several places:</t>
+        <ul spacing="normal">
+          <li>
+            <t>The AS can declare its supported token formats as part of RS-facing discovery (<xref target="discovery"/>).</t>
+          </li>
+          <li>
+            <t>The RS can require a specific token format be used to access a registered resource set (<xref target="rs-register-resource-handle"/>).</t>
+          </li>
+          <li>
+            <t>The AS can return the token's format in an introspection response (<xref target="introspection"/>).</t>
+          </li>
+        </ul>
+        <t>In all places where the token format is listed explicitly, it <bcp14>MUST</bcp14> be one of the registered
+values in the "GNAP Token Formats" registry <xref target="IANA-token-format"/>.</t>
+      </section>
+    </section>
+    <section anchor="rs-facing-api">
+      <name>Resource-Server-Facing API</name>
+      <t>To facilitate runtime and dynamic connections with an RS, the AS can offer an
+RS-facing API consisting of one or more of the following optional
+pieces:</t>
+      <ul spacing="normal">
+        <li>
+          <t>Discovery</t>
+        </li>
+        <li>
+          <t>Introspection</t>
+        </li>
+        <li>
+          <t>Token chaining</t>
+        </li>
+        <li>
+          <t>Resource reference registration</t>
+        </li>
+      </ul>
+      <section anchor="discovery">
+        <name>RS-Facing AS Discovery</name>
+        <t>A GNAP AS offering RS-facing services can publish its features
+on a well-known discovery document at the URL with the same
+schema and authority as the grant request endpoint URL, at
+the path <tt>/.well-known/gnap-as-rs</tt>.</t>
+        <t>The discovery response is a JSON document <xref target="RFC8259"/> consisting of a single JSON
+	object with the following fields:</t>
+	
+        <dl spacing="normal" newline="false">	  
+          <dt>grant_request_endpoint (string):</dt>
+           <dd>
+            <t>The location of the AS's grant request endpoint defined by <xref section="9" sectionFormat="of" target="RFC9635"/>.
+  This URL <bcp14>MUST</bcp14> be the same URL used by client instances in support of GNAP requests.
+  The RS can use this to derive downstream access tokens, if supported by the AS.
+  The location <bcp14>MUST</bcp14> be a URL <xref target="RFC3986"/>
+  with a scheme component that <bcp14>MUST</bcp14> be https, a host component, and (optionally)
+  port, path, and query components and no fragment components.
+  <bcp14>REQUIRED</bcp14>.
+  See <xref target="token-chaining"/>.</t>
+          </dd>
+          <dt>introspection_endpoint (string):</dt>
+          <dd>
+            <t>The URL of the endpoint offering introspection.
+  The location <bcp14>MUST</bcp14> be a URL <xref target="RFC3986"/>
+  with a scheme component that <bcp14>MUST</bcp14> be https, a host component, and (optionally)
+  port, path, and query components and no fragment components.
+  <bcp14>REQUIRED</bcp14> if the AS supports introspection. An absent value indicates that the AS does not support introspection.
+  See <xref target="introspection"/>.</t>
+          </dd>
+          <dt>token_formats_supported (array of strings):</dt>
+          <dd>
+            <t>A list of token formats supported by this AS. The values in this list
+  <bcp14>MUST</bcp14> be registered in the "GNAP Token Formats" registry per <xref target="IANA-token-format"/>.
+  <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>resource_registration_endpoint (string):</dt>
+          <dd>
+            <t>The URL of the endpoint offering resource registration.
+  The location <bcp14>MUST</bcp14> be a URL <xref target="RFC3986"/>
+  with a scheme component that <bcp14>MUST</bcp14> be https, a host component, and (optionally)
+  port, path, and query components and no fragment components.
+  <bcp14>REQUIRED</bcp14> if the AS supports dynamic resource registration. An absent value indicates that the AS does not support this feature.
+  See <xref target="rs-register-resource-handle"/>.</t>
+          </dd>
+          <dt>key_proofs_supported (array of strings):</dt>
+          <dd>
+            <t>A list of the AS's supported key
+  proofing mechanisms. The values of this list correspond to possible
+  values of the <tt>proof</tt> field of the key section of the request.
+  Values <bcp14>MUST</bcp14> be registered in the "GNAP Key Proofing Methods" registry established by <xref target="RFC9635"/>.
+  <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+        </dl>
+        <t>Additional fields are defined in the "GNAP RS-Facing Discovery Document Fields" registry; see <xref target="IANA-rs-discovery"/>.</t>
+      </section>
+      <section anchor="authentication">
+        <name>Protecting RS Requests to the AS</name>
+        <t>Unless otherwise specified, the RS <bcp14>MUST</bcp14> protect its calls to the AS using any of the signature
+methods defined in <xref section="7" sectionFormat="of" target="RFC9635"/>.</t>
+        <t>The RS <bcp14>MAY</bcp14> present its keys by reference or by value in
+a similar fashion to a client instance calling the AS in the core protocol
+of GNAP, as described in <xref section="7.1" sectionFormat="of" target="RFC9635"/>. In the protocols defined here,
+this takes the form of the resource server identifying itself by using a <tt>key</tt> field or
+by passing an instance identifier directly.</t>
+        <sourcecode type="http-message"><![CDATA[
+POST /continue HTTP/1.1
+Host: server.example.com
+Authorization: GNAP 80UPRY5NM33OMUKMKSKU
+Signature-Input: sig1=...
+Signature: sig1=...
+Content-Type: application/json
+
+"resource_server": {
+    "key": {
+        "proof": "httpsig",
+        "jwk": {
+            "kty": "EC",
+            "crv": "secp256k1",
+            "kid": "2021-07-06T20:22:03Z",
+            "x": "-J9OJIZj4nmopZbQN7T8xv3sbeS5-f_vBNSy_EHnBZc",
+            "y": "sjrS51pLtu3P4LUTVvyAIxRfDV_be2RYpI5_f-Yjivw"
+        }
+    }
+}
+]]></sourcecode>
+        <t>or by reference:</t>
+        <sourcecode type="http-message"><![CDATA[
+POST /continue HTTP/1.1
+Host: server.example.com
+Signature-Input: sig1=...
+Signature: sig1=...
+Content-Type: application/json
+
+{
+    "resource_server": "7C7C4AZ9KHRS6X63AJAO"
+}
+]]></sourcecode>
+        <t>The means by which an RS's keys are made known to the AS are out
+of the scope of this specification.
+The AS <bcp14>MAY</bcp14> require an RS to preregister its keys,
+or it could allow calls from arbitrary keys in a trust-on-first-use
+model.</t>
+        <t>The AS <bcp14>MAY</bcp14> issue access tokens, called "resource server management access tokens", to the RS to protect the RS-facing API endpoints.
+If such tokens are issued, the RS <bcp14>MUST</bcp14> present them
+to the RS-facing API endpoints along with the RS authentication.</t>
+        <sourcecode type="http-message"><![CDATA[
+POST /continue HTTP/1.1
+Host: server.example.com
+Authorization: GNAP 80UPRY5NM33OMUKMKSKU
+Signature-Input: sig1=...
+Signature: sig1=...
+Content-Type: application/json
+
+{
+    "resource_server": "7C7C4AZ9KHRS6X63AJAO"
+}
+]]></sourcecode>
+      </section>
+      <section anchor="introspection">
+        <name>Token Introspection</name>
+        <t>The AS issues access tokens representing a set of delegated access rights
+to be used at one or more RSs. The AS can offer an introspection service
+to allow an RS to validate that a given access token:</t>
+        <ul spacing="normal">
+          <li>
+            <t>has been issued by the AS</t>
+          </li>
+          <li>
+            <t>is valid at the current time</t>
+          </li>
+          <li>
+            <t>has not been revoked</t>
+          </li>
+          <li>
+            <t>is appropriate for the RS identified in the call</t>
+          </li>
+        </ul>
+        <t>When the RS receives an access token, it can call the introspection
+endpoint at the AS to get token information.</t>
+        <artset>
+          <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="160" width="328" viewBox="0 0 328 160" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+              <path d="M 8,32 L 8,144" fill="none" stroke="black"/>
+              <path d="M 80,32 L 80,144" fill="none" stroke="black"/>
+              <path d="M 144,32 L 144,144" fill="none" stroke="black"/>
+              <path d="M 200,32 L 200,144" fill="none" stroke="black"/>
+              <path d="M 264,32 L 264,112" fill="none" stroke="black"/>
+              <path d="M 320,32 L 320,112" fill="none" stroke="black"/>
+              <path d="M 8,32 L 80,32" fill="none" stroke="black"/>
+              <path d="M 144,32 L 200,32" fill="none" stroke="black"/>
+              <path d="M 264,32 L 320,32" fill="none" stroke="black"/>
+              <path d="M 80,48 L 104,48" fill="none" stroke="black"/>
+              <path d="M 120,48 L 136,48" fill="none" stroke="black"/>
+              <path d="M 200,64 L 224,64" fill="none" stroke="black"/>
+              <path d="M 240,64 L 256,64" fill="none" stroke="black"/>
+              <path d="M 208,96 L 224,96" fill="none" stroke="black"/>
+              <path d="M 240,96 L 264,96" fill="none" stroke="black"/>
+              <path d="M 264,112 L 320,112" fill="none" stroke="black"/>
+              <path d="M 88,128 L 104,128" fill="none" stroke="black"/>
+              <path d="M 120,128 L 144,128" fill="none" stroke="black"/>
+              <path d="M 8,144 L 80,144" fill="none" stroke="black"/>
+              <path d="M 144,144 L 200,144" fill="none" stroke="black"/>
+              <polygon class="arrowhead" points="264,64 252,58.4 252,69.6" fill="black" transform="rotate(0,256,64)"/>
+              <polygon class="arrowhead" points="216,96 204,90.4 204,101.6" fill="black" transform="rotate(180,208,96)"/>
+              <polygon class="arrowhead" points="144,48 132,42.4 132,53.6" fill="black" transform="rotate(0,136,48)"/>
+              <polygon class="arrowhead" points="96,128 84,122.4 84,133.6" fill="black" transform="rotate(180,88,128)"/>
+              <g class="text">
+                <text x="44" y="52">Client</text>
+                <text x="112" y="52">1</text>
+                <text x="172" y="52">RS</text>
+                <text x="292" y="52">AS</text>
+                <text x="44" y="68">Instance</text>
+                <text x="232" y="68">2</text>
+                <text x="232" y="100">3</text>
+                <text x="112" y="132">4</text>
+              </g>
+            </svg>
+          </artwork>
+          <artwork type="ascii-art"><![CDATA[
++--------+       +------+       +------+
+| Client +--(1)->|  RS  |       |  AS  |
+|Instance|       |      +--(2)->|      |
+|        |       |      |       |      |
+|        |       |      |<-(3)--+      |
+|        |       |      |       +------+
+|        |<-(4)--+      |
++--------+       +------+
+]]></artwork>
+        </artset>
+        <ol spacing="normal" type="1"><li>
+            <t>The client instance calls the RS with its access token.</t>
+          </li>
+          <li>
+            <t>The RS introspects the access token value at the AS.
+ The RS signs the request with its own key (not the client instance's
+ key or the token's key).</t>
+          </li>
+          <li>
+            <t>The AS validates the access token value and the RS's request
+ and returns the introspection response for the token.</t>
+          </li>
+          <li>
+            <t>The RS fulfills the request from the client instance.</t>
+          </li>
+        </ol>
+	
+        <t>The RS signs the request with its own key and sends the value of the access
+token in the body of the request as a JSON object with the following members:</t>
+        <dl newline="false" spacing="normal">
+          <dt>access_token (string):</dt>
+          <dd>
+            <t>The access token value presented to the RS by the client instance. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt>proof (string):</dt>
+          <dd>
+            <t>The proofing method used by the client instance to bind the token to the RS request.
+  The value <bcp14>MUST</bcp14> be registered in the "GNAP Key Proofing Methods" registry. <bcp14>RECOMMENDED</bcp14>.</t>
+          </dd>
+          <dt>resource_server (object/string):</dt>
+          <dd>
+            <t>The identification used to authenticate the resource server making this call, either
+  by value or by reference as described in <xref target="authentication"/>. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt>access (array of strings/objects):</dt>
+          <dd>
+            <t>The minimum access rights required to fulfill the request. This <bcp14>MUST</bcp14> be in the
+  format described in <xref section="8" sectionFormat="of" target="RFC9635"/>. <bcp14>OPTIONAL</bcp14>. </t>
+          </dd>
+        </dl>
+        <t>Additional fields are defined in the "GNAP Token Introspection Request" registry (<xref target="IANA-token-introspection-request"/>).</t>
+
+        <sourcecode type="http-message"><![CDATA[
+POST /introspect HTTP/1.1
+Host: server.example.com
+Content-Type: application/json
+Signature-Input: sig1=...
+Signature: sig1=...
+Digest: sha256=...
+
+{
+    "access_token": "OS9M2PMHKUR64TB8N6BW7OZB8CDFONP219RP1LT0",
+    "proof": "httpsig",
+    "resource_server": "7C7C4AZ9KHRS6X63AJAO"
+}
+]]></sourcecode>
+        <t>The AS <bcp14>MUST</bcp14> validate the access token value and determine if the token is active.
+The parameters of the request provide a context for the AS to evaluate the access token,
+and the AS <bcp14>MUST</bcp14> take all provided parameters into account when evaluating if the token is active.
+If the AS is unable to process part of the request, such as not understanding part of
+the <tt>access</tt> field presented, the AS <bcp14>MUST NOT</bcp14> indicate the token as active.</t>
+        <t>An active access token is defined as a token that is all of the following:</t>
+        <ul spacing="normal">
+          <li>
+            <t>was issued by the processing AS,</t>
+          </li>
+          <li>
+            <t>has not been revoked,</t>
+          </li>
+          <li>
+            <t>has not expired,</t>
+          </li>
+          <li>
+            <t>is bound using the <tt>proof</tt> method indicated,</t>
+          </li>
+          <li>
+            <t>is appropriate for presentation at the identified RS, and</t>
+          </li>
+          <li>
+            <t>is appropriate for the <tt>access</tt> indicated (if present).</t>
+          </li>
+        </ul>
+        <t>The AS responds with a data structure describing the token's
+current state and any information the RS would need to validate the
+token's presentation, such as its intended proofing mechanism and key
+material.</t>
+        <dl newline="false" spacing="normal">
+          <dt>active (boolean):</dt>
+          <dd>
+            <t>If <tt>true</tt>, the access token presented is active,
+  as defined above. If any of the criteria for an active token
+  are not true, or if the AS is unable to make a
+  determination (such as the token is not found), the value is
+  set to <tt>false</tt> and other fields are omitted. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+        </dl>
+        <t>If the access token is active, additional fields from the single access token
+response structure defined in <xref section="3.2.1" sectionFormat="of" target="RFC9635"/> are included. In
+particular, these include the following:</t>
+        <dl newline="false" spacing="normal">
+          <dt>access (array of strings/objects):</dt>
+          <dd>
+            <t>The access rights associated with this access token. This <bcp14>MUST</bcp14> be in the
+  format described in <xref section="8" sectionFormat="of" target="RFC9635"/>.
+  This array <bcp14>MAY</bcp14> be filtered or otherwise limited for consumption by the identified RS, including
+  being an empty array, which indicates that the token has no explicit access rights that
+  can be disclosed to the RS. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt>key (object/string):</dt>
+          <dd>
+            <t>if the token is bound. The key bound to the access token, to allow the RS
+  to validate the signature of the request from the client instance. If the access
+  token is a bearer token, this <bcp14>MUST NOT</bcp14> be included. <bcp14>REQUIRED</bcp14></t>
+          </dd>
+          <dt>flags (array of strings):</dt>
+          <dd>
+            <t>The set of flags associated with the access token. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>exp (integer):</dt>
+          <dd>
+            <t>The timestamp after which this token is no longer valid.
+  Expressed as integer seconds from UNIX Epoch. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>iat (integer):</dt>
+          <dd>
+            <t>The timestamp at which this token was issued by the AS.
+  Expressed as integer seconds from UNIX Epoch. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>nbf (integer):</dt>
+          <dd>
+            <t>The timestamp before which this token is not valid.
+  Expressed as integer seconds from UNIX Epoch. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>aud (string or array of strings):</dt>
+          <dd>
+            <t>Identifiers for the resource servers this token can be accepted at. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>sub (string):</dt>
+          <dd>
+            <t>Identifier of the resource owner who authorized this token. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>iss (string):</dt>
+          <dd>
+            <t>Grant endpoint URL of the AS that issued this token. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt>instance_id (string):</dt>
+          <dd>
+            <t>The instance identifier of the client instance that the token was issued to. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+        </dl>
+        <t>Additional fields are defined in the "GNAP Token Introspection Response" registry (<xref target="IANA-token-introspection"/>).</t>
+        <t>The response <bcp14>MAY</bcp14> include any additional fields defined in an access
+token response and <bcp14>MUST NOT</bcp14> include the access token <tt>value</tt> itself.</t>
+        <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-store
+
+{
+    "active": true,
+    "access": [
+        "dolphin-metadata", "some other thing"
+    ],
+    "key": {
+        "proof": "httpsig",
+        "jwk": {
+                "kty": "RSA",
+                "e": "AQAB",
+                "kid": "xyz-1",
+                "alg": "RS256",
+                "n": "kOB5rR4Jv0GMeL...."
+        }
+    }
+}
+]]></sourcecode>
+        <t>When processing the results of the introspection response, the RS <bcp14>MUST</bcp14> determine the
+appropriate course of action. For instance, if the RS determines that the access token's
+access rights are not sufficient for the request to which the token was attached, the RS
+can return an error or a public resource, as appropriate for the RS.
+In all cases, the final determination of the response is at the discretion of the RS.</t>
+      </section>
+      <section anchor="rs-register-resource-handle">
+        <name>Registering a Resource Set</name>
+        <t>If the RS needs to, it can post a set of resources, as described in Section <xref target="RFC9635" sectionFormat="bare" section="8"/> ("Resource Access Rights") of <xref target="RFC9635"/>, to the AS's resource registration endpoint along with information about
+what the RS will need to validate the request.</t>
+        <dl newline="false" spacing="normal">
+          <dt>access (array of objects/strings):</dt>
+          <dd>
+            <t>The list of access rights associated with the request in the format described
+  in Section <xref target="RFC9635" sectionFormat="bare" section="8"/> ("Resource Access Rights") of <xref target="RFC9635"/>. <bcp14>REQUIRED</bcp14>. </t>
+          </dd>
+          <dt>resource_server (object/string):</dt>
+          <dd>
+            <t> The identification used to authenticate the resource server making this call, either
+  by value or by reference as described in <xref target="authentication"/>. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt>token_formats_supported (array of strings):</dt>
+          <dd>
+            <t>The list of token formats that the RS is able to process.
+  The values in this array <bcp14>MUST</bcp14> be registered in the "GNAP Token Formats" registry per <xref target="IANA-token-format"/>.
+  If the field is omitted, the token format is at the discretion of the AS.
+  If the AS does not support any of the requested
+  token formats, the AS <bcp14>MUST</bcp14> return an error to the RS. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>token_introspection_required (boolean):</dt>
+          <dd>
+            <t> If present and set to <tt>true</tt>, the RS expects to make a token introspection request as
+  described in <xref target="introspection"/>. If absent or set to <tt>false</tt>, the RS does not anticipate needing
+  to make an introspection request for tokens relating to this resource set. If the AS does not
+  support token introspection for this RS, the AS <bcp14>MUST</bcp14> return an error to the RS. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+        </dl>
+        <t>Additional fields are defined in the "GNAP Resource Set Registration Request Parameters" registry (<xref target="IANA-resource-registration-request"/>).</t>
+        <t>The RS <bcp14>MUST</bcp14> identify itself with its own key and sign the
+request.</t>
+        <sourcecode type="http-message"><![CDATA[
+POST /resource HTTP/1.1
+Host: server.example.com
+Content-Type: application/json
+Signature-Input: sig1=...
+Signature: sig1=...
+Digest: ...
+
+{
+    "access": [
+        {
+            "actions": [
+                "read",
+                "write",
+                "dolphin"
+            ],
+            "locations": [
+                "https://server.example.net/",
+                "https://resource.local/other"
+            ],
+            "datatypes": [
+                "metadata",
+                "images"
+            ]
+        },
+        "dolphin-metadata"
+    ],
+    "resource_server": "7C7C4AZ9KHRS6X63AJAO"
+
+}
+]]></sourcecode>
+        <t>The AS responds with a reference appropriate to represent the
+resources list that the RS presented in its request as well as
+any additional information the RS might need in future requests.</t>
+        <dl newline="false" spacing="normal">
+          <dt>resource_reference (string):</dt>
+          <dd>
+            <t>A single string representing the list of resources registered in the request.
+  The RS <bcp14>MAY</bcp14> make this handle available to a client instance as part of a
+  discovery response as described in <xref section="9.1" sectionFormat="of" target="RFC9635"/> or as
+  documentation to client software developers. <bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt>instance_id (string):</dt>
+          <dd>
+            <t>An instance identifier that the RS can use to refer to itself in future calls to
+  the AS, in lieu of sending its key by value. See <xref target="authentication"/>. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+          <dt>introspection_endpoint (string):</dt>
+          <dd>
+            <t>The introspection endpoint of this AS that is used to allow the RS to perform token introspection. See <xref target="introspection"/>. <bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+        </dl>
+        <t>Additional fields are defined in the "GNAP Resource Set Registration Response Parameters" registry (<xref target="IANA-resource-registration-response"/>).</t>
+        <sourcecode type="http-message"><![CDATA[
+HTTP/1.1 200 OK
+Content-Type: application/json
+Cache-Control: no-store
+
+{
+    "resource_reference": "FWWIKYBQ6U56NL1"
+}
+]]></sourcecode>
+        <t>If a resource was previously registered, the AS <bcp14>MAY</bcp14> return the same resource reference
+	value as in previous responses.</t>
+	
+        <t>If the registration fails, the AS returns HTTP status code 400 (Bad Request) to the
+RS, indicating that the registration was not successful.</t>
+        <t>The client instance can then use the <tt>resource_reference</tt> value as a string-type access
+reference as defined in <xref section="8.1" sectionFormat="of" target="RFC9635"/>. This value <bcp14>MAY</bcp14> be combined with any other
+additional access rights requested by the client instance.</t>
+        <sourcecode type="json"><![CDATA[
+{
+    "access_token": {
+        "access": [
+            "FWWIKYBQ6U56NL1",
+            {
+                "type": "photo-api",
+                "actions": [
+                    "read",
+                    "write",
+                    "dolphin"
+                ],
+                "locations": [
+                    "https://server.example.net/",
+                    "https://resource.local/other"
+                ],
+                "datatypes": [
+                    "metadata",
+                    "images"
+                ]
+            },
+            "dolphin-metadata"
+        ]
+    },
+    "client": "client-12351.bdxqf"
+}
+]]></sourcecode>
+      </section>
+      <section anchor="response-error">
+        <name>Error Responses</name>
+        <t>In the case of an error from the RS-facing API, the AS responds to the RS with HTTP status code 400 (Bad Request) and a JSON object consisting of a single <tt>error</tt> field, which is either an object or a string.</t>
+        <t>When returned as a string, the error value is the error code:</t>
+        <sourcecode type="json"><![CDATA[
+{
+    error: "invalid_access"
+}
+]]></sourcecode>
+        <t>When returned as an object, the error object contains the following fields:</t>
+        <dl newline="false" spacing="normal">
+          <dt><tt>code</tt> (string):</dt>
+          <dd>
+            <t>A single ASCII error code defining the error.
+<bcp14>REQUIRED</bcp14>.</t>
+          </dd>
+          <dt><tt>description</tt> (string):</dt>
+          <dd>
+            <t>A human-readable string description of the error intended for the
+developer of the client.
+<bcp14>OPTIONAL</bcp14>.</t>
+          </dd>
+        </dl>
+        <sourcecode type="json"><![CDATA[
+{
+  "error": {
+    "code": "invalid_access",
+    "description": "Access to 'foo' is not permitted for this RS."
+  }
+}
+]]></sourcecode>
+        <t>This specification defines the following error code values:</t>
+        <dl newline="false" spacing="normal">
+          <dt><tt>"invalid_request"</tt>:</dt>
+          <dd>
+            <t>The request is missing a required parameter, includes an
+  invalid parameter value, or is otherwise malformed.</t>
+          </dd>
+          <dt><tt>"invalid_resource_server"</tt>:</dt>
+          <dd>
+            <t>The request was made from an RS that was not recognized
+  or allowed by the AS, or the RS's signature validation failed.</t>
+          </dd>
+          <dt><tt>"invalid_access"</tt></dt>
+          <dd>
+            <t>The RS is not permitted to register or introspect for the requested "access" value.</t>
+          </dd>
+        </dl>
+        <t>Additional error codes can be defined in the "GNAP RS-Facing Error Codes" registry (<xref target="IANA-error-code"/>).</t>
+      </section>
+    </section>
+    <section anchor="token-chaining">
+      <name>Deriving a Downstream Token</name>
+      <t>Some architectures require an RS to act as a client instance and use a derived access
+token for a secondary RS. Since the RS is not the same entity that made the initial grant
+request, the RS is not capable of referencing or modifying the existing grant. As such,
+the RS needs to request or generate a new access token for its use at the secondary RS.
+This internal secondary token is issued in the context of the incoming access token.</t>
+      <t>While it is possible to use a <xref target="structure">token format</xref> that allows for the
+RS to generate its own secondary token,
+the AS can allow the RS to request this secondary access token using the same
+process used by the original client instance to request the primary access token. Since the
+RS is acting as its own client instance from the perspective of GNAP, this process
+uses the same grant endpoint, request structure, and response structure as a client
+instance's request.</t>
+      <artset>
+        <artwork type="svg"><svg xmlns="http://www.w3.org/2000/svg" version="1.1" height="192" width="464" viewBox="0 0 464 192" class="diagram" text-anchor="middle" font-family="monospace" font-size="13px" stroke-linecap="round">
+            <path d="M 8,32 L 8,176" fill="none" stroke="black"/>
+            <path d="M 80,32 L 80,176" fill="none" stroke="black"/>
+            <path d="M 144,32 L 144,176" fill="none" stroke="black"/>
+            <path d="M 208,32 L 208,176" fill="none" stroke="black"/>
+            <path d="M 272,32 L 272,96" fill="none" stroke="black"/>
+            <path d="M 328,32 L 328,96" fill="none" stroke="black"/>
+            <path d="M 392,32 L 392,176" fill="none" stroke="black"/>
+            <path d="M 456,32 L 456,176" fill="none" stroke="black"/>
+            <path d="M 8,32 L 80,32" fill="none" stroke="black"/>
+            <path d="M 144,32 L 208,32" fill="none" stroke="black"/>
+            <path d="M 272,32 L 328,32" fill="none" stroke="black"/>
+            <path d="M 392,32 L 456,32" fill="none" stroke="black"/>
+            <path d="M 80,48 L 104,48" fill="none" stroke="black"/>
+            <path d="M 120,48 L 136,48" fill="none" stroke="black"/>
+            <path d="M 208,64 L 232,64" fill="none" stroke="black"/>
+            <path d="M 248,64 L 264,64" fill="none" stroke="black"/>
+            <path d="M 216,80 L 232,80" fill="none" stroke="black"/>
+            <path d="M 248,80 L 272,80" fill="none" stroke="black"/>
+            <path d="M 272,96 L 328,96" fill="none" stroke="black"/>
+            <path d="M 208,128 L 304,128" fill="none" stroke="black"/>
+            <path d="M 320,128 L 384,128" fill="none" stroke="black"/>
+            <path d="M 216,144 L 304,144" fill="none" stroke="black"/>
+            <path d="M 320,144 L 392,144" fill="none" stroke="black"/>
+            <path d="M 88,160 L 104,160" fill="none" stroke="black"/>
+            <path d="M 120,160 L 144,160" fill="none" stroke="black"/>
+            <path d="M 8,176 L 80,176" fill="none" stroke="black"/>
+            <path d="M 144,176 L 208,176" fill="none" stroke="black"/>
+            <path d="M 392,176 L 456,176" fill="none" stroke="black"/>
+            <polygon class="arrowhead" points="392,128 380,122.4 380,133.6" fill="black" transform="rotate(0,384,128)"/>
+            <polygon class="arrowhead" points="272,64 260,58.4 260,69.6" fill="black" transform="rotate(0,264,64)"/>
+            <polygon class="arrowhead" points="224,144 212,138.4 212,149.6" fill="black" transform="rotate(180,216,144)"/>
+            <polygon class="arrowhead" points="224,80 212,74.4 212,85.6" fill="black" transform="rotate(180,216,80)"/>
+            <polygon class="arrowhead" points="144,48 132,42.4 132,53.6" fill="black" transform="rotate(0,136,48)"/>
+            <polygon class="arrowhead" points="96,160 84,154.4 84,165.6" fill="black" transform="rotate(180,88,160)"/>
+            <g class="text">
+              <text x="44" y="52">Client</text>
+              <text x="112" y="52">1</text>
+              <text x="176" y="52">RS1</text>
+              <text x="300" y="52">AS</text>
+              <text x="424" y="52">RS2</text>
+              <text x="44" y="68">Instance</text>
+              <text x="240" y="68">2</text>
+              <text x="240" y="84">3</text>
+              <text x="312" y="132">4</text>
+              <text x="312" y="148">5</text>
+              <text x="112" y="164">6</text>
+            </g>
+          </svg>
+        </artwork>
+        <artwork type="ascii-art"><![CDATA[
++--------+       +-------+       +------+       +-------+
+| Client +--(1)->|  RS1  |       |  AS  |       |  RS2  |
+|Instance|       |       +--(2)->|      |       |       |
+|        |       |       |<-(3)--+      |       |       |
+|        |       |       |       +------+       |       |
+|        |       |       |                      |       |
+|        |       |       +-----------(4)------->|       |
+|        |       |       |<----------(5)--------+       |
+|        |<-(6)--+       |                      |       |
++--------+       +-------+                      +-------+
+]]></artwork>
+      </artset>
+      <ol spacing="normal" type="1"><li>
+          <t>The client instance calls RS1 with an access token.</t>
+        </li>
+        <li>
+          <t>RS1 presents that token to the AS to get a derived token
+ for use at RS2. RS1 indicates that it has no ability
+ to interact with the RO. Note that
+ RS1 signs its request with its own key, not the token's
+ key or the client instance's key.</t>
+        </li>
+        <li>
+          <t>The AS returns a derived token to RS1 for use at RS2.</t>
+        </li>
+        <li>
+          <t>RS1 calls RS2 with the token from (3).</t>
+        </li>
+        <li>
+          <t>RS2 fulfills the call from RS1.</t>
+        </li>
+        <li>
+          <t>RS1 fulfills the call from the original client instance.</t>
+        </li>
+      </ol>
+      <t>If the RS needs to derive a token from one presented to it, it can
+request one from the AS by making a token request as described in
+<xref target="RFC9635"/> and presenting the existing access token's
+value in the "existing_access_token" field.</t>
+      <t>Since the RS is acting as a client instance,
+the RS <bcp14>MUST</bcp14> identify itself with its own key in the <tt>client</tt> field and sign the
+request just as any client instance would, as described in <xref target="authentication"/>.
+The AS <bcp14>MUST</bcp14> determine that the token being presented is appropriate for use
+at the RS making the token chaining request.</t>
+
+      <sourcecode type="http-message"><![CDATA[
+POST /tx HTTP/1.1
+Host: server.example.com
+Content-Type: application/json
+Detached-JWS: ejy0...
+
+{
+  "access_token": {
+      "access": [
+          {
+              "actions": [
+                  "read",
+                  "write",
+                  "dolphin"
+              ],
+              "locations": [
+                  "https://server.example.net/",
+                  "https://resource.local/other"
+              ],
+              "datatypes": [
+                  "metadata",
+                  "images"
+              ]
+          },
+          "dolphin-metadata"
+      ]
+  },
+  "client": "7C7C4AZ9KHRS6X63AJAO",
+  "existing_access_token": "OS9M2PMHKUR64TB8N6BW7OZB8CDFONP219RP1LT0"
+}
+]]></sourcecode>
+      <t>The AS responds with a token for the downstream RS2 as described in
+<xref target="RFC9635"/>. The downstream RS2 could
+repeat this process as necessary for calling further RSs.</t>
+    </section>
+    <section anchor="IANA">
+      <name>IANA Considerations</name>
+      <t>IANA has added values to existing registries and created five registries under the "Grant Negotiation and Authorization Protocol (GNAP)" registry group.</t>
+      <section anchor="IANA-well-known">
+        <name>Well-Known URIs</name>
+        <t>The "gnap-as-rs" URI suffix is registered in the "Well-Known URIs" registry to support RS-facing discovery of the AS.</t>
+        <dl newline="false" spacing="compact">
+          <dt>URI Suffix:</dt>
+          <dd>gnap-as-rs</dd>
+          <dt>Change Controller:</dt>
+          <dd>IETF</dd>
+          <dt>Specification Document:</dt>
+          <dd><xref target="discovery"/> of RFC 9767</dd>
+          <dt>Status:</dt>
+          <dd>Permanent</dd>
+        </dl>
+      </section>
+      <section anchor="IANA-grant-request">
+        <name>GNAP Grant Request Parameters</name>
+        <t>The following parameter is registered in the "GNAP Grant Request Parameters" registry:</t>
+        <dl newline="false" spacing="compact">
+          <dt>Name:</dt>
+          <dd>
+            <tt>existing_access_token</tt>
+          </dd>
+          <dt>Type:</dt>
+          <dd>
+            string
+          </dd>
+          <dt>Reference:</dt>
+          <dd>
+            <xref target="token-chaining"/> of RFC 9767
+          </dd>
+        </dl>
+      </section>
+      <section anchor="IANA-token-format">
+        <name>GNAP Token Formats</name>
+        <t>This document defines a GNAP token format, for which IANA has created and maintains a new registry titled "GNAP Token Formats". Initial values for this registry are given in <xref target="IANA-token-format-contents"/>. Future assignments and modifications to existing assignment are to be made through the Specification Required registration policy <xref target="RFC8126"/>.</t>
+        <t>The designated expert (DE) is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-token-format-template"/>.</t>
+          </li>
+          <li>
+            <t>the format's definition is sufficiently unique from other formats provided by existing parameters.</t>
+          </li>
+          <li>
+            <t>the format's definition specifies the format of the access token in sufficient detail to allow for the AS and RS to be able to communicate the token information.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-token-format-template">
+          <name>Registry Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Name:</dt>
+            <dd>
+              The name of the format.
+            </dd>
+            <dt>Status:</dt>
+            <dd>
+              Whether or not the format is in active use. Possible values are Active and Deprecated.
+            </dd>
+            <dt>Description:</dt>
+            <dd>
+              The human-readable description of the access token format.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              The specification that defines the token format.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-token-format-contents">
+          <name>Initial Registry Contents</name>
+          <table>
+            <name>Initial Contents of the GNAP Token Formats Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Name</th>
+                <th align="left">Status</th>
+                <th align="left">Description</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">
+                  <tt>jwt-signed</tt></td>
+                <td align="left">Active</td>
+                <td align="left">JSON Web Token, signed with JWS</td>
+                <td align="left">
+                  <xref target="RFC7519"/></td>
+              </tr>
+              <tr>
+                <td align="left">
+                  <tt>jwt-encrypted</tt></td>
+                <td align="left">Active</td>
+                <td align="left">JSON Web Token, encrypted with JWE</td>
+                <td align="left">
+                  <xref target="RFC7519"/></td>
+              </tr>
+              <tr>
+                <td align="left">
+                  <tt>macaroon</tt></td>
+                <td align="left">Active</td>
+                <td align="left">Macaroon</td>
+                <td align="left">
+                  <xref target="MACAROON"/></td>
+              </tr>
+              <tr>
+                <td align="left">
+                  <tt>biscuit</tt></td>
+                <td align="left">Active</td>
+                <td align="left">Biscuit</td>
+                <td align="left">
+                  <xref target="BISCUIT"/></td>
+              </tr>
+              <tr>
+                <td align="left">
+                  <tt>zcap</tt></td>
+                <td align="left">Active</td>
+                <td align="left">ZCAP</td>
+                <td align="left">
+                  <xref target="ZCAPLD"/></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+      <section anchor="IANA-token-introspection-request">
+        <name>GNAP Token Introspection Request</name>
+        <t>This document defines GNAP token introspection, for which IANA has created and maintains a new registry titled "GNAP Token Introspection Request". Initial values for this registry are given in <xref target="IANA-token-introspection-request-contents"/>. Future assignments and modifications to existing assignment are to be made through the Specification Required registration policy <xref target="RFC8126"/>.</t>
+        <t>The DE is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-token-introspection-request-template"/>.</t>
+          </li>
+          <li>
+            <t>the claim's definition is sufficiently orthogonal to other claims defined in the registry so as avoid overlapping functionality.</t>
+          </li>
+          <li>
+            <t>the claim's definition specifies the syntax and semantics of the claim in sufficient detail to allow for the AS and RS to be able to communicate the token values.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-token-introspection-request-template">
+          <name>Registry Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Name:</dt>
+            <dd>
+              The name of the claim.
+            </dd>
+            <dt>Type:</dt>
+            <dd>
+              The JSON data type of the claim value.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              The specification that defines the claim.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-token-introspection-request-contents">
+          <name>Initial Registry Contents</name>
+          <t>The table below contains the initial contents of the "GNAP Token Introspection Request" registry.</t>
+          <table>
+            <name>Initial Contents of the GNAP Token Introspection Request Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Name</th>
+                <th align="left">Type</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">access_token</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">proof</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">resource_server</td>
+                <td align="left">object/string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">access</td>
+                <td align="left">array of strings/objects</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+      <section anchor="IANA-token-introspection">
+        <name>GNAP Token Introspection Response</name>
+        <t>This document defines GNAP token introspection, for which IANA has created and maintains a new registry titled "GNAP Token Introspection Response". Initial values for this registry are given in <xref target="IANA-token-introspection-contents"/>. Future assignments and modifications to existing assignment are to be made through the Specification Required registration policy <xref target="RFC8126"/>.</t>
+        <t>The DE is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-token-introspection-template"/>.</t>
+          </li>
+          <li>
+            <t>the claim's definition is sufficiently orthogonal to other claims defined in the registry so as avoid overlapping functionality.</t>
+          </li>
+          <li>
+            <t>the claim's definition specifies the syntax and semantics of the claim in sufficient detail to allow for the AS and RS to be able to communicate the token values.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-token-introspection-template">
+          <name>Registry Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Name:</dt>
+            <dd>
+              The name of the claim.
+            </dd>
+            <dt>Type:</dt>
+            <dd>
+              The JSON data type of the claim value.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              The specification that defines the claim.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-token-introspection-contents">
+          <name>Initial Registry Contents</name>
+          <t>The table below contains the initial contents of the "GNAP Token Introspection Response" registry.</t>
+          <table>
+            <name>Initial Contents of the GNAP Token Introspection Response Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Name</th>
+                <th align="left">Type</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">active</td>
+                <td align="left">boolean</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">access</td>
+                <td align="left">array of strings/objects</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">key</td>
+                <td align="left">object/string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">flags</td>
+                <td align="left">array of strings</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">exp</td>
+                <td align="left">integer</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">iat</td>
+                <td align="left">integer</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">nbf</td>
+                <td align="left">integer</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">aud</td>
+                <td align="left">string or array of strings</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">sub</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">iss</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">instance_id</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="introspection"/> of RFC 9767</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+      <section anchor="IANA-resource-registration-request">
+        <name>GNAP Resource Set Registration Request Parameters</name>
+        <t>This document defines a means to register a resource set for a GNAP AS, for which IANA has created and maintains a new registry titled "GNAP Resource Set Registration Request Parameters". Initial values for this registry are given in <xref target="IANA-resource-registration-request-contents"/>. Future assignments and modifications to existing assignment are to be made through the Expert Review registration policy <xref target="RFC8126"/>.</t>
+        <t>The DE is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-resource-registration-request-template"/>.</t>
+          </li>
+          <li>
+            <t>the parameter's definition is sufficiently orthogonal to other parameters defined in the registry so as avoid overlapping functionality.</t>
+          </li>
+          <li>
+            <t>the parameter's definition specifies the syntax and semantics of the parameter in sufficient detail to allow for the AS and RS to be able to communicate the resource set.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-resource-registration-request-template">
+          <name>Registry Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Name:</dt>
+            <dd>
+              The name of the parameter.
+            </dd>
+            <dt>Type:</dt>
+            <dd>
+              The JSON data type of the parameter value.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              The specification that defines the token.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-resource-registration-request-contents">
+          <name>Initial Registry Contents</name>
+          <t>The table below contains the initial contents of the "GNAP Resource Set Registration Request Parameters" registry.</t>
+          <table>
+            <name>Initial Contents of the GNAP Resource Set Registration Request Parameters Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Name</th>
+                <th align="left">Type</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">access</td>
+                <td align="left">array of strings/objects</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">resource_server</td>
+                <td align="left">object/string</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">token_formats_supported</td>
+                <td align="left">array of strings</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">token_introspection_required</td>
+                <td align="left">boolean</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+      <section anchor="IANA-resource-registration-response">
+        <name>GNAP Resource Set Registration Response Parameters</name>
+        <t>This document defines a means to register a resource set for a GNAP AS, for which IANA has created and maintains a new registry titled "GNAP Resource Set Registration Response Parameters". Initial values for this registry are given in <xref target="IANA-resource-registration-response-contents"/>. Future assignments and modifications to existing assignment are to be made through the Expert Review registration policy <xref target="RFC8126"/>.</t>
+        <t>The DE is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-resource-registration-response-template"/>.</t>
+          </li>
+          <li>
+            <t>the parameter's definition is sufficiently orthogonal to other claims defined in the registry so as avoid overlapping functionality.</t>
+          </li>
+          <li>
+            <t>the parameter's definition specifies the syntax and semantics of the claim in sufficient detail to allow for the AS and RS to be able to communicate the resource set.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-resource-registration-response-template">
+          <name>Registry Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Name:</dt>
+            <dd>
+              The name of the parameter.
+            </dd>
+            <dt>Type:</dt>
+            <dd>
+              The JSON data type of the parameter value.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              The specification that defines the parameter.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-resource-registration-response-contents">
+          <name>Initial Registry Contents</name>
+          <t>The table below contains the initial contents of the "GNAP Resource Set Registration Response Parameters" registry.</t>
+          <table>
+            <name>Initial Contents of the GNAP Resource Set Registration Response Parameters Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Name</th>
+                <th align="left">Type</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">resource_reference</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">instance_id</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">introspection_endpoint</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="rs-register-resource-handle"/> of RFC 9767</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+      <section anchor="IANA-rs-discovery">
+        <name>GNAP RS-Facing Discovery Document Fields</name>
+        <t>This document defines a means to for a GNAP AS to be discovered by a GNAP RS, for which IANA has created and maintains a new registry titled "GNAP RS-Facing Discovery Document Fields". Initial values for this registry are given in <xref target="IANA-rs-discovery-contents"/>. Future assignments and modifications to existing assignment are to be made through the Expert Review registration policy <xref target="RFC8126"/>.</t>
+        <t>The DE is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-rs-discovery-template"/>.</t>
+          </li>
+          <li>
+            <t>the field's definition is sufficiently orthogonal to other fields defined in the registry so as avoid overlapping functionality.</t>
+          </li>
+          <li>
+            <t>the field's definition specifies the syntax and semantics of the fields in sufficient detail to allow for the RS to be able to communicate with the AS.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-rs-discovery-template">
+          <name>Registry Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Name:</dt>
+            <dd>
+              The name of the field.
+            </dd>
+            <dt>Type:</dt>
+            <dd>
+              The JSON data type of the field value.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              The specification that defines the field.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-rs-discovery-contents">
+          <name>Initial Registry Contents</name>
+          <t>The table below contains the initial contents of the "GNAP RS-Facing Discovery Document Fields" registry.</t>
+          <table>
+            <name>Initial Contents of the GNAP RS-Facing Discovery Document Fields Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Name</th>
+                <th align="left">Type</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">introspection_endpoint</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="discovery"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">token_formats_supported</td>
+                <td align="left">array of strings</td>
+                <td align="left">
+                  <xref target="discovery"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">resource_registration_endpoint</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="discovery"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">grant_request_endpoint</td>
+                <td align="left">string</td>
+                <td align="left">
+                  <xref target="discovery"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">key_proofs_supported</td>
+                <td align="left">array of strings</td>
+                <td align="left">
+                  <xref target="discovery"/> of RFC 9767</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+      <section anchor="IANA-error-code">
+        <name>GNAP RS-Facing Error Codes</name>
+        <t>This document defines a set of errors that the AS can return to the RS, for which IANA has created and maintains a new registry titled "GNAP RS-Facing Error Codes". Initial values for this registry are given in <xref target="IANA-error-code-contents"/>. Future assignments and modifications to existing assignments are to be made through the Specification Required registration policy <xref target="RFC8126"/>.</t>
+        <t>The DE is expected to ensure that:</t>
+        <ul spacing="normal">
+          <li>
+            <t>all registrations follow the template presented in <xref target="IANA-error-code-template"/>.</t>
+          </li>
+          <li>
+            <t>the error response is sufficiently unique from other errors to provide actionable information to the client instance.</t>
+          </li>
+          <li>
+            <t>the definition of the error response specifies all conditions in which the error response is returned and what the client instance's expected action is.</t>
+          </li>
+        </ul>
+        <section anchor="IANA-error-code-template">
+          <name>Registration Template</name>
+          <dl newline="false" spacing="compact">
+            <dt>Error:</dt>
+            <dd>
+              A unique string code for the error.
+            </dd>
+            <dt>Reference:</dt>
+            <dd>
+              Reference to the document(s) that specifies the
+  value, preferably including a URI that can be used
+  to retrieve a copy of the document(s). An indication of the
+  relevant sections may also be included but is not required.
+            </dd>
+          </dl>
+        </section>
+        <section anchor="IANA-error-code-contents">
+          <name>Initial Contents</name>
+          <table>
+            <name>Initial Contents of the GNAP RS-Facing Error Codes Registry</name>
+            <thead>
+              <tr>
+                <th align="left">Error</th>
+                <th align="left">Reference</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td align="left">invalid_request</td>
+                <td align="left">
+                  <xref target="response-error"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">invalid_resource_server</td>
+                <td align="left">
+                  <xref target="response-error"/> of RFC 9767</td>
+              </tr>
+              <tr>
+                <td align="left">invalid_access</td>
+                <td align="left">
+                  <xref target="response-error"/> of RFC 9767</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </section>
+    </section>
+    <section anchor="Security">
+      <name>Security Considerations</name>
+      <t>In addition to the normative requirements in this document and in <xref target="RFC9635"/>, implementers are
+strongly encouraged to consider the following additional security considerations in implementations
+and deployments of GNAP.</t>
+      <section anchor="security-tls">
+        <name>TLS Protection in Transit</name>
+        <t>All requests in GNAP made over untrusted network connections have to be made over TLS as outlined in <xref target="BCP195"/>
+to protect the contents of the request and response from manipulation and interception by an attacker.
+This includes all requests from a client instance to the RS and all requests from the RS to an AS.</t>
+      </section>
+      <section anchor="security-token-validation">
+        <name>Token Validation</name>
+        <t>The RS has a responsibility to validate the incoming access token in a manner consistent with its deployment.
+For self-contained stateless tokens such as those described in <xref target="token-format"/>, this consists of actions such
+as validating the token's signature and ensuring the relevant fields and results are appropriate for the
+request being made. For reference-style tokens or tokens that are otherwise opaque to the RS, the token introspection
+RS-facing API can be used to provide updated information about the state of the token, as described in <xref target="introspection"/>.</t>
+        <t>The RS needs to validate that a token:</t>
+        <ul spacing="normal">
+          <li>
+            <t>is intended for this RS (audience restriction)</t>
+          </li>
+          <li>
+            <t>is presented using the appropriate key for the token (see also <xref target="security-key-proof"/>)</t>
+          </li>
+          <li>
+            <t>identifies an appropriate subject to access the resource (usually this is the resource owner who authorized the token's issuance)</t>
+          </li>
+          <li>
+            <t>is issued by a trusted AS for this resource</t>
+          </li>
+        </ul>
+        <t>Even though key proofing mechanisms have to cover the value of the token, validating the key proofing alone
+is not sufficient to protect a request to an RS.
+If an RS validates only the presentation method as described in <xref target="security-key-proof"/> without validating the
+token itself, an attacker could use a compromised key or a confused deputy to make arbitrary calls to the RS
+beyond what has been authorized by the RO.</t>
+      </section>
+      <section anchor="security-token-cache">
+        <name>Caching Token Validation Result</name>
+        <t>Since token validation can be an expensive process, requiring either cryptographic operations or network calls to an introspection
+service as described in <xref target="introspection"/>, an RS could cache the results of token validation for a particular token.
+The trade-off for using a cached validation for a token presents an important decision space for implementers: relying on a cached validation result
+increases performance and lowers processing overhead, but it comes at the expense of the liveness and accuracy of the information
+in the cache. While a cached value is in use at the RS, an attacker could present a revoked token and have it accepted by the RS.</t>
+        <t>As with any cache, the consistency of this cache can be managed in a variety of ways. One of the most simple
+methods is managing the lifetime of the cache in order to balance the performance and security properties.
+If the cache is too long, an attacker has a larger window in which to use a revoked token. If the window is too short, the benefits of using the cache are diminished.
+It is also possible that an AS could send a proactive signal to the RS to invalidate revoked access tokens, though such a mechanism
+is outside the scope of this specification.</t>
+      </section>
+      <section anchor="security-key-proof">
+        <name>Key Proof Validation</name>
+        <t>For key-bound access tokens, the proofing method needs to be validated alongside the value of the token itself, as described in <xref target="security-token-validation"/>.
+The process of validation is defined by the key proofing method, as described in <xref section="7.3" sectionFormat="of" target="RFC9635"/>.</t>
+        <t>If the proofing method is not validated, an attacker could use a compromised token without access to the token's bound key.</t>
+        <t>The RS also needs to ensure that the proofing method is appropriate for the key associated with the token, including any choice of algorithm or identifiers.</t>
+        <t>The proofing should be validated independently on each request to the RS, particularly as aspects of the call could vary.
+As such, the RS should never cache the results of a proof validation from one message and apply it to a subsequent message.</t>
+      </section>
+      <section anchor="token-exfiltration">
+        <name>Token Exfiltration</name>
+        <t>Since the RS sees the token value, it is possible for a compromised RS to leak that value to an attacker.
+As such, the RS needs to protect token values as sensitive information and protect them from exfiltration.</t>
+        <t>This is especially problematic with bearer tokens and tokens bound to a shared key, since an RS has access
+to all information necessary to create a new, valid request using the token in question.</t>
+      </section>
+      <section anchor="security-token-reuse-by-rs">
+        <name>Token Reuse by an RS</name>
+        <t>If the access token is a bearer token, or the RS has access to the key material needed to present the token,
+the RS could be tricked into reusing an access token presented to it by a client. While it is possible to build
+a system that makes use of this artifact as a feature, it is safer to exchange the incoming access token for
+another contextual token for use by the RS, as described in <xref target="token-chaining"/>. This access token can be bound
+to the RS's own keys and limited to access needed by the RS, instead of the full set of rights associated with
+the token issued to the client instance.</t>
+      </section>
+      <section anchor="token-format-considerations">
+        <name>Token Format Considerations</name>
+        <t>With formatted tokens, the format of the token is likely to have its own considerations, and the RS needs
+to follow any such considerations during the token validation process. The application and scope of
+these considerations is specific to the format and outside the scope of this specification.</t>
+      </section>
+      <section anchor="over-sharing-token-contents">
+        <name>Oversharing Token Contents</name>
+	
+        <t>The contents of the access token model divulge information about the access token's context and rights to the RS.
+This is true whether the contents are parsed from the token itself or sent in an introspection response.</t>
+        <t>It's likely that every RS does not need to know all details of the token model, especially in systems where
+a single access token is usable across multiple RSs. An attacker could use this to gain information about
+the larger system by compromising only one RS. By limiting the information available to only
+that which is relevant to a specific RS, such as using a limited introspection reply as defined in <xref target="introspection"/>,
+a system can follow the principle of least disclosure to each RS.</t>
+      </section>
+      <section anchor="resource-references">
+        <name>Resource References</name>
+        <t>Resource references, as returned by the protocol in <xref target="rs-register-resource-handle"/>, are intended to be opaque to
+both the RS and the client. However, since they are under the control of the AS, the AS can put whatever content
+it wants into the reference value. This value could unintentionally disclose system structure or other internal
+details if it was processed by an unintended party. Furthermore, such patterns could lead to the client software and
+RS depending on certain structures being present in the reference value, which diminishes the separation of concerns
+of the different roles in a GNAP system.</t>
+        <t>To mitigate this, the AS should only use fully random or encrypted values for resource references.</t>
+      </section>
+      <section anchor="token-re-issuance-from-an-untrusted-as">
+        <name>Token Reissuance from an Untrusted AS</name>
+        <t>It is possible for an attacker's client instance to issue its own tokens to another client instance, acting as
+an AS that the second client instance has chosen to trust. If the token is a bearer token or the reissuance
+is bound using an AS-provided key, the target client instance will not be able to tell that the token was originally
+issued by the valid AS. This process allows an attacker to insert their own session and rights into an unsuspecting
+client instance in the guise of a valid token for the attacker that appears to have been issued to the target
+client instance on behalf of its own RO.</t>
+        <t>This attack is predicated on a misconfiguration with the targeted client, as it has been configured to get tokens
+from the attacker's AS and use those tokens with the target RS, which has no association with the attacker's AS.
+However, since the token is ultimately coming from the trusted AS and is being presented with a valid key,
+the RS has no way of telling that the token was passed through an intermediary.</t>
+        <t>To mitigate this, the RS can publish its association with the trusted AS through either discovery or documentation.
+Therefore, a client properly following this association would only go directly to the trusted RS for
+	access tokens for the RS.</t>
+	
+        <t>Furthermore, limiting the use of bearer tokens and AS-provided keys to only highly trusted ASs in certain circumstances prevents the attacker from being able to willingly exfiltrate their token to an unsuspecting client instance.</t>
+      </section>
+      <section anchor="introspection-of-token-keys">
+        <name>Introspection of Token Keys</name>
+        <t>The introspection response defined in <xref target="introspection"/> provides a means for the AS to tell the RS what key material is needed to validate the key proof of the request. Capture of the introspection response can expose
+these security keys to an attacker. In the case of asymmetric cryptography, only the public key is exposed,
+and the token cannot be reused by the attacker based on this result alone. This could potentially divulge
+information about the client instance that was unknown otherwise.</t>
+        <t>If an access token is bound to a symmetric key, the RS will need access to the full key value in order to validate
+the key proof of the request, as described in <xref target="security-key-proof"/>. However, divulging the key
+material to the RS also gives the RS the ability to create a new request with the token.
+In this circumstance, the RS is under similar risk of token exfiltration and
+reuse as a bearer token, as described in <xref target="security-token-reuse-by-rs"/>. Consequently, symmetric
+keys should only be used in systems where the RS can be fully trusted to not create a new request with
+tokens presented to it.</t>
+      </section>
+      <section anchor="security-rs-registration">
+        <name>RS Registration and Management</name>
+        <t>Most functions of the RS-facing API in <xref target="rs-facing-api"/> are protected by requiring the RS to
+present proof of a signing key along with the request, in order to identify the RS making the
+call, potentially coupled with an AS-specific access token.
+This practice allows the AS to differentially respond to API calls to different RSs, such as
+answering introspection calls with only the access rights relevant to a given RS instead of
+all access rights an access token could be good for.</t>
+        <t>While the means by which an RS and its keys become known to the AS is out of scope for this
+specification, it is anticipated that common practice will be to statically register an
+RS, allowing it to protect specific resources or certain classes of resources.
+Fundamentally, the RS can only offer the resources that it serves. However, a rogue AS could
+attempt to register a set of resources that mimics a different RS in order to solicit an access
+token that is usable at the target RS. If the access token is a bearer token or is bound to a symmetric
+key that is known to the RS, then the attacker's RS gains the ability and knowledge needed
+to use that token elsewhere.</t>
+        <t>In some ecosystems, dynamic registration of an RS and its associated resources is feasible.
+In such systems, the identity of the RS could be conveyed by a URI passed in the <tt>location</tt> field
+of an access rights request, thereby allowing the AS to limit the view the RS has into the
+larger system.</t>
+      </section>
+    </section>
+    <section anchor="Privacy">
+      <name>Privacy Considerations</name>
+      <section anchor="token-contents">
+        <name>Token Contents</name>
+        <t>The contents of the access token could potentially contain personal information about the end user, RO, or other parties.
+This is true whether the contents are parsed from the token itself or sent in an introspection response.</t>
+        <t>While an RS will sometimes need this information for processing, it's often the case that an RS is exposed to these
+details only in passing, and not intentionally. For example, consider a client that has been issued an access token that is
+usable for both medical and non-medical APIs. If this access token contains a medical record number to facilitate the
+RS serving the medical API, then any RS for a non-medical API would also learn the user's medical record number
+in the process, even though that API has no need to make such a correlation.</t>
+        <t>To mitigate this, a formatted token could contain separate sections targeted to different RSs to segregate data.
+Alternatively, token introspection can be used to limit the data returned to each RS, as defined in <xref target="introspection"/>.</t>
+      </section>
+      <section anchor="token-use-disclosure-through-introspection">
+        <name>Token Use Disclosure through Introspection</name>
+        <t>When introspection is used by an RS, the AS is made aware of a particular token being used at a particular RS.
+When the RS is a separate system, the AS would not otherwise have insight into this action. This can potentially
+lead to the AS learning about patterns and actions of particular end users by watching which RSs are accessed
+and when.</t>
+      </section>
+      <section anchor="mapping-a-user-to-an-as">
+        <name>Mapping a User to an AS</name>
+        <t>When the client instance receives information about the protecting AS from an RS, it can be used to
+derive information about the resources being protected without releasing the resources themselves. For example,
+if a medical record is protected by a personal AS, an untrusted client could call an RS to discover the location
+of the AS protecting the record. Since the AS is tied strongly to a single RO, the untrusted and unauthorized client
+software can gain information about the resource being protected without accessing the record itself.</t>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="RFC9635" to="GNAP"/>
+    <displayreference target="RFC7519" to="JWT"/>
+    <references>
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml9/reference.BCP.0195.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7519.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8259.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9635.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8792.xml"/>
+      </references>
+
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="MACAROON" target="https://www.ndss-symposium.org/ndss2014/
+              ndss-2014-programme/macaroons-cookies-contextual-caveats-
+              decentralized-authorization-cloud/">
+          <front>
+            <title>Macaroons: Cookies with Contextual Caveats for Decentralized Authorization in the Cloud</title>
+            <author fullname="Arnar Birgisson"/>
+            <author fullname="Joe Gibbs Politz"/>
+            <author fullname="Ulfar Erlingsson"/>
+            <author fullname="Ankur Taly"/>
+            <author fullname="Michael Vrable"/>
+            <author fullname="Mark Lentczner"/>
+            <date month="February" year="2014"/>
+          </front>
+	  <refcontent>NDSS Symposium 2014</refcontent>
+	  <seriesInfo name="DOI" value="10.14722/ndss.2014.23212"/>
+        </reference>
+
+        <reference anchor="BISCUIT" target="https://www.biscuitsec.org/">
+          <front>
+            <title>Biscuit Authorization</title>
+            <author>
+              <organization>Biscuit</organization>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="ZCAPLD" target="https://w3c-ccg.github.io/zcap-spec/">
+          <front>
+            <title>Authorization Capabilities for Linked Data v0.3</title>
+            <author fullname="Christine Lemmer-Webber" role="editor"/>
+            <author fullname="Manu Sporny" role="editor"/>
+            <date month="January" year="2023"/>
+          </front>
+	  <refcontent>W3C Draft Community Group Report</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+      </references>
+    </references>
+     <section anchor="Acknowledgements" numbered='false'>
+      <name>Acknowledgements</name>
+      <t>The editors would like to thank the following
+      individuals for their reviews, feedback, implementations, and contributions:
+      <contact fullname="Aaron Parecki"/>, <contact fullname="Adrian
+      Gropper"/>, <contact fullname="Andrii Deinega"/>, <contact
+      fullname="Annabelle Backman"/>, <contact fullname="Dmitry Barinov"/>,
+      <contact fullname="Fabien Imbault"/>, <contact fullname="Florian
+      Helmschmidt"/>, <contact fullname="George Fletcher"/>, <contact
+      fullname="Justin Richer"/>, <contact fullname="Kathleen Moriarty"/>,
+      <contact fullname="Leif Johansson"/>, <contact fullname="Mike Varley"/>,
+      <contact fullname="Nat Sakimura"/>, <contact fullname="Takahiko
+      Kawasaki"/>, and <contact fullname="Yaron Sheffer"/>.</t>
+      <t>Additionally, the editors want to acknowledge the immense contributions of
+      <contact fullname="Aaron Parecki"/> to the content of this document. We
+      thank him for his insight, input, and hard work, without which GNAP
+      would not have grown to what it is.</t>
+    </section>
+  </back>
+</rfc>

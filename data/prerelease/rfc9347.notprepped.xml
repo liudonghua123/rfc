@@ -1,0 +1,2055 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" submissionType="IETF" category="std"
+consensus="true" docName="draft-ietf-ipsecme-iptfs-19" number="9347" obsoletes="" updates="" xml:lang="en" tocInclude="true" symRefs="true" sortRefs="true" version="3">
+
+  <!-- xml2rfc v2v3 conversion 3.14.2 -->
+  <front>
+    <title abbrev="IP Traffic Flow Security">Aggregation and Fragmentation Mode for Encapsulating Security Payload (ESP) and Its Use for IP Traffic Flow Security (IP-TFS)</title>
+    <seriesInfo name="RFC" value="9347"/>
+    <author initials="C." surname="Hopps" fullname="Christian Hopps">
+      <organization>LabN Consulting, L.L.C.</organization>
+      <address>
+        <email>chopps@chopps.org</email>
+      </address>
+    </author>
+    <date year="2023" month="January"/>
+    <area>sec</area>
+    <workgroup>ipsecme</workgroup>
+<abstract>
+      <t>This document describes a mechanism for aggregation and
+fragmentation of IP packets when they are being encapsulated in Encapsulating Security Payload (ESP). This new payload type can be used for various purposes, such
+as decreasing encapsulation overhead for small IP packets; however,
+the focus in this document is to enhance IP Traffic Flow Security
+(IP-TFS) by adding Traffic Flow Confidentiality (TFC) to encrypted IP-encapsulated traffic. TFC is provided by obscuring the size and
+frequency of IP traffic using a fixed-size, constant-send-rate IPsec
+tunnel. The solution allows for congestion control, as well as
+nonconstant send-rate usage.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="sec-introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>Traffic analysis <xref target="RFC4301" format="default"/> <xref target="AppCrypt" format="default"/> is the act of extracting
+information about data being sent through a network. While directly
+obscuring the data with encryption <xref target="RFC4303" format="default"/>, the patterns in the
+message traffic may expose information due to variations in its shape
+and timing <xref target="RFC8546" format="default"/> <xref target="AppCrypt" format="default"/>. Hiding the size and frequency of
+traffic is referred to as Traffic Flow Confidentiality (TFC), per
+      <xref target="RFC4303" format="default"/>.</t>
+      <t><xref target="RFC4303" format="default"/> provides for TFC by allowing padding to be added to encrypted 
+IP packets and allowing for transmission of all-pad packets
+(indicated using protocol 59). This method has the major limitation
+      that it can significantly underutilize the available bandwidth.</t>
+      <t>This document defines an aggregation and fragmentation (AGGFRAG) mode
+for ESP, as well as ESP's use for IP Traffic Flow Security (IP-TFS). This
+solution provides for full TFC without the aforementioned bandwidth
+limitation. This is accomplished by using a constant-send-rate IPsec
+<xref target="RFC4303" format="default"/> tunnel with fixed-size encapsulating packets; however, these
+fixed-size packets can contain partial, whole, or multiple IP packets
+to maximize the bandwidth of the tunnel. A nonconstant send rate is
+allowed, but the confidentiality properties of its use are outside
+the scope of this document.</t>
+<t>For a comparison of the overhead of IP-TFS with the TFC solution
+prescribed  in <xref target="RFC4303" format="default"/>, see <xref target="sec-comparisons-of-ip-tfs" format="default"/>.</t>
+      <t>Additionally, IP-TFS provides for operating fairly within congested
+networks <xref target="RFC2914" format="default"/>. This is important for when the IP-TFS user is not
+in full control of the domain through which the IP-TFS tunnel path
+flows.</t>
+      <t>The mechanisms, such as the AGGFRAG mode, defined in this document
+are generic with the intent of allowing for non-TFS uses, but such
+uses are outside the scope of this document.</t>
+      <section numbered="true" toc="default">
+        <name>Terminology &amp; Concepts</name>
+	        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+        <t>This document assumes familiarity with IP security concepts, including
+TFC, as described in <xref target="RFC4301" format="default"/>.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>The AGGFRAG Tunnel</name>
+      <t>As mentioned in <xref target="sec-introduction" format="default"/>, the AGGFRAG mode utilizes an IPsec <xref target="RFC4303" format="default"/> tunnel
+      as its transport. For the purpose of IP-TFS, fixed-size encapsulating
+packets are sent at a constant rate on the AGGFRAG tunnel.</t>
+      <t>The primary input to the tunnel algorithm is the requested bandwidth
+to be used by the tunnel. Two values are then required to provide for
+this bandwidth use: the fixed size of the encapsulating packets and
+the rate at which to send them.</t>
+      <t>The fixed packet size <bcp14>MAY</bcp14> either be specified manually or be
+determined through other methods, such as the Packetization Layer MTU
+Discovery (PLMTUD) <xref target="RFC4821" format="default"/> <xref target="RFC8899" format="default"/> or Path MTU Discovery (PMTUD)
+<xref target="RFC1191" format="default"/> <xref target="RFC8201" format="default"/>. PMTUD is known to have issues, so PLMTUD is
+considered the more robust option. For PLMTUD, congestion control
+payloads can be used as in-band probes (see <xref target="sec-congestion-control-aggfrag-payload-payload-format" format="default"/> and <xref target="RFC8899" format="default"/>).</t>
+      <t>Given the encapsulating packet size and the requested bandwidth to be
+used, the corresponding packet send rate can be calculated. The
+packet send rate is the requested bandwidth to be used, which is then divided by the
+size of the encapsulating packet.</t>
+      <t>The egress (receiving) side of the AGGFRAG tunnel <bcp14>MUST</bcp14> allow for and
+expect the ingress (sending) side of the AGGFRAG tunnel to vary the
+size and rate of sent encapsulating packets, unless constrained by
+other policy.</t>
+      <section numbered="true" toc="default">
+        <name>Tunnel Content</name>
+        <t>As previously mentioned, one issue with the TFC padding solution in
+<xref target="RFC4303" format="default"/> is the large amount of wasted bandwidth, as only one IP
+packet can be sent per encapsulating packet. In order to maximize
+bandwidth, IP-TFS breaks this one-to-one association by introducing
+an AGGFRAG mode for ESP.</t>
+        <t>The AGGFRAG mode aggregates and fragments the inner IP traffic
+flow into encapsulating IPsec tunnel packets. For IP-TFS, the IPsec
+encapsulating tunnel packets are a fixed size. Padding is only added
+to the tunnel packets if there is no data available to be sent at
+the time of tunnel packet transmission or if fragmentation has been
+disabled by the receiver.</t>
+        <t>This is accomplished using a new Encapsulating Security Payload (ESP)
+<xref target="RFC4303" format="default"/> Next Header field value AGGFRAG_PAYLOAD
+(<xref target="sec-aggfrag-payload-payload" format="default"/>).</t>
+        <t>Other non-IP-TFS uses of this AGGFRAG mode have been suggested, such
+as increased performance through packet aggregation, as well as
+handling MTU issues using fragmentation. These uses are not defined
+here but are also not restricted by this document.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Payload Content</name>
+        <t>The AGGFRAG_PAYLOAD payload content defined in this document
+consists of a 4- or 24-octet header, followed by either a partial
+data block, a full data block, or multiple partial or full data blocks.
+The following diagram illustrates this payload within the ESP packet.
+See <xref target="sec-aggfrag-payload-payload" format="default"/> for the exact formats of the
+AGGFRAG_PAYLOAD payload.</t>
+        <figure anchor="sec-layout-of-an-aggfrag-mode-ipsec-packet">
+          <name>Layout of an AGGFRAG Mode IPsec Packet</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+ . Outer Encapsulating Header ...                                .
+ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+ . ESP Header...                                                 .
+ +---------------------------------------------------------------+
+ |   [AGGFRAG sub-type/flags]   :           BlockOffset          |
+ +---------------------------------------------------------------+
+ :                  [Optional Congestion Info]                   :
+ +---------------------------------------------------------------+
+ |       DataBlocks ...                                          ~
+ ~                                                               ~
+ ~                                                               |
+ +---------------------------------------------------------------|
+ . ESP Trailer...                                                .
+ . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+]]></artwork>
+        </figure>
+        <t>The <tt>BlockOffset</tt> value is either zero or some offset into or past
+the end of the <tt>DataBlocks</tt> data.</t>
+        <t>If the <tt>BlockOffset</tt> value is zero, it means that the <tt>DataBlocks</tt>
+data begins with a new data block.</t>
+        <t>Conversely, if the <tt>BlockOffset</tt> value is non-zero, it points to the
+start of the new data block, and the initial <tt>DataBlocks</tt> data
+belongs to the data block that is still being reassembled.</t>
+        <t>If the <tt>BlockOffset</tt> points past the end of the <tt>DataBlocks</tt> data,
+then the next data block occurs in a subsequent encapsulating packet.</t>
+        <t>Having the <tt>BlockOffset</tt> always point at the next available data
+block allows for recovering the next inner packet in the
+presence of outer encapsulating packet loss.</t>
+        <t>An example AGGFRAG mode packet flow can be found in <xref target="sec-example-of-an-encapsulated-ip-packet-flow" format="default"/>.</t>
+        <section numbered="true" toc="default">
+          <name>DataBlocks</name>
+          <figure anchor="sec-layout-of-a-datablock">
+            <name>Layout of a Data Block</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+ +---------------------------------------------------------------+
+ | Type  | rest of IPv4, IPv6, or pad...
+ +--------
+]]></artwork>
+          </figure>
+          <t>A data block is defined by a 4-bit type code, followed by the data
+block data. The type values have been carefully chosen to coincide
+with the IPv4/IPv6 version field values so that no per-data block type overhead is required to encapsulate an IP packet. Likewise, the
+length of the data block is extracted from the encapsulated IPv4's
+<tt>Total Length</tt> or IPv6's <tt>Payload Length</tt> fields.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>End Padding</name>
+          <t>Since a data block's type is identified in its first 4 bits, the only
+time padding is required is when there is no data to encapsulate. For
+this end padding, a <tt>Pad Data Block</tt> is used.</t>
+        </section>
+        <section anchor="sec-fragmentation-sequence-numbers-and-all-pad-payloads" numbered="true" toc="default">
+          <name>Fragmentation, Sequence Numbers, and All-Pad Payloads</name>
+          <t>In order for a receiver to reassemble fragmented inner packets, the
+sender <bcp14>MUST</bcp14> send the inner packet fragments back to back in the
+logical outer packet stream (i.e., using consecutive ESP sequence
+numbers). However, the sender is allowed to insert "all-pad" payloads
+(i.e., payloads with a <tt>BlockOffset</tt> of zero and a single pad
+data block ) in between the packets carrying the inner packet
+fragment payloads. This interleaving of all-pad payloads allows the
+sender to always send a tunnel packet, regardless of the
+encapsulation computational requirements.</t>
+          <t>When a receiver is reassembling an inner packet, and it receives an
+"all-pad" payload, it increments the expected sequence number that
+the next inner packet fragment is expected to arrive in.</t>
+          <t>Given the above, the receiver will need to handle out-of-order
+arrival of outer ESP packets prior to reassembly processing. ESP
+already provides for optionally detecting replay attacks. Detecting
+replay attacks normally utilizes a window method. A similar sequence-number-based
+sliding window can be used to correct reordering of the
+outer packet stream.
+Receiving a larger (newer) sequence number
+packet advances the window, and if any older ESP packets whose
+sequence numbers the window has passed by are received, then the packets are dropped. A good choice
+for the size of this window depends on the amount of misordering the
+user is experiencing; however, a value of 3 has been suggested as a
+default when no more informed choice exists.</t>
+          <t>As the amount of misordering that may be present is hard to predict,
+the window size <bcp14>SHOULD</bcp14> be configurable by the user. Implementations
+<bcp14>MAY</bcp14> also dynamically adjust the reordering window based on actual
+misordering seen in arriving packets.</t>
+          <t>Please note, when IP-TFS sends a continuous stream of packets, there
+is no requirement for an explicit lost packet timer; however, using a
+lost packet timer is <bcp14>RECOMMENDED</bcp14>. If an implementation does not use a
+lost packet timer and only considers an outer packet lost when the
+reorder window moves by it, the inner traffic can be delayed by up to
+the reorder window size times the per-packet send rate. This
+delay could be significant for slower send rates or when larger
+reorder window sizes are in use. As the lost packet timer affects
+the delay of inner packet delivery, an implementation or user could choose to set it
+proportionate to the tunnel rate.</t>
+          <t>While ESP guarantees an increasing sequence number with subsequently
+sent packets, it does not actually require the sequence numbers to be
+generated consecutively (e.g., sending only even-numbered sequence
+numbers would be allowed, as long as they are always increasing). Gaps
+in the sequence numbers will not work for this document, so the
+sequence number stream <bcp14>MUST</bcp14> increase monotonically by 1 for each
+subsequent packet.</t>
+          <t>When using the AGGFRAG_PAYLOAD in conjunction with replay detection,
+the window size for both <bcp14>MAY</bcp14> be reduced to the smaller of the two
+window sizes. This is because packets outside of the smaller window
+but inside the larger window would still be dropped by the mechanism with
+the smaller window size. However, there is also no requirement to
+make these values the same. Indeed, in some cases, such as slow
+tunnels where a very small or zero reorder window size is
+appropriate, the user may still want a large replay detection window
+to log replayed packets. Additionally, large replay windows can be
+implemented with very little overhead, compared to large reorder
+windows.</t>
+          <t>Finally, as sequence numbers are reset when switching Security Associations (SAs) (e.g., when
+rekeying a Child SA), senders <bcp14>MUST NOT</bcp14> send initial fragments of an
+	  inner packet using one SA and subsequent fragments in a different SA.</t>
+	  <aside>
+          <t>A note on <tt>BlockOffset</tt> values: Senders <bcp14>MUST</bcp14> encode the <tt>BlockOffset</tt>
+consistently with the immediately preceding non-all-pad payload packet.
+Specifically, if the immediately preceding non-all-pad payload packet
+ended with a Pad Data Block, this <tt>BlockOffset</tt> <bcp14>MUST</bcp14> be zero, as Pad
+Data Blocks are never fragmented. The <tt>BlockOffset</tt> <bcp14>MUST</bcp14> be
+consistent with the remaining size implied by the length
+field from the fragmented inner packet.</t>
+</aside>
+          <section numbered="true" toc="default">
+            <name>Optional Extra Padding</name>
+            <t>When the tunnel bandwidth is not being fully utilized, a
+sender <bcp14>MAY</bcp14> pad out the current encapsulating packet in order
+to deliver an inner packet unfragmented in the following outer
+packet. The benefit would be to avoid inner packet fragmentation in
+the presence of a bursty offered load (non-bursty traffic will
+naturally not fragment). Senders <bcp14>MAY</bcp14> also choose to allow
+for a minimum fragment size to be configured (e.g., as a percentage
+of the AGGFRAG_PAYLOAD payload size) to avoid fragmentation at the
+cost of tunnel bandwidth. The costs with these methods are complexity
+and an added delay of inner traffic. The main advantage to avoiding
+fragmentation is to minimize inner packet loss in the presence of
+outer packet loss. When this is worthwhile (e.g., how much loss and
+what type of loss is required, given different inner traffic shapes
+and utilization, for this to make sense) and what values to use for
+the allowable/added delay may be worth researching but is outside
+the scope of this document.</t>
+            <t>While use of padding to avoid fragmentation does not impact
+interoperability, if padding is used inappropriately, it can reduce the effective
+throughput of a tunnel. Senders implementing either of the
+above approaches will need to take care to not reduce the effective
+capacity, and overall utility, of the tunnel through the overuse of
+padding.</t>
+          </section>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Empty Payload</name>
+          <t>To support reporting of congestion control information (described
+later) using a non-AGGFRAG_PAYLOAD-enabled SA, it is allowed to send
+an AGGFRAG_PAYLOAD payload with no data blocks (i.e., the ESP payload
+length is equal to the AGGFRAG_PAYLOAD header length). This special
+payload is called an empty payload.</t>
+          <t>Currently, this situation is only applicable in use cases without Internet Key Exchange Protocol Version 2 (IKEv2).</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>IP Header Value Mapping</name>
+          <t><xref target="RFC4301" format="default"/> provides some direction on when and how to map various values
+from an inner IP header to the outer encapsulating header, namely the
+Don't Fragment (DF) bit <xref target="RFC0791" format="default"/>, the Differentiated
+Services (DS) field <xref target="RFC2474" format="default"/>, and the Explicit Congestion Notification
+(ECN) field <xref target="RFC3168" format="default"/>. Unlike in <xref target="RFC4301" format="default"/>, the AGGFRAG mode may, and often will, be
+encapsulating more than one IP packet per ESP packet. To deal with
+this, these mappings are restricted further.</t>
+          <section numbered="true" toc="default">
+            <name>DF Bit</name>
+            <t>The AGGFRAG mode never maps the inner DF bit, as it is unrelated to the
+AGGFRAG tunnel functionality; the AGGFRAG mode never needs to IP fragment
+the inner packets, and the inner packets will not affect the
+fragmentation of the outer encapsulation packets.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>ECN Value</name>
+            <t>The ECN value need not be mapped, as any congestion related to the
+constant-send-rate IP-TFS tunnel is unrelated (by design) to the
+inner traffic flow. The sender <bcp14>MAY</bcp14> still set the ECN value of inner
+packets based on the normal ECN specification <xref target="RFC3168" format="default"/> <xref target="RFC4301" format="default"/>
+<xref target="RFC6040" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>DS Field</name>
+            <t>By default, the DS field <bcp14>SHOULD NOT</bcp14> be copied, although a sender <bcp14>MAY</bcp14>
+choose to allow for configuration to override this behavior. A sender
+<bcp14>SHOULD</bcp14> also allow the DS value to be set by configuration.</t>
+          </section>
+        </section>
+        <section numbered="true" toc="default">
+          <name>IPv4 Time To Live (TTL), IPv6 Hop Limit, and ICMP Messages</name>
+          <t>How to modify the inner packet IPv4 TTL <xref target="RFC0791" format="default"/> or
+IPv6 Hop Limit <xref target="RFC8200" format="default"/> is specified in <xref target="RFC4301" format="default"/>.</t>
+          <t><xref target="RFC4301" format="default"/> specifies how to apply policy to authenticated and
+unauthenticated ICMP error packets (e.g., Destination Unreachable)
+arriving at or being forwarded through the endpoint, in particular,
+whether to process, ignore, or forward said packets. With the one
+exception that this document does not change the handling of these
+packets, they should be handled as specified in <xref target="RFC4301" format="default"/>.</t>
+          <t>The one way in which an AGGFRAG tunnel differs in ICMP error packet
+mechanics is with PMTU. When fragmentation is enabled on the AGGFRAG
+tunnel, then no ICMP "Too Big" errors need to be generated for
+arriving ingress traffic, as the arriving inner packets will be
+naturally fragmented by the AGGFRAG encapsulation.</t>
+          <t>Otherwise, when fragmentation has been disabled on the AGGFRAG tunnel,
+then the treatment of arriving inner traffic exactly maps to that of
+a non-AGGFRAG ESP tunnel. Explicitly, IPv4 with DF set and IPv6
+packets that cannot fit in its own outer packet payload will
+generate the appropriate ICMP "Too Big" error, as described in <xref target="RFC4301" format="default"/>,
+and IPv4 packets without DF set will be IP fragmented, as described in
+<xref target="RFC4301" format="default"/>.</t>
+          <t>Packets egressing the tunnel continue to be handled as specified in
+<xref target="RFC4301" format="default"/>.</t>
+          <t>All other aspects of PMTU and the handling of ICMP "Too Big" messages
+(i.e., with regards to the outer AGGFRAG/ESP tunnel packet size)
+also remain unchanged from <xref target="RFC4301" format="default"/>.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Effective MTU of the Tunnel</name>
+          <t>Unlike in <xref target="RFC4301" format="default"/>, there is normally no effective MTU (EMTU) on an
+AGGFRAG tunnel, as all IP packet sizes are properly transmitted without
+requiring IP fragmentation prior to tunnel ingress. That said, a
+sender <bcp14>MAY</bcp14> allow for explicitly configuring an MTU for the
+tunnel.</t>
+          <t>If fragmentation has been disabled on the AGGFRAG tunnel, then the
+tunnel's EMTU and behaviors are the same as normal IPsec tunnels
+<xref target="RFC4301" format="default"/>.</t>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Exclusive SA Use</name>
+        <t>This document does not specify mixed use of an
+AGGFRAG_PAYLOAD-enabled SA. A sender <bcp14>MUST</bcp14> only send AGGFRAG_PAYLOAD
+payloads over an SA configured for AGGFRAG mode.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Modes of Operation</name>
+        <t>Just as with normal IPsec/ESP SAs, AGGFRAG SAs are
+unidirectional. Bidirectional IP-TFS functionality is achieved by
+setting up 2 AGGFRAG SAs, one in either direction.</t>
+        <t>An AGGFRAG tunnel used for IP-TFS can operate in 2 modes, a
+non-congestion-controlled mode and congestion-controlled mode.</t>
+        <section numbered="true" toc="default">
+          <name>Non-Congestion-Controlled Mode</name>
+          <t>In the non-congestion-controlled mode, IP-TFS sends fixed-size
+packets over an AGGFRAG tunnel at a constant rate. The packet send
+rate is constant and is not automatically adjusted, regardless of any
+network congestion (e.g., packet loss).</t>
+          <t>For similar reasons as given in <xref target="RFC7510" format="default"/>, the non-congestion-controlled
+mode <bcp14>MUST</bcp14> only be used where the user has full administrative control
+over any path the tunnel will take and <bcp14>MUST NOT</bcp14> be used if this is
+not the case. This is required so the user can guarantee the
+bandwidth and also be sure as to not be negatively affecting network
+congestion <xref target="RFC2914" format="default"/>. In this case, packet loss should be reported to
+the administrator (e.g., via syslog, YANG notification, SNMP traps,
+etc.) so that any failures due to a lack of bandwidth can be
+corrected. The use of circuit breakers is also <bcp14>RECOMMENDED</bcp14> (<xref target="sec-circuit-breakers" format="default"/>).</t>
+          <t>Users that choose the non-congestion-controlled mode need to
+understand that this mode will send packets at a constant rate,
+utilizing a constant, fixed bandwidth, and will not adjust based on
+congestion. Thus, if they do not guarantee the bandwidth required by
+the tunnel, the tunnel's operation, as well as the rest of their
+network, may be negatively impacted.</t>
+          <t>One expected use case for the non-congestion-controlled mode is to
+guarantee the full tunnel bandwidth is available and preferred over
+other non-tunnel traffic. In fact, a typical site-to-site use case
+might have all of the user traffic utilizing the IP-TFS tunnel.</t>
+          <t>The non-congestion-controlled mode is also appropriate if ESP over TCP is
+in use <xref target="RFC9329" format="default"/>. However, the use of TCP is considered a fallback-only solution for IPsec; it is highly not preferred. This is also
+one of the reasons that TCP was not chosen as the encapsulation for
+IP-TFS instead of AGGFRAG.</t>
+        </section>
+        <section anchor="sec-congestion-controlled-mode" numbered="true" toc="default">
+          <name>Congestion-Controlled Mode</name>
+          <t>With the congestion-controlled mode, IP-TFS adapts to network
+congestion by lowering the packet send rate to accommodate the
+congestion, as well as raising the rate when congestion subsides.
+Since overhead is per packet, by allowing for maximal fixed-size
+packets and varying the send rate, transport overhead is minimized.</t>
+          <t>The output of the congestion control algorithm will adjust the rate
+at which the ingress sends packets. While this document does not
+require a specific congestion control algorithm, best current
+practice RECOMMENDS that the algorithm conform to <xref target="RFC5348" format="default"/>. Congestion
+control principles are documented in <xref target="RFC2914" format="default"/> as well. There is an example in <xref target="RFC4342" format="default"/>
+of the algorithm in <xref target="RFC5348" format="default"/>, which matches the
+requirements of IP-TFS (i.e., designed for fixed-size packets and send
+rate varied based on congestion).</t>
+          <t>The required inputs for the TCP-friendly rate control algorithm
+described in <xref target="RFC5348" format="default"/> are the receiver's loss event rate and the
+sender's estimated round-trip time (RTT). These values are provided by
+IP-TFS using the congestion information header fields described in
+<xref target="sec-congestion-information" format="default"/>. In particular, these values are sufficient to
+implement the algorithm described in <xref target="RFC5348" format="default"/>.</t>
+          <t>At a minimum, the congestion information <bcp14>MUST</bcp14> be sent, from the
+receiver and from the sender, at least once per RTT. Prior to
+establishing an RTT, the information <bcp14>SHOULD</bcp14> be sent constantly from
+the sender and the receiver so that an RTT estimate can be
+established. Not receiving this information over multiple
+consecutive RTT intervals should be considered a congestion event
+that causes the sender to adjust its sending rate lower. For
+example, this is called the "no feedback timeout" in <xref target="RFC4342" format="default"/>, and it is equal
+to 4 RTT intervals. When a "no feedback timeout" has occurred, the sending rate is halved, as per <xref target="RFC4342" format="default"/>.</t>
+          <t>An implementation <bcp14>MAY</bcp14> choose to always include the congestion
+information in its AGGFRAG payload header if it is sending it on an IP-TFS-enabled
+SA. Since IP-TFS normally will operate with a large packet
+size, the congestion information should represent a small portion of
+the available tunnel bandwidth. An implementation choosing to always
+send the data <bcp14>MAY</bcp14> also choose to only update the <tt>LossEventRate</tt>
+and <tt>RTT</tt> header field values it sends every <tt>RTT</tt> through.</t>
+          <t>When choosing a congestion control algorithm (or a selection of
+algorithms), note that IP-TFS is not providing for reliable delivery
+of IP traffic, and so per-packet acknowledgements (ACKs) are not required and are not
+provided.</t>
+          <t>It is worth noting that the variable send rate of a
+congestion-controlled AGGFRAG tunnel is not private; however, this
+send rate is being driven by network congestion, and as long as the
+encapsulated (inner) traffic flow shape and timing are not directly
+affecting the (outer) network congestion, the variations in the
+tunnel rate will not weaken the provided inner traffic flow
+confidentiality.</t>
+          <section anchor="sec-circuit-breakers" numbered="true" toc="default">
+            <name>Circuit Breakers</name>
+            <t>In addition to congestion control, implementations that support the
+non-congestion-control mode <bcp14>SHOULD</bcp14> implement circuit breakers <xref target="RFC8084" format="default"/>
+as a recovery method of last resort. When circuit breakers are
+enabled, an implementation <bcp14>SHOULD</bcp14> also enable congestion control
+reports so that circuit breakers have information to act on.</t>
+            <t>The pseudowire congestion considerations <xref target="RFC7893" format="default"/> are equally
+applicable to the mechanisms defined in this document, notably the
+text on inelastic traffic.</t>
+            <t>One example of a simple, slow-trip circuit breaker that an
+implementation may provide would utilize 2 values: the amount of
+persistent loss rate required to trip the circuit breaker and the required length
+of time this persistent loss rate must be seen to trip the circuit breaker. These
+2 value are required configurations from the user. When the circuit breaker is
+tripped, the tunnel traffic is disabled and an appropriate log
+message or other management type alarm is triggered, indicating
+operation intervention is required.</t>
+          </section>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Summary of Receiver Processing</name>
+        <t>An AGGFRAG-enabled SA receiver has a few tasks to perform.</t>
+        <t>The receiver <bcp14>MAY</bcp14> process incoming AGGFRAG_PAYLOAD payloads as soon as
+they arrive, as much as it can, i.e., if the incoming AGGFRAG_PAYLOAD
+packet contains complete inner packet(s), the receiver should extract
+and transmit them immediately. For partial packets, the receiver needs
+to keep the partial packets in the memory until they fall out
+from the reordering window or until the missing parts of the packets
+are received, in which case, it will reassemble and transmit them. If
+the AGGFRAG_PAYLOAD payload contains multiple packets, they <bcp14>SHOULD</bcp14> be sent
+out in the order they are in the AGGFRAG_PAYLOAD (i.e., keep the
+original order they were received on the other end). The cost of
+using this method is that an amplification of out-of-order delivery
+of inner packets can occur due to inner packet aggregation.</t>
+        <t>Instead of the method described in the previous paragraph, the
+receiver <bcp14>MAY</bcp14> reorder out-of-order AGGFRAG_PAYLOAD payloads received
+into in-sequence-order AGGFRAG_PAYLOAD payloads (<xref target="sec-fragmentation-sequence-numbers-and-all-pad-payloads" format="default"/>), and only after it has an
+in-order AGGFRAG_PAYLOAD payload stream would the receiver transmit
+the inner packets. Using this method will ensure the inner packets
+are sent in order. The cost of this method is that a lost packet will
+cause a delay of up to the lost packet timer interval (or the full
+reorder window if no lost packet timer is used). Additionally, there
+can be extra burstiness in the output stream. This burstiness can
+happen when a lost packet is dropped from the reorder window,
+and the remaining outer packets in the reorder window are immediately
+processed and sent out back to back.</t>
+        <t>Additionally, if congestion control is enabled, the receiver sends
+congestion control data (<xref target="sec-congestion-control-aggfrag-payload-payload-format" format="default"/>) back to the sender, as described in Sections <xref target="sec-congestion-controlled-mode" format="counter"/>
+and <xref target="sec-congestion-information" format="counter"/>.</t>
+        <t>Finally, a note on receiving incorrect <tt>BlockOffset</tt> values: To account
+for misbehaving senders, a receiver <bcp14>SHOULD</bcp14> gracefully handle the case
+where the <tt>BlockOffset</tt> of consecutive packets, and/or the inner
+packet they share, do not agree. It <bcp14>MAY</bcp14> drop the inner packet or one or both of the outer packets.</t>
+      </section>
+    </section>
+    <section anchor="sec-congestion-information" numbered="true" toc="default">
+      <name>Congestion Information</name>
+      <t>In order to support the congestion-controlled mode, the sender needs to
+know the loss event rate and to approximate the RTT <xref target="RFC5348" format="default"/>. In order
+to obtain these values, the receiver sends congestion control
+information on its SA back to the sender. Thus, to support
+congestion control, the receiver <bcp14>MUST</bcp14> have a paired SA back to the
+sender (this is always the case when the tunnel was created using
+IKEv2). If the SA back to the sender is a non-AGGFRAG_PAYLOAD-enabled
+SA, then an AGGFRAG_PAYLOAD empty payload (i.e., header only) is used
+to convey the information.</t>
+      <t>In order to calculate a loss event rate compatible with <xref target="RFC5348" format="default"/>, the
+receiver needs to have an RTT estimate. Thus, the sender
+communicates this estimate in the <tt>RTT</tt> header field. On startup, this
+value will be zero, as no RTT estimate is yet known.</t>
+      <t>In order for the sender to estimate its <tt>RTT</tt> value, the sender
+places a timestamp value in the <tt>TVal</tt> header field. On first receipt
+of this <tt>TVal</tt>, the receiver records the new <tt>TVal</tt> value, along with
+the time it arrived locally. Subsequent receipt of the same <tt>TVal</tt>
+<bcp14>MUST NOT</bcp14> update the recorded time.</t>
+      <t>When the receiver sends its congestion control header, it places this latest recorded
+<tt>TVal</tt> in the <tt>TEcho</tt> header field, along with 2 delay values: <tt>Echo
+Delay</tt> and <tt>Transmit Delay</tt>. The <tt>Echo Delay</tt> value is the time delta
+from the recorded arrival time of <tt>TVal</tt> and the current clock in
+microseconds. The second value, <tt>Transmit Delay</tt>, is the receiver's
+current transmission delay on the tunnel (i.e., the average time
+between sending packets on its half of the AGGFRAG tunnel).</t>
+      <t>When the sender receives back its <tt>TVal</tt> in the <tt>TEcho</tt> header field,
+it calculates 2 RTT estimates. The first is the actual delay found by
+subtracting the <tt>TEcho</tt> value from its current clock and then
+subtracting the <tt>Echo Delay</tt> as well. The second RTT estimate is found by
+adding the received <tt>Transmit Delay</tt> header value to the sender's own
+transmission delay (i.e., the average time between sending packets on
+its half of the AGGFRAG tunnel). The larger of these 2 RTT estimates
+<bcp14>SHOULD</bcp14> be used as the <tt>RTT</tt> value.</t>
+      <t>The two RTT estimates are required to handle different combinations of
+faster or slower tunnel packet paths with faster or slower fixed
+tunnel rates. Choosing the larger of the two values guarantees that
+the <tt>RTT</tt> is never considered faster than the aggregate transmission
+delay based on the IP-TFS send rate (the second estimate), as well
+as never being considered faster than the actual RTT along the tunnel
+packet path (the first estimate).</t>
+      <t>The receiver also calculates, and communicates in the <tt>LossEventRate</tt>
+header field, the loss event rate for use by the sender. This is
+slightly different from <xref target="RFC4342" format="default"/>, which periodically sends all the loss
+interval data back to the sender so that it can do the calculation.
+See <xref target="sec-a-send-and-loss-event-rate-calculation" format="default"/> for a suggested way to
+calculate the loss event rate value. Initially, this value will be
+zero (indicating no loss) until enough data has been collected by the
+receiver to update it.</t>
+      <section anchor="sec-ecn-support" numbered="true" toc="default">
+        <name>ECN Support</name>
+        <t>In addition to normal packet loss information, the AGGFRAG mode supports use
+of the ECN bits in the encapsulating IP header <xref target="RFC3168" format="default"/> for
+identifying congestion. If ECN use is enabled and a packet arrives at
+the egress (receiving) side with the Congestion Experienced (CE) value set,
+then the receiver considers that packet as being dropped, although it
+does not drop it. The receiver <bcp14>MUST</bcp14> set the E bit in any
+AGGFRAG_PAYLOAD payload header containing a <tt>LossEventRate</tt> value
+derived from a CE value being considered.</t>
+        <t>In <xref target="RFC6040" format="default"/>, which updates <xref target="RFC3168" format="default"/> and <xref target="RFC4301" format="default"/>, behaviors for marking
+the outer ECN field value based on the ECN field of the inner packet are defined.
+As the AGGFRAG mode may have multiple inner packets present in a single
+outer packet, and there is no obvious correct way to map these
+multiple values to the single outer packet ECN field value, the
+tunnel ingress endpoint <bcp14>SHOULD</bcp14> operate in the "compatibility" mode,
+rather than the "default" mode from <xref target="RFC6040" format="default"/>. In particular, this means
+that the ingress (sending) endpoint of the tunnel always sets the
+newly constructed outer encapsulating packet header ECN field
+to Not-ECT <xref target="RFC6040" format="default"/>.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Configuration of AGGFRAG Tunnels for IP-TFS</name>
+      <t>IP-TFS is meant to be deployable with a minimal amount of
+configuration. All IP-TFS-specific configuration should be
+specified at the unidirectional tunnel ingress (sending) side. It
+is intended that non-IKEv2 operation is supported, at least, with
+local static configuration.</t>
+      <t>YANG and MIB documents have been defined for IP-TFS in
+<xref target="RFC9348" format="default"/> and <xref target="RFC9349" format="default"/>.</t>
+      <section numbered="true" toc="default">
+        <name>Bandwidth</name>
+        <t>Bandwidth is a local configuration option. For the
+non-congestion-controlled mode, the bandwidth <bcp14>SHOULD</bcp14> be configured.
+For the congestion-controlled mode, the bandwidth can be configured or
+the congestion control algorithm discovers and uses the maximum
+bandwidth available. No standardized configuration method is
+required.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Fixed Packet Size</name>
+        <t>The fixed packet size to be used for the tunnel encapsulation packets
+<bcp14>MAY</bcp14> be configured manually or can be automatically determined using
+other methods, such as PLMTUD <xref target="RFC4821" format="default"/> <xref target="RFC8899" format="default"/> or PMTUD <xref target="RFC1191" format="default"/>
+<xref target="RFC8201" format="default"/>. As PMTUD is known to have issues, PLMTUD is considered the
+more robust option. No standardized configuration method is required.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Congestion Control</name>
+        <t>Congestion control is a local configuration option. No standardized
+configuration method is required.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>IKEv2</name>
+      <section anchor="sec-use-aggfrag-notification-message" numbered="true" toc="default">
+        <name>USE_AGGFRAG Notification Message</name>
+        <t>As mentioned previously, AGGFRAG tunnels utilize ESP payloads of type
+AGGFRAG_PAYLOAD.</t>
+        <t>When using IKEv2, a new "USE_AGGFRAG" notification message enables
+the AGGFRAG_PAYLOAD payload on a Child SA pair. The
+method used is similar to how USE_TRANSPORT_MODE is negotiated, as
+described in <xref target="RFC7296" format="default"/>.</t>
+        <t>To request use of the AGGFRAG_PAYLOAD payload on the Child SA pair,
+the initiator includes the USE_AGGFRAG notification in an SA payload
+requesting a new Child SA (either during the initial IKE_AUTH or
+during CREATE_CHILD_SA exchanges). If the request is
+accepted, then the response <bcp14>MUST</bcp14> also include a notification of type
+USE_AGGFRAG. If the responder declines the request, the Child SA will
+be established without AGGFRAG_PAYLOAD payload use enabled. If
+this is unacceptable to the initiator, the initiator <bcp14>MUST</bcp14> delete the
+Child SA.</t>
+        <t>As the use of the AGGFRAG_PAYLOAD payload is currently only defined
+for non-transport-mode tunnels, the USE_AGGFRAG notification <bcp14>MUST NOT</bcp14>
+be combined with the USE_TRANSPORT notification.</t>
+        <t>The USE_AGGFRAG notification contains a 1-octet payload of flags that
+specify requirements from the sender of the notification. If any
+requirement flags are not understood or cannot be supported by the
+receiver, then the receiver <bcp14>SHOULD NOT</bcp14> enable use of AGGFRAG_PAYLOAD
+(either by not responding with the USE_AGGFRAG notification or, in
+the case of the initiator, by deleting the Child SA if the now-established non-AGGFRAG_PAYLOAD using SA is unacceptable).</t>
+        <t>The notification type and payload flag values are defined in <xref target="sec-ikev2-use-aggfrag-notification-message" format="default"/>.</t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Packet and Data Formats</name>
+      <t>The packet and data formats defined below are generic with the intent
+of allowing for non-IP-TFS uses, but such uses are outside the scope of
+this document.</t>
+      <section anchor="sec-aggfrag-payload-payload" numbered="true" toc="default">
+        <name>AGGFRAG_PAYLOAD Payload</name>
+        <t>ESP Next Header value: 144</t>
+        <t>An AGGFRAG payload is identified by the ESP Next Header value
+AGGFRAG_PAYLOAD, which has the value 144, which has been reserved in
+the IP protocol numbers space. The first octet of the payload
+indicates the format of the remaining payload data.</t>
+        <figure anchor="sec-aggfrag-payload-payload-format">
+          <name>AGGFRAG_PAYLOAD Payload Format</name>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+  0 1 2 3 4 5 6 7
+ +-+-+-+-+-+-+-+-+-+-+-
+ |   Sub-type    | ...
+ +-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+        </figure>
+        <dl newline="true" spacing="normal">
+          <dt>Sub-type:</dt>
+          <dd>An 8-bit value indicating the payload format.</dd>
+        </dl>
+        <t>This document defines 2 payload sub-types. These payload formats
+are defined in the following sections.</t>
+        <section numbered="true" toc="default">
+          <name>Non-Congestion-Control AGGFRAG_PAYLOAD Payload Format</name>
+          <t>The non-congestion-control AGGFRAG_PAYLOAD payload consists of a
+4-octet header, followed by a variable amount of <tt>DataBlocks</tt> data, as
+shown below.</t>
+          <figure anchor="sec-non-congestion-control-payload-format">
+            <name>Non-Congestion-Control Payload Format</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+                      1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |  Sub-Type (0) |   Reserved    |          BlockOffset          |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |       DataBlocks ...
+ +-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+          </figure>
+          <dl newline="true" spacing="normal">
+            <dt>Sub-type:</dt>
+            <dd>An octet indicating the payload format. For this
+non-congestion-control format, the value is 0.</dd>
+            <dt>Reserved:</dt>
+            <dd>An octet set to 0 on generation and ignored on
+receipt.</dd>
+            <dt>BlockOffset:</dt>
+            <dd>A 16-bit unsigned integer counting the number of
+octets of <tt>DataBlocks</tt> data before the start of a
+new data block. If the start of a new data block
+occurs in a subsequent payload, the <tt>BlockOffset</tt>
+will point past the end of the <tt>DataBlocks</tt> data.
+In this case, all the <tt>DataBlocks</tt> data belongs to
+the current data block being assembled. When the
+<tt>BlockOffset</tt> extends into subsequent payloads, it
+continues to only count <tt>DataBlocks</tt> data (i.e.,
+it does not count subsequent packets of the
+non-<tt>DataBlocks</tt> data, such as header octets).</dd>
+            <dt>DataBlocks:</dt>
+            <dd>Variable number of octets that begins with the start
+of a data block or the continuation of a previous
+data block, followed by zero or more additional data
+blocks.</dd>
+          </dl>
+        </section>
+        <section anchor="sec-congestion-control-aggfrag-payload-payload-format" numbered="true" toc="default">
+          <name>Congestion Control AGGFRAG_PAYLOAD Payload Format</name>
+          <t>The congestion control AGGFRAG_PAYLOAD payload consists of a 24-octet
+	  header, followed by a variable amount of <tt>DataBlocks</tt> data, as
+shown below.</t>
+          <figure anchor="sec-congestion-control-payload-format">
+            <name>Congestion Control Payload Format</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+                      1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |  Sub-type (1) |  Reserved |P|E|          BlockOffset          |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                          LossEventRate                        |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                      RTT                  |   Echo Delay ...
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      ... Echo Delay   |           Transmit Delay                |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                              TVal                             |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |                             TEcho                             |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |       DataBlocks ...
+ +-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+          </figure>
+          <dl newline="true" spacing="normal">
+            <dt>Sub-type:</dt>
+            <dd>An octet indicating the payload format. For this
+congestion control format, the value is 1.</dd>
+            <dt>Reserved:</dt>
+            <dd>A 6-bit field set to 0 on generation and ignored on
+	    receipt.</dd>
+            <dt>P:</dt>
+            <dd>A 1-bit value that, if set, indicates that PLMTUD probing is in
+progress. This information can be used to avoid treating
+missing packets as loss events by the congestion control algorithm when
+running the PLMTUD probe algorithm.</dd>
+            <dt>E:</dt>
+            <dd>A 1-bit value that, if set, indicates that Congestion Experienced
+(CE) ECN bits were received and used in deriving the
+reported <tt>LossEventRate</tt>.</dd>
+            <dt>BlockOffset:</dt>
+            <dd>The same value as the non-congestion-controlled
+payload format value.</dd>
+            <dt>LossEventRate:</dt>
+            <dd>A 32-bit value specifying the inverse of the
+current loss event rate, as calculated by the
+receiver. A value of zero indicates no loss.
+Otherwise, the loss event rate is
+<tt>1/LossEventRate</tt>.</dd>
+            <dt>RTT:</dt>
+            <dd>A 22-bit value specifying the sender's current RTT estimate in microseconds. The value <bcp14>MAY</bcp14> be zero prior
+to the sender having calculated an RTT estimate.
+The value <bcp14>SHOULD</bcp14> be set to zero on
+non-AGGFRAG_PAYLOAD-enabled SAs. If the RTT is equal to or
+larger than <tt>0x3FFFFF</tt>, the value <bcp14>MUST</bcp14> be set to <tt>0x3FFFFF</tt>.</dd>
+            <dt>Echo Delay:</dt>
+            <dd>A 21-bit value specifying the delay in microseconds
+incurred between the receiver first receiving the <tt>TVal</tt>
+value, which it is sending back in <tt>TEcho</tt>. If the delay
+is equal to or larger than <tt>0x1FFFFF</tt>, the value <bcp14>MUST</bcp14> be
+set to <tt>0x1FFFFF</tt>.</dd>
+            <dt>Transmit Delay:</dt>
+            <dd>A 21-bit value specifying the transmission delay in
+microseconds. This is the fixed (or average) delay on the
+receiver between it sending packets on the IP-TFS tunnel.
+If the delay is equal to or larger than <tt>0x1FFFFF</tt>, the
+value <bcp14>MUST</bcp14> be set to <tt>0x1FFFFF</tt>.</dd>
+            <dt>TVal:</dt>
+            <dd>An opaque, 32-bit value that will be echoed back by the
+receiver in later packets in the <tt>TEcho</tt> field, along with
+an <tt>Echo Delay</tt> value of how long that echo took.</dd>
+            <dt>TEcho:</dt>
+            <dd>The opaque, 32-bit value from a received packet's <tt>TVal</tt>
+field. The received <tt>TVal</tt> is placed in <tt>TEcho</tt>, along with
+an <tt>Echo Delay</tt> value indicating how long it has been since
+receiving the <tt>TVal</tt> value.</dd>
+            <dt>DataBlocks:</dt>
+            <dd>Variable number of octets that begins with the start
+of a data block or the continuation of a previous
+data block, followed by zero or more additional data
+blocks. For the special case of sending congestion
+control information on a non-IP-TFS-enabled SA, this
+field <bcp14>MUST</bcp14> be empty (i.e., be zero octets long).</dd>
+          </dl>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Data Blocks</name>
+          <figure anchor="sec-data-block-format">
+            <name>Data Block Format</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+                      1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ | Type  | IPv4, IPv6, or pad...
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+          </figure>
+          <dl newline="true" spacing="normal">
+            <dt>Type:</dt>
+            <dd>A 4-bit field where 0x0 identifies a Pad Data Block, 0x4
+indicates an IPv4 data block, and 0x6 indicates an IPv6
+data block.</dd>
+          </dl>
+          <section numbered="true" toc="default">
+            <name>IPv4 Data Block</name>
+            <figure anchor="sec-ipv4-data-block-format">
+              <name>IPv4 Data Block Format</name>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+                      1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |  0x4  |  IHL  |  TypeOfService  |         TotalLength         |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ | Rest of the inner packet ...
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+            </figure>
+            <t>These values are the actual values within the encapsulated IPv4
+header. In other words, the start of this data block is the start of
+the encapsulated IP packet.</t>
+            <dl newline="true" spacing="normal">
+              <dt>Type:</dt>
+              <dd>A 4-bit value of 0x4 indicating IPv4 (i.e., first nibble of
+the IPv4 packet).</dd>
+              <dt>TotalLength:</dt>
+              <dd>The 16-bit unsigned integer "Total Length" field of
+the IPv4 inner packet.</dd>
+            </dl>
+          </section>
+          <section numbered="true" toc="default">
+            <name>IPv6 Data Block</name>
+            <figure anchor="sec-ipv6-data-block-format">
+              <name>IPv6 Data Block Format</name>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+                      1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |  0x6  | TrafficClass  |               FlowLabel               |
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |         PayloadLength         | Rest of the inner packet ...
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+            </figure>
+            <t>These values are the actual values within the encapsulated IPv6
+header. In other words, the start of this data block is the start of
+the encapsulated IP packet.</t>
+            <dl newline="true" spacing="normal">
+              <dt>Type:</dt>
+              <dd>A 4-bit value of 0x6 indicating IPv6 (i.e., first nibble of
+the IPv6 packet).</dd>
+              <dt>PayloadLength:</dt>
+              <dd>The 16-bit unsigned integer "Payload Length" field
+of the inner IPv6 inner packet.</dd>
+            </dl>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Pad Data Block</name>
+            <figure anchor="sec-pad-data-block-format">
+              <name>Pad Data Block Format</name>
+              <artwork name="" type="" align="left" alt=""><![CDATA[
+                      1                   2                   3
+  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+ +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+ |  0x0  | Padding ...
+ +-+-+-+-+-+-+-+-+-+-+-
+]]></artwork>
+            </figure>
+            <dl newline="true" spacing="normal">
+              <dt>Type:</dt>
+              <dd>A 4-bit value of 0x0 indicating a padding data block.</dd>
+              <dt>Padding:</dt>
+              <dd>Extends to end of the encapsulating packet.</dd>
+            </dl>
+          </section>
+        </section>
+        <section anchor="sec-ikev2-use-aggfrag-notification-message" numbered="true" toc="default">
+          <name>IKEv2 USE_AGGFRAG Notification Message</name>
+          <t>As discussed in <xref target="sec-use-aggfrag-notification-message" format="default"/>, a notification
+message USE_AGGFRAG is used to negotiate use of the ESP AGGFRAG_PAYLOAD
+Next Header value.</t>
+          <t>The USE_AGGFRAG Notification Message State Type is 16442.</t>
+          <t>The notification payload contains 1 octet of requirement flags. There
+are currently 2 requirement flags defined. This may be revised by
+later specifications.</t>
+          <figure anchor="sec-use-aggfrag-requirement-flags">
+            <name>USE_AGGFRAG Requirement Flags</name>
+            <artwork name="" type="" align="left" alt=""><![CDATA[
+ +-+-+-+-+-+-+-+-+
+ |0|0|0|0|0|0|C|D|
+ +-+-+-+-+-+-+-+-+
+]]></artwork>
+          </figure>
+          <dl newline="true" spacing="normal">
+            <dt>0:</dt>
+            <dd>6 bits - Reserved <bcp14>MUST</bcp14> be zero on send, unless defined by
+later specifications.</dd>
+            <dt>C:</dt>
+            <dd>Congestion Control bit. If set, then the sender is requiring
+that congestion control information <bcp14>MUST</bcp14> be returned to it
+periodically, as defined in <xref target="sec-congestion-information" format="default"/>.</dd>
+            <dt>D:</dt>
+            <dd>Don't Fragment bit. If set, it indicates the sender of the notify
+message does not support receiving packet fragments (i.e., inner
+packets <bcp14>MUST</bcp14> be sent using a single <tt>Data Block</tt>). This value only
+applies to what the sender is capable of receiving; the sender <bcp14>MAY</bcp14>
+still send packet fragments unless similarly restricted by the
+receiver in its USE_AGGFRAG notification.</dd>
+          </dl>
+        </section>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section numbered="true" toc="default">
+        <name>ESP Next Header Value</name>
+        <t>IANA has
+allocated an IP protocol number from the "Protocol Numbers - Assigned
+Internet Protocol Numbers" registry as follows.</t>
+        <dl newline="false" spacing="compact">
+          <dt>Decimal:</dt>
+          <dd>144</dd>
+          <dt>Keyword:</dt>
+          <dd>AGGFRAG</dd>
+          <dt>Protocol:</dt>
+          <dd>AGGFRAG encapsulation payload for ESP</dd>
+          <dt>Reference:</dt>
+          <dd>RFC 9347</dd>
+        </dl>
+      </section>
+      <section numbered="true" toc="default">
+        <name>AGGFRAG_PAYLOAD Sub-Types</name>
+        <t>IANA has created a registry called "AGGFRAG_PAYLOAD
+Sub-Types" under a new category named "ESP AGGFRAG_PAYLOAD".
+The registration policy for this registry is "Expert Review"
+<xref target="RFC8126" format="default"/> <xref target="RFC7120" format="default"/>.</t>
+        <dl newline="false" spacing="compact">
+          <dt>Name:</dt>
+          <dd>AGGFRAG_PAYLOAD Sub-Types</dd>
+          <dt>Description:</dt>
+          <dd>AGGFRAG_PAYLOAD Payload Formats</dd>
+          <dt>Reference:</dt>
+          <dd>RFC 9347</dd>
+        </dl>
+        <t>This initial content for this registry is as follows:</t>
+        <table align="center">
+          <name>AGGFRAG_PAYLOAD Sub-Types</name>
+	  <thead>
+	    <tr>
+	      <th>Sub-Type</th>
+	      <th>Name</th>
+              <th>Reference</th>
+	      </tr>
+	  </thead>
+	  <tbody>
+	    <tr>
+	      <td>0</td>
+	      <td>Non-Congestion-Control Format</td>
+	      <td>RFC 9347</td>
+	    </tr>
+	    <tr>
+	      <td>1</td>
+	      <td>Congestion Control Format</td>
+	      <td>RFC 9347</td>
+	    </tr>
+	    <tr>
+	      <td>3-255</td>
+	      <td>Reserved</td>
+	      <td></td>
+	    </tr>
+	  </tbody>
+	</table>
+      </section>
+      <section numbered="true" toc="default">
+        <name>USE_AGGFRAG Notify Message Status Type</name>
+        <t>IANA has allocated a status type USE_AGGFRAG from
+the "IKEv2 Notify Message Types - Status Types" registry.</t>
+        <dl newline="false" spacing="compact">
+          <dt>Decimal:</dt>
+          <dd>16442</dd>
+          <dt>Name:</dt>
+          <dd>USE_AGGFRAG</dd>
+          <dt>Reference:</dt>
+          <dd>RFC 9347</dd>
+        </dl>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>This document describes an aggregation and fragmentation mechanism to
+efficiently implement TFC for IP traffic. This approach is expected to reduce
+the efficacy of traffic analysis on IPsec communication. Other than
+the additional security afforded by using this mechanism, IP-TFS
+utilizes the security protocols <xref target="RFC4303" format="default"/> and <xref target="RFC7296" format="default"/>, and so their
+security considerations apply to IP-TFS as well.</t>
+      <t>As noted in <xref target="sec-ecn-support" format="default"/>, the ECN bits are not protected by IPsec and
+thus may constitute a covert channel. For this reason, ECN use <bcp14>SHOULD
+NOT</bcp14> be enabled by default.</t>
+      <t>As noted previously in <xref target="sec-congestion-controlled-mode" format="default"/>, for TFC to be
+maintained, the encapsulated traffic flow should not be
+affecting network congestion in a predictable way, and if it would be,
+then non-congestion-controlled mode use should be considered instead.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4303.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7296.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+	
+        <reference anchor="AppCrypt">
+          <front>
+            <title>Applied Cryptography: Protocols, Algorithms, and Source Code in C</title>
+            <author initials="B." surname="Schneier" fullname="Bruce Schneier">
+              <organization/>
+            </author>
+            <date year="1996"/>
+          </front>
+        </reference>
+	
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.0791.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1191.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2474.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2914.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3168.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4301.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4342.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4821.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5348.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6040.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7120.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7510.xml"/>
+<reference anchor="RFC7893" target="https://www.rfc-editor.org/info/rfc7893">
+  <front>
+    <title>Pseudowire Congestion Considerations</title>
+    <author fullname="Y(J) Stein" initials="Y(J)" surname="Stein"/>
+    <author fullname="D. Black" initials="D." surname="Black"/>
+    <author fullname="B. Briscoe" initials="B." surname="Briscoe"/>
+    <date month="June" year="2016"/>
+    <abstract>
+      <t>Pseudowires (PWs) have become a common mechanism for tunneling traffic and may be found in unmanaged scenarios competing for network resources both with other PWs and with non-PW traffic, such as TCP/IP flows.  Thus, it is worthwhile specifying under what conditions such competition is acceptable, i.e., the PW traffic does not significantly harm other traffic or contribute more than it should to congestion.  We conclude that PWs transporting responsive traffic behave as desired without the need for additional mechanisms.  For inelastic PWs (such as Time Division Multiplexing (TDM) PWs), we derive a bound under which such PWs consume no more network capacity than a TCP flow.  For TDM PWs, we find that the level of congestion at which the PW can no longer deliver acceptable TDM service is never significantly greater, and is typically much lower, than this bound.  Therefore, as long as the PW is shut down when it can no longer deliver acceptable TDM service, it will never do significantly more harm than even a single TCP flow.  If the TDM service does not automatically shut down, a mechanism to block persistently unacceptable TDM pseudowires is required.</t>
+    </abstract>
+  </front>
+  <seriesInfo name="RFC" value="7893"/>
+  <seriesInfo name="DOI" value="10.17487/RFC7893"/>
+</reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8084.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8200.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8201.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9329.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8546.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8899.xml"/>
+
+<reference anchor='RFC9349' target='https://www.rfc-editor.org/info/rfc9349'>
+<front>
+<title>Definitions of Managed Objects for IP Traffic Flow Security</title>
+<author initials="D." surname="Fedyk" fullname="Don Fedyk">
+<organization>LabN Consulting, L.L.C.</organization>
+</author>
+<author initials="E." surname="Kinzie" fullname="Eric Kinzie">
+<organization>LabN Consulting, L.L.C.</organization>
+</author>
+<date month="January" year="2023"/>
+</front>
+<seriesInfo name="RFC" value="9349"/>
+<seriesInfo name="DOI" value="10.17487/RFC9349"/>
+</reference>
+
+<reference anchor='RFC9348' target='https://www.rfc-editor.org/info/rfc9348'>
+<front>
+<title>A YANG Data Model for IP Traffic Flow Security</title>
+<author initials="D." surname="Fedyk" fullname="Don Fedyk">
+<organization>LabN Consulting, L.L.C.</organization>
+</author>
+<author initials="C." surname="Hopps" fullname="Christian Hopps">
+<organization>LabN Consulting, L.L.C.</organization>
+</author>
+<date month="January" year="2023"/>
+</front>
+<seriesInfo name="RFC" value="9348"/>
+<seriesInfo name="DOI" value="10.17487/RFC9348"/>
+</reference>
+
+      </references>
+    </references>
+    <section anchor="sec-example-of-an-encapsulated-ip-packet-flow" numbered="true" toc="default">
+      <name>Example of an Encapsulated IP Packet Flow</name>
+      <t>Below, an example inner IP packet flow within the encapsulating tunnel
+packet stream is shown. Notice how encapsulated IP packets can start
+and end anywhere, and more than one or less than one may occur in a
+single encapsulating packet.</t>
+      <figure anchor="sec-inner-and-outer-packet-flow">
+        <name>Inner and Outer Packet Flow</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+  Offset: 0        Offset: 100    Offset: 2000    Offset: 600
+ [ ESP1  (1404) ][ ESP2  (1404) ][ ESP3  (1404) ][ ESP4  (1404) ]
+ [--750--][--750--][60][-240-][--3000----------------------][pad]
+]]></artwork>
+      </figure>
+      <t>Each outer encapsulating ESP space is a fixed size of 1404
+      octets, the first 4 octets of which contain the AGGFRAG header.
+The encapsulated IP packet flow (lengths include the IP header and
+payload) is as follows: a 750-octet packet, a 750-octet packet, a
+60-octet packet, a 240-octet packet, and a 3000-octet packet.</t>
+      <t>The <tt>BlockOffset</tt> values in the 4 AGGFRAG payload headers for this
+packet flow would thus be: 0, 100, 2000, and 600, respectively. The first
+encapsulating packet (ESP1) has a zero <tt>BlockOffset</tt>, which points at the
+IP data block immediately following the AGGFRAG header. The following
+packet's (ESP2) <tt>BlockOffset</tt> points inward 100 octets to the start of the
+60-octet data block. The third encapsulating packet (ESP3) contains the
+middle portion of the 3000-octet data block, so the offset points past
+its end and into the fourth encapsulating packet. The fourth packet's
+(ESP4) offset is 600, pointing at the padding that follows the
+completion of the continued 3000-octet packet.</t>
+    </section>
+    <section anchor="sec-a-send-and-loss-event-rate-calculation" numbered="true" toc="default">
+      <name>A Send and Loss Event Rate Calculation</name>
+      <t>The current best practice indicates that congestion control <bcp14>SHOULD</bcp14> be
+done in a TCP-friendly way. A TCP-friendly congestion control algorithm
+is described in <xref target="RFC5348" format="default"/>. For this IP-TFS use case (as with <xref target="RFC4342" format="default"/>), the
+(fixed) packet size is used as the segment size for the algorithm. The
+main formula in the algorithm for the send rate is then as follows:</t>
+      <artwork name="" type="" align="left" alt=""><![CDATA[
+                              1
+   X = -----------------------------------------------
+       R * (sqrt(2*p/3) + 12*sqrt(3*p/8)*p*(1+32*p^2))
+]]></artwork>
+      <t><tt>X</tt> is the send rate in packets per second, <tt>R</tt> is the
+RTT estimate, and <tt>p</tt> is the loss event rate (the inverse
+of which is provided by the receiver).</t>
+      <t>In addition, the algorithm in <xref target="RFC5348" format="default"/> also uses an <tt>X_recv</tt> value (the
+receiver's receive rate). For IP-TFS, one <bcp14>MAY</bcp14> set this value according to
+the sender's current tunnel send rate (<tt>X</tt>).</t>
+      <t>The IP-TFS receiver, having the RTT estimate from the sender, can use the
+same method as described in <xref target="RFC5348" format="default"/> and <xref target="RFC4342" format="default"/> to collect the loss
+intervals and calculate the loss event rate value using the weighted
+average as indicated. The receiver communicates the inverse of this
+value back to the sender in the AGGFRAG_PAYLOAD payload header field
+<tt>LossEventRate</tt>.</t>
+      <t>The IP-TFS sender now has both the <tt>R</tt> and <tt>p</tt> values and can calculate
+the correct sending rate. If following <xref target="RFC5348" format="default"/>, the sender should also
+use the slow start mechanism described therein when the IP-TFS SA is
+first established.</t>
+    </section>
+    <section anchor="sec-comparisons-of-ip-tfs" numbered="true" toc="default">
+      <name>Comparisons of IP-TFS</name>
+      <section numbered="true" toc="default">
+        <name>Comparing Overhead</name>
+        <t>For comparing overhead, the overhead of ESP for both normal and AGGFRAG
+tunnel packets must be calculated, and so an algorithm for encryption
+and authentication must be chosen. For the data below, AES-GCM-256 was
+selected. This leads to an IP+ESP overhead of 54.</t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+  54 = 20 (IP) + 8 (ESPH) + 2 (ESPF) + 8 (IV) + 16 (ICV)
+]]></artwork>
+        <t>Additionally, for IP-TFS, non-congestion-control AGGFRAG_PAYLOAD
+headers were chosen, which adds 4 octets, for a total overhead of 58.</t>
+        <section numbered="true" toc="default">
+          <name>IP-TFS Overhead</name>
+          <t>For comparison, the overhead of an AGGFRAG payload is 58 octets per outer packet.
+Therefore, the octet overhead per inner packet is 58 divided by the
+number of outer packets required (fractions allowed). The overhead
+as a percentage of inner packet size is a constant based on the Outer
+MTU size.</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+   OH = 58 / Outer Payload Size / Inner Packet Size
+   OH % of Inner Packet Size = 100 * OH / Inner Packet Size
+   OH % of Inner Packet Size = 5800 / Outer Payload Size
+]]></artwork>
+          <table anchor="sec-ip-tfs-overhead-as-percentage-of-inner-packet-size" align="center">
+            <name>IP-TFS Overhead as Percentage of Inner Packet Size</name>
+	    <thead>
+	      <tr>
+		<th>Type</th>
+		<th>IP-TFS</th>
+		<th>IP-TFS</th>
+		<th>IP-TFS</th>
+	      </tr>
+	      <tr>
+		<th>MTU</th>
+		<th>576</th>
+		<th>1500</th>
+		<th>9000</th>
+	      </tr>
+	      <tr>
+		<th>PSize</th>
+		<th>518</th>
+		<th>1442</th>
+		<th>8942</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>40</td>
+		<td>11.20%</td>
+		<td>4.02%</td>
+		<td>0.65% </td>
+	     </tr>                                                                       
+              <tr>  
+		<td>576</td>
+		<td>11.20%</td>
+		<td>4.02%</td>
+		<td>0.65%</td>
+	     </tr>                                                                       
+              <tr>  
+		<td>1500</td>
+		<td>11.20%</td>
+		<td>4.02%</td>
+		<td>0.65%</td>
+	      </tr>
+	      <tr>
+                  <td>9000</td>
+		  <td>11.20%</td>
+		  <td>4.02%</td>
+		  <td>0.65%</td>
+		</tr>
+	      </tbody>
+	    </table>
+        </section>
+        <section numbered="true" toc="default">
+          <name>ESP with Padding Overhead</name>
+          <t>The overhead per inner packet for constant-send-rate-padded ESP
+(i.e., original IPsec TFC) is 36 octets plus any padding, unless
+fragmentation is required.</t>
+          <t>When fragmentation of the inner packet is required to fit in the
+outer IPsec packet, overhead is the number of outer packets required
+to carry the fragmented inner packet times both the inner IP Overhead
+(20) and the outer packet overhead (54) minus the initial inner IP
+Overhead plus any required tail padding in the last encapsulation
+packet. The required tail padding is the number of required packets
+times the difference of the Outer Payload Size and the IP Overhead
+minus the Inner Payload Size. So:</t>
+          <artwork name="" type="" align="left" alt=""><![CDATA[
+  Inner Payload Size = IP Packet Size - IP Overhead
+  Outer Payload Size = MTU - IPsec Overhead
+
+                Inner Payload Size
+  NF0 = ----------------------------------
+         Outer Payload Size - IP Overhead
+
+  NF = CEILING(NF0)
+
+  OH = NF * (IP Overhead + IPsec Overhead)
+       - IP Overhead
+       + NF * (Outer Payload Size - IP Overhead)
+       - Inner Payload Size
+
+  OH = NF * (IPsec Overhead + Outer Payload Size)
+       - (IP Overhead + Inner Payload Size)
+
+  OH = NF * (IPsec Overhead + Outer Payload Size)
+       - Inner Packet Size
+]]></artwork>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Overhead Comparison</name>
+        <t>The following tables collect the overhead values for some common L3
+MTU sizes in order to compare them. The first table is the number of
+octets of overhead for a given L3 MTU-sized packet. The second table
+is the percentage of overhead in the same MTU-sized packet.</t>
+        <table anchor="sec-overhead-comparison-in-octets" align="center">
+          <name>Overhead Comparison in Octets</name>
+	  <thead>
+	    <tr>
+	      <th>Type</th>
+	      <th>ESP+Pad</th>
+	      <th>ESP+Pad</th>
+	      <th>ESP+Pad</th>
+	      <th>IP-TFS</th>
+	      <th>IP-TFS</th>
+	      <th>IP-TFS</th>
+	    </tr>
+	    <tr>
+	      <th>L3 MTU</th>
+	      <th>576</th>
+	      <th>1500</th>
+	      <th>9000</th>
+	      <th>576</th>
+	      <th>1500</th>
+	      <th>9000</th>
+	    </tr>
+	    <tr>	      
+	      <th>PSize</th>
+	      <th>522</th>
+	      <th>1446</th>
+	      <th>8946</th>
+	      <th>518</th>
+	      <th>1442</th>
+	      <th>8942 </th>
+	    </tr>
+	  </thead>
+	  <tbody>
+	    <tr>
+	      <td>40</td>
+	      <td>482</td>
+	      <td>1406</td>
+	      <td>8906</td>
+	      <td>4.5</td>
+	      <td>1.6</td>
+	      <td>0.3</td>
+	    </tr>
+	    <tr>
+              <td>128</td>
+	      <td>394</td>
+	      <td>1318</td>
+	      <td>8818</td>
+	      <td>14.3</td>
+	      <td>5.1</td>
+	      <td>0.8</td>
+	   </tr>                                                                         
+           <tr>
+	      <td>256</td>
+	      <td>266</td>
+	      <td>1190</td>
+	      <td>8690</td>
+	      <td>28.7</td>
+	      <td>10.3</td>
+	      <td>1.7</td>
+	   </tr>                                                                         
+            <tr>
+	      <td>518</td>
+              <td>4</td>
+	      <td>928</td>
+	      <td>8428</td>
+	      <td>58.0</td>
+	      <td>20.8</td>
+	      <td>3.4 </td>
+	    </tr>
+	    <tr>
+	      <td>576</td>
+	      <td>576</td>
+	      <td>870</td>
+	      <td>8370</td>
+	      <td>64.5</td>
+	      <td>23.2</td>
+	      <td>3.7</td>
+	   </tr>                                                                         
+           <tr>   
+              <td>1442</td>
+	      <td>286</td>
+              <td>4</td>
+	      <td>7504</td>
+	      <td>161.5</td>
+	      <td>58.0</td>
+	      <td>9.4</td>
+	   </tr>                                                                         
+           <tr>
+              <td>1500</td>
+	      <td>228</td>
+	      <td>1500</td>
+	      <td>7446</td>
+	      <td>168.0</td>
+	      <td>60.3</td>
+	      <td>9.7</td>
+	   </tr>                                                                         
+            <tr>	      
+              <td>8942</td>
+	      <td>1426</td>
+	      <td>1558</td>
+              <td>4</td>
+	      <td>1001.2</td>
+	      <td>359.7</td>
+	      <td>58.0</td>
+	   </tr>                                                                         
+            <tr>	      
+              <td>9000</td>
+	      <td>1368</td>
+	      <td>1500</td>
+	      <td>9000</td>
+	      <td>1007.7</td>
+	      <td>362.0</td>
+	      <td>58.4</td>
+	    </tr>
+	  </tbody>
+	</table>
+        <table anchor="sec-overhead-as-percentage-of-inner-packet-size" align="center">
+          <name>Overhead as Percentage of Inner Packet Size</name>
+	  <thead>
+	    <tr>
+	      <th>Type</th>
+	      <th>ESP+Pad</th>
+	      <th>ESP+Pad</th>
+	      <th>ESP+Pad</th>
+	      <th>IP-TFS</th>
+	      <th>IP-TFS</th>
+	      <th>IP-TFS</th>
+	    </tr>
+	    <tr>
+	      <th>MTU</th>
+	      <th>576</th>
+	      <th>1500</th>
+	      <th>9000</th>
+	      <th>576</th>
+	      <th>1500</th>
+	      <th>9000</th>
+	    </tr>
+	    <tr>
+	      <th>PSize</th>
+	      <th>522</th>
+	      <th>1446</th>
+	      <th>8946</th>
+	      <th>518</th>
+	      <th>1442</th>
+	      <th>8942</th>
+	    </tr>
+	  </thead>
+	  <tbody>
+	    <tr>
+	      <td>40</td>
+	      <td>1205.0%</td>
+	      <td>3515.0%</td>
+	      <td>22265.0%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+              <td>128</td>
+	      <td>307.8%</td>
+	      <td>1029.7%</td>
+	      <td>6889.1%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>	      
+              <td>256</td>
+	      <td>103.9%</td>
+	      <td>464.8%</td>
+	      <td>3394.5%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+              <td>518</td>
+	      <td>0.8%</td>
+	      <td>179.2%</td>
+	      <td>1627.0%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+              <td>576</td>
+	      <td>100.0%</td>
+	      <td>151.0%</td>
+	      <td>1453.1%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+	      <td>1442</td>
+	      <td>19.8%</td>
+	      <td>0.3%</td>
+	      <td>520.4%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+	      <td>1500</td>
+	      <td>15.2%</td>
+	      <td>100.0%</td>
+	      <td>496.4%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+	      <td>8942</td>
+	      <td>15.9%</td>
+	      <td>17.4%</td>
+	      <td>0.0%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	    <tr>
+	      <td>9000</td>
+	      <td>15.2%</td>
+	      <td>16.7%</td>
+	      <td>100.0%</td>
+	      <td>11.20%</td>
+	      <td>4.02%</td>
+	      <td>0.65%</td>
+	    </tr>
+	  </tbody>
+	</table>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Comparing Available Bandwidth</name>
+        <t>Another way to compare the two solutions is to look at the amount of
+available bandwidth each solution provides. The following sections
+consider and compare the percentage of available bandwidth. For the
+sake of providing a well-understood baseline, normal (unencrypted)
+Ethernet and normal ESP values are included.</t>
+        <section numbered="true" toc="default">
+          <name>Ethernet</name>
+          <t>In order to calculate the available bandwidth, the per-packet overhead
+is calculated first. The total overhead of Ethernet is 14+4 octets of
+header and Cyclic Redundancy Check (CRC) plus an additional 20 octets of framing (preamble,
+start, and inter-packet gap), for a total of 38 octets. Additionally,
+	  the minimum payload is 46 octets.</t>
+	  <table anchor="sec-l2-octets-per-packet" align="center">
+	    <name>L2 Octets Per Packet</name>
+	    <thead>
+	      <tr>
+		<th>Size</th>
+		<th>E + P</th>
+		<th>E + P</th>
+		<th>E + P</th>
+		<th>IPTFS</th>
+		<th>IPTFS</th>
+		<th>IPTFS</th>
+		<th>Enet</th>
+		<th>ESP</th>
+	      </tr>
+	      <tr>
+		<th>MTU</th>
+		<th>590</th>
+		<th>1514</th>
+		<th>9014</th>
+		<th>590</th>
+		<th>1514</th>
+		<th>9014</th>
+		<th>any</th>
+		<th>any</th>
+	      </tr>
+	      <tr>
+		<th>OH</th>
+		<th>92</th>
+		<th>92</th>
+		<th>92</th>
+		<th>96</th>
+		<th>96</th>
+		<th>96</th>
+		<th>38</th>
+		<th>74</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>40</td>
+		<td>614</td>
+		<td>1538</td>
+		<td>9038</td>
+		<td>47</td>
+		<td>42</td>
+		<td>40</td>
+		<td>84</td>
+		<td>114</td>
+	      </tr>
+	      <tr>
+		<td>128</td>
+		<td>614</td>
+		<td>1538</td>
+		<td>9038</td>
+		<td>151</td>
+		<td>136</td>
+		<td>129</td>
+		<td>166</td>
+		<td>202</td>
+	      </tr>
+	      <tr>
+		<td>256</td>
+		<td>614</td>
+		<td>1538</td>
+		<td>9038</td>
+		<td>303</td>
+		<td>273</td>
+		<td>258</td>
+		<td>294</td>
+		<td>330</td>
+	      </tr>
+	      <tr>
+		<td>518</td>
+		<td>614</td>
+		<td>1538</td>
+		<td>9038</td>
+		<td>614</td>
+		<td>552</td>
+		<td>523</td>
+		<td>574</td>
+		<td>610</td>
+	      </tr>
+	      <tr>
+		<td>576</td>
+		<td>1228</td>
+		<td>1538</td>
+		<td>9038</td>
+		<td>682</td>
+		<td>614</td>
+		<td>582</td>
+		<td>614</td>
+		<td>650</td>
+	      </tr>
+	      <tr>
+		<td>1442</td>
+		<td>1842</td>
+		<td>1538</td>
+		<td>9038</td>
+		<td>1709</td>
+		<td>1538</td>
+		<td>1457</td>
+		<td>1498</td>
+		<td>1534</td>
+	      </tr>
+	      <tr>
+		<td>1500</td>
+		<td>1842</td>
+		<td>3076</td>
+		<td>9038</td>
+		<td>1777</td>
+		<td>1599</td>
+		<td>1516</td>
+		<td>1538</td>
+		<td>1574</td>
+	      </tr>
+	      <tr>
+		<td>8942</td>
+		<td>11052</td>
+		<td>10766</td>
+		<td>9038</td>
+		<td>10599</td>
+		<td>9537</td>
+		<td>9038</td>
+		<td>8998</td>
+		<td>9034</td>
+	      </tr>
+	      <tr>
+		<td>9000</td>
+		<td>11052</td>
+		<td>10766</td>
+		<td>18076</td>
+		<td>10667</td>
+		<td>9599</td>
+		<td>9096</td>
+		<td>9038</td>
+		<td>9074</td>
+	      </tr>
+	    </tbody>
+	  </table>
+	  <table anchor="sec-packets-per-second-on-10g-ethernet">
+	    <name>Packets Per Second on 10G Ethernet</name>
+	    <thead>
+	      <tr>
+		<th>Size</th>
+		<th>E + P</th>
+		<th>E + P</th>
+		<th>E + P</th>
+		<th>IPTFS</th>
+		<th>IPTFS</th>
+		<th>IPTFS</th>
+		<th>Enet</th>
+		<th>ESP</th>
+	      </tr>
+	      <tr>
+		<th>MTU</th>
+		<th>590</th>
+		<th>1514</th>
+		<th>9014</th>
+		<th>590</th>
+		<th>1514</th>
+		<th>9014</th>
+		<th>any</th>
+		<th>any</th>
+	      </tr>
+	      <tr>
+		<th>OH</th>
+		<th>92</th>
+		<th>92</th>
+		<th>92</th>
+		<th>96</th>
+		<th>96</th>
+		<th>96</th>
+		<th>38</th>
+		<th>74</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>40</td>
+		<td>2.0M</td>
+		<td>0.8M</td>
+		<td>0.1M</td>
+		<td>26.4M</td>
+		<td>29.3M</td>
+		<td>30.9M</td>
+		<td>14.9M</td>
+		<td>11.0M</td>
+	      </tr>
+	      <tr>
+		<td>128</td>
+		<td>2.0M</td>
+		<td>0.8M</td>
+		<td>0.1M</td>
+		<td>8.2M</td>
+		<td>9.2M</td>
+		<td>9.7M</td>
+		<td>7.5M</td>
+		<td>6.2M</td>
+	      </tr>
+	      <tr>
+		<td>256</td>
+		<td>2.0M</td>
+		<td>0.8M</td>
+		<td>0.1M</td>
+		<td>4.1M</td>
+		<td>4.6M</td>
+		<td>4.8M</td>
+		<td>4.3M</td>
+		<td>3.8M</td>
+	      </tr>
+	      <tr>
+		<td>518</td>
+		<td>2.0M</td>
+		<td>0.8M</td>
+		<td>0.1M</td>
+		<td>2.0M</td>
+		<td>2.3M</td>
+		<td>2.4M</td>
+		<td>2.2M</td>
+		<td>2.1M</td>
+	      </tr>
+	      <tr>
+		<td>576</td>
+		<td>1.0M</td>
+		<td>0.8M</td>
+		<td>0.1M</td>
+		<td>1.8M</td>
+		<td>2.0M</td>
+		<td>2.1M</td>
+		<td>2.0M</td>
+		<td>1.9M</td>
+	      </tr>
+	      <tr>
+		<td>1442</td>
+		<td>678K</td>
+		<td>812K</td>
+		<td>138K</td>
+		<td>731K</td>
+		<td>812K</td>
+		<td>857K</td>
+		<td>844K</td>
+		<td>824K</td>
+	      </tr>
+	      <tr>
+		<td>1500</td>
+		<td>678K</td>
+		<td>406K</td>
+		<td>138K</td>
+		<td>703K</td>
+		<td>781K</td>
+		<td>824K</td>
+		<td>812K</td>
+		<td>794K</td>
+	      </tr>
+	      <tr>
+		<td>8942</td>
+		<td>113K</td>
+		<td>116K</td>
+		<td>138K</td>
+		<td>117K</td>
+		<td>131K</td>
+		<td>138K</td>
+		<td>139K</td>
+		<td>138K</td>
+	      </tr>
+	      <tr>
+		<td>9000</td>
+		<td>113K</td>
+		<td>116K</td>
+		<td>69K</td>
+		<td>117K</td>
+		<td>130K</td>
+		<td>137K</td>
+		<td>138K</td>
+		<td>137K</td>
+	      </tr>
+	    </tbody>
+	  </table>
+          <table anchor="sec-percentage-of-bandwidth-on-10g-ethernet" align="center">
+            <name>Percentage of Bandwidth on 10G Ethernet</name>
+	    <thead>
+	      <tr>
+		<th>Size</th>
+		<th>E + P</th>
+		<th>E + P</th>
+		<th>E + P</th>
+		<th>IP-TFS</th>
+		<th>IP-TFS</th>
+		<th>IP-TFS</th>
+		<th>Enet</th>
+		<th>ESP</th>
+	      </tr>
+	      <tr>
+		<th>MTU</th>
+		<th>590</th>
+		<th>1514</th>
+		<th>9014</th>
+		<th>590</th>
+		<th>1514</th>
+		<th>9014</th>
+		<th>any</th>
+		<th>any</th>
+	      </tr>
+	      <tr>
+		<th>OH</th>
+		<th>92</th>
+		<th>92</th>
+		<th>92</th>
+		<th>96</th>
+		<th>96</th>
+		<th>96</th>
+		<th>38</th>
+		<th>74</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+	      <tr>
+		<td>40</td>
+		<td>6.51%</td>
+		<td>2.60%</td>
+		<td>0.44%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>47.62%</td>
+		<td>35.09%</td>
+	      </tr>
+	      <tr>
+		<td>128</td>
+		<td>20.85%</td>
+		<td>8.32%</td>
+		<td>1.42%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>77.11%</td>
+		<td>63.37%</td>
+	      </tr>
+	      <tr>
+		<td>256</td>
+		<td>41.69%</td>
+		<td>16.64%</td>
+		<td>2.83%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>87.07%</td>
+		<td>77.58%</td>
+	      </tr>
+	      <tr>
+		<td>518</td>
+		<td>84.36%</td>
+		<td>33.68%</td>
+		<td>5.73%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>93.17%</td>
+		<td>87.50%</td>
+	      </tr>
+	      <tr>
+		<td>576</td>
+		<td>46.91%</td>
+		<td>37.45%</td>
+		<td>6.37%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>93.81%</td>
+		<td>88.62%</td>
+	      </tr>
+	      <tr>
+		<td>1442</td>
+		<td>78.28%</td>
+		<td>93.76%</td>
+		<td>15.95%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>97.43%</td>
+		<td>95.12%</td>
+	      </tr>
+	      <tr>
+		<td>1500</td>
+		<td>81.43%</td>
+		<td>48.76%</td>
+		<td>16.60%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>97.53%</td>
+		<td>95.30%</td>
+	      </tr>
+	      <tr>
+		<td>8942</td>
+		<td>80.91%</td>
+		<td>83.06%</td>
+		<td>98.94%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>99.58%</td>
+		<td>99.18%</td>
+	      </tr>
+	      <tr>
+		<td>9000</td>
+		<td>81.43%</td>
+		<td>83.60%</td>
+		<td>49.79%</td>
+		<td>84.36%</td>
+		<td>93.76%</td>
+		<td>98.94%</td>
+		<td>99.58%</td>
+		<td>99.18%</td>
+	      </tr>
+	    </tbody>
+	  </table>
+          <t>A sometimes unexpected result of using an AGGFRAG tunnel (or any packet
+aggregating tunnel) is that, for small- to medium-sized packets, the
+available bandwidth is actually greater than plain Ethernet. This is
+due to the reduction in Ethernet framing overhead. This increased
+bandwidth is paid for with an increase in latency. This latency is
+the time to send the unrelated octets in the outer tunnel frame. The
+following table illustrates the latency for some common values on a
+10G Ethernet link. The table also includes latency introduced by
+	  padding if using ESP with padding.</t>
+          <table anchor="sec-added-latency" align="center">
+            <name>Added Latency</name>
+	    <thead>
+	      <tr>
+		<th>Size</th>
+		<th>ESP+Pad</th>
+		<th>ESP+Pad</th>
+		<th>IP-TFS</th>
+		<th>IP-TFS</th>
+	      </tr>
+	      <tr>
+		<th>MTU</th>
+		<th>1500</th>
+		<th>9000</th>
+		<th>1500</th>
+		<th>9000</th>
+	      </tr>
+	    </thead>
+	    <tbody>
+              <tr>
+		<td>40</td>
+		<td>1.12 us</td>
+		<td>7.12 us</td>
+		<td>1.17 us</td>
+		<td>7.17 us</td>
+	      </tr>
+	      <tr>
+		<td>128</td>
+		<td>1.05 us</td>
+		<td>7.05 us</td>
+		<td>1.10 us</td>
+		<td>7.10 us</td>
+	      </tr>
+	      <tr>
+		<td>256</td>
+		<td>0.95 us</td>
+		<td>6.95 us</td>
+		<td>1.00 us</td>
+		<td>7.00 us</td>
+	      </tr>
+	      <tr>
+		<td>518</td>
+		<td>0.74 us</td>
+		<td>6.74 us</td>
+		<td>0.79 us</td>
+		<td>6.79 us</td>
+	      </tr>
+	      <tr>
+		<td>576</td>
+		<td>0.70 us</td>
+		<td>6.70 us</td>
+		<td>0.74 us</td>
+		<td>6.74 us</td>
+	      </tr>
+	      <tr>
+		<td>1442</td>
+		<td>0.00 us</td>
+		<td>6.00 us</td>
+		<td>0.05 us</td>
+		<td>6.05 us</td>
+	      </tr>
+	      <tr>
+		<td>1500</td>
+		<td>1.20 us</td>
+		<td>5.96 us</td>
+		<td>0.00 us</td>
+		<td>6.00 us</td>
+	      </tr>
+	    </tbody>
+	  </table>
+          <t>Notice that the latency values are very similar between the two
+solutions; however, whereas IP-TFS provides for constant high
+bandwidth, in some cases even exceeding plain Ethernet, ESP with
+padding often greatly reduces available bandwidth.</t>
+        </section>
+      </section>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>We would like to thank <contact fullname="Don Fedyk"/> for help in reviewing and editing
+this work. We would also like to thank <contact fullname="Michael Richardson"/>, <contact fullname="Sean
+Turner"/>, <contact fullname="Valery Smyslov"/>, and <contact fullname="Tero Kivinen"/> for reviews and many
+suggestions for improvements, as well as <contact fullname="Joseph Touch"/> for the
+transport area review and suggested improvements.</t>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Contributors</name>
+      <t>The following person made significant contributions to this document.</t>
+      <contact fullname="Lou Berger">
+	<organization>LabN Consulting, L.L.C.</organization>
+	<address>
+	  <email>lberger@labn.net</email>
+	</address>
+      </contact>
+    </section>
+  </back>
+</rfc>

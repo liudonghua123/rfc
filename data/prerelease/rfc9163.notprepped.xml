@@ -1,0 +1,999 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-httpbis-expect-ct-08" number="9163" obsoletes="" updates="" submissionType="IETF" category="exp" consensus="true" xml:lang="en" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+
+  <front>
+    <title abbrev="Expect-CT">Expect-CT Extension for HTTP</title>
+    <seriesInfo name="RFC" value="9163"/>
+    <author initials="E." surname="Stark" fullname="Emily Stark">
+      <organization>Google</organization>
+      <address>
+        <email>estark@google.com</email>
+      </address>
+    </author>
+    <date year="2022" month="June" />
+    <area>Applications and Real-Time</area>
+    <workgroup>HTTP</workgroup>
+
+    <keyword>Certificate Transparency</keyword>
+    <keyword>Expect-CT</keyword>
+
+    <abstract>
+      <t>This document defines a new HTTP header field named "Expect-CT", which
+      allows web host operators to instruct user agents (UAs) to expect valid
+      Signed Certificate Timestamps (SCTs) to be served on connections to
+      these hosts. Expect-CT allows web host operators to discover
+      misconfigurations in their Certificate Transparency (CT)
+      deployments. Further, web host operators can use Expect-CT to ensure
+      that if a UA that supports Expect-CT accepts a misissued certificate,
+      that certificate will be discoverable in Certificate Transparency
+      logs.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>This document defines a new HTTP header field (<xref target="RFC9110" sectionFormat="comma" section="6.3"/>) that enables UAs to
+      identify web hosts that expect the presence of Signed Certificate
+      Timestamps (SCTs) <xref target="RFC9162" format="default"/> in
+      subsequent Transport Layer Security (TLS) <xref target="RFC8446"
+      format="default"/> connections.</t>
+      <t>Web hosts that serve the Expect-CT header field are noted by the
+      UA as "Known Expect-CT Hosts". The UA evaluates each connection to a Known
+      Expect-CT Host for compliance with the UA's Certificate Transparency
+      (CT) Policy. If the connection violates the CT Policy, the UA sends a
+      report to a URI configured by the Expect-CT Host and/or fails the
+      connection, depending on the configuration that the Expect-CT Host has
+      chosen.</t>
+      <t>If misconfigured, Expect-CT can cause unwanted connection failures
+      (for example, if a host deploys Expect-CT but then switches to a
+      legitimate certificate that is not logged in Certificate Transparency
+      logs or if a web host operator believes their certificate to conform to
+      all UAs' CT policies but is mistaken). Web host operators are advised to
+      deploy Expect-CT with precautions by using the reporting feature and
+      gradually increasing the time interval during which the UA regards the
+      host as a Known Expect-CT Host. These precautions can help web host
+      operators gain confidence that their Expect-CT deployment is not causing
+      unwanted connection failures.</t>
+      <t>Expect-CT is a trust-on-first-use (TOFU) mechanism. The first time a
+      UA connects to a host, it lacks the information necessary to require
+      SCTs for the connection. Thus, the UA will not be able to detect and
+      thwart an attack on the UA's first connection to the host. Still,
+      Expect-CT provides value by 1) allowing UAs to detect the use of
+      unlogged certificates after the initial communication, and 2) allowing
+      web hosts to be confident that UAs are only trusting publicly auditable
+      certificates.</t>
+      <t>Expect-CT is similar to HTTP Strict Transport Security (HSTS) <xref
+      target="RFC6797" format="default"/> and HTTP Public Key Pinning (HPKP)
+      <xref target="RFC7469" format="default"/>. HSTS allows websites to
+      declare themselves accessible only via secure connections, and HPKP
+      allows websites to declare their cryptographic identifies. Similarly,
+      Expect-CT allows websites to declare themselves accessible only via
+      connections that are compliant with CT Policy.</t>
+      
+      <t>This Expect-CT specification is compatible with <xref
+      target="RFC6962" format="default"/> and <xref target="RFC9162"
+      format="default"/>, but not necessarily with future versions of Certificate
+      Transparency.
+
+      UAs will ignore Expect-CT header fields from web hosts that use future
+      versions of Certificate Transparency, unless a future version of this
+      document specifies how they should be processed.      
+      </t>
+
+
+      <section anchor="requirements-language" numbered="true" toc="default">
+        <name>Requirements Language</name>
+
+        <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+        "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+        NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+        "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+        "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document
+        are to be interpreted as described in BCP&nbsp;14 <xref target="RFC2119"
+        format="default"/> <xref target="RFC8174" format="default"/> when, and
+        only when, they appear in all capitals, as shown here.</t>
+      </section>
+
+      <section anchor="terminology" numbered="true" toc="default">
+        <name>Terminology</name>
+        <t>Terminology is defined in this section.</t>
+<dl newline="true">
+
+<dt>"Certificate Transparency Policy"
+</dt>
+<dd>A policy defined by the UA concerning the number, sources, and delivery
+mechanisms of Signed Certificate Timestamps that are associated with TLS
+connections. The policy defines the properties of a connection that must be
+met in order for the UA to consider it CT qualified.
+</dd>
+
+<dt>"Certificate Transparency Qualified"
+</dt>
+<dd>Describes a TLS connection for which the UA has determined that a
+sufficient quantity and quality of Signed Certificate Timestamps have been provided.
+</dd>
+
+<dt>"CT Qualified"
+</dt>
+<dd>An abbreviation for "Certificate Transparency Qualified".
+</dd>
+
+<dt>"CT Policy"
+</dt>
+<dd>An abbreviation for "Certificate Transparency Policy".
+</dd>
+
+<dt>"Effective Expect-CT Date"
+</dt>
+<dd>The time at which a UA observed a valid Expect-CT header field for a given host.
+</dd>
+
+<dt>"Expect-CT Host"
+</dt>
+<dd>A conformant host implementing the HTTP server aspects of Expect-CT. This
+means that an Expect-CT Host returns the Expect-CT response header
+field in its HTTP response messages sent over secure transport. The term
+"host" is equivalent to "server" in this specification.
+</dd>
+
+<dt>"Known Expect-CT Host"
+</dt>
+<dd>An Expect-CT Host that the UA has noted as such. See <xref
+target="noting-expect-ct" format="default"/> for particulars.
+</dd>
+
+<dt>"User Agent (UA)"
+</dt>
+<dd>For the purposes of this specification, a UA is an HTTP client application
+typically actively manipulated by a user <xref target="RFC9110"/>.
+</dd>
+
+<dt>"Unknown Expect-CT Host"
+</dt>
+<dd>An Expect-CT Host that the UA has not noted.
+</dd>
+
+
+</dl>
+
+
+      </section>
+    </section>
+    <section anchor="server-and-client-behavior" numbered="true" toc="default">
+      <name>Server and Client Behavior</name>
+      <section anchor="response-header-field-syntax" numbered="true" toc="default">
+        <name>Response Header Field Syntax</name>
+        <t>The Expect-CT response header field is a new field defined in
+        this specification. It is used by a server to indicate that UAs should
+        evaluate connections to the host emitting the header field for CT
+        compliance (<xref target="expect-ct-compliance"
+        format="default"/>).</t>
+        <t><xref target="expect-ct-syntax" format="default"/> describes the
+        syntax (Augmented Backus-Naur Form) of the header field, using the
+        grammar defined in <xref target="RFC5234" format="default"/> and the
+        rules defined in <xref target="RFC9110" section="5"
+        sectionFormat="of"/>. The "#" ABNF extension is specified in <xref
+        target="RFC9110" section="5.6.1" sectionFormat="of"/>.</t>
+
+        <figure anchor="expect-ct-syntax">
+          <name>Syntax of the Expect-CT Header Field</name>
+          <sourcecode type="abnf" name=""><![CDATA[
+Expect-CT           = 1#expect-ct-directive
+expect-ct-directive = directive-name [ "=" directive-value ]
+directive-name      = token
+directive-value     = token / quoted-string
+]]></sourcecode>
+        </figure>
+        <t>The directives defined in this specification are described below. The overall
+requirements for directives are:</t>
+<ol spacing="normal" type="1">
+  <li>The order of appearance of directives is not significant.</li>
+          <li>A given directive <bcp14>MUST NOT</bcp14> appear more than once in a given header
+field. Directives are either optional or required, as stipulated in their
+definitions.</li>
+          <li>Directive names are case insensitive.</li>
+
+         <li>UAs <bcp14>MUST</bcp14> ignore any header fields containing
+          directives, or other header field value data that does not conform to
+          the syntax defined in this specification.  In particular, UAs
+          <bcp14>MUST NOT</bcp14> attempt to fix malformed header fields.</li>
+          <li>If a header field contains any directive(s) the UA does not
+          recognize, the UA <bcp14>MUST</bcp14> ignore those directives.</li>
+          <li>If the Expect-CT header field otherwise satisfies the above
+          requirements (1 through 5), and Expect-CT is not disabled for local
+          policy reasons (as discussed in <xref
+          target="skipping-ct-compliance-checks" format="default"/>), the UA
+          <bcp14>MUST</bcp14> process the directives it recognizes.</li>
+        </ol>
+        <section anchor="the-report-uri-directive" numbered="true" toc="default">
+          <name>The report-uri Directive</name>
+
+          <t>The <bcp14>OPTIONAL</bcp14> <tt>report-uri</tt> directive
+          indicates the URI to which the UA <bcp14>SHOULD</bcp14> report
+          Expect-CT failures (<xref target="expect-ct-compliance"
+          format="default"/>). The UA POSTs the reports to the given URI as
+          described in <xref target="reporting-expect-ct-failure"
+          format="default"/>.</t>
+          <t>The <tt>report-uri</tt> directive is <bcp14>REQUIRED</bcp14> to
+          have a directive value, for which the syntax is defined in <xref
+          target="reporturi-syntax" format="default"/>.</t>
+	  
+          <figure anchor="reporturi-syntax">
+            <name>Syntax of the report-uri Directive Value</name>
+            <sourcecode type="abnf" name=""><![CDATA[
+report-uri-value = (DQUOTE absolute-URI DQUOTE) / absolute-URI
+]]></sourcecode>
+
+          </figure>
+	  <t>The 'report-uri-value' <bcp14>MUST</bcp14> be quoted if it contains any
+	  character not allowed in 'token'.
+	  </t>
+          <t><tt>absolute-URI</tt> is defined in <xref target="RFC3986"
+          section="4.3" sectionFormat="of"/>.</t>
+          <t>UAs <bcp14>MUST</bcp14> ignore any <tt>report-uri</tt> that does
+          not use the HTTPS scheme. UAs <bcp14>MUST</bcp14> check Expect-CT
+          compliance when the host in the <tt>report-uri</tt> is a Known
+          Expect-CT Host; similarly, UAs <bcp14>MUST</bcp14> apply HSTS <xref
+          target="RFC6797" format="default"/> if the host in the
+          <tt>report-uri</tt> is a Known HSTS Host.</t>
+          <t>UAs <bcp14>SHOULD</bcp14> make their best effort to report
+          Expect-CT failures to the <tt>report-uri</tt>, but they may fail to
+          report in exceptional conditions.  For example, if connecting to the
+          <tt>report-uri</tt> itself incurs an Expect-CT failure or other
+          certificate validation failure, the UA <bcp14>MUST</bcp14> cancel
+          the connection.  Similarly, if Expect-CT Host A sets a
+          <tt>report-uri</tt> referring to Expect-CT Host B, and if B sets a
+          <tt>report-uri</tt> referring to A, and if both hosts fail to comply
+          to the UA's CT Policy, the UA <bcp14>SHOULD</bcp14> detect and break
+          the loop by failing to send reports to and about those hosts.</t>
+          <t>Note that the <tt>report-uri</tt> need not necessarily be in the same
+          Internet domain or web origin as the host being reported
+          about. Hosts are in fact encouraged to use a separate host as the
+          <tt>report-uri</tt> so that CT failures on the Expect-CT Host do not prevent
+          reports from being sent.</t>
+          <t>UAs <bcp14>SHOULD</bcp14> limit the rate at which they send reports. For example, it is
+unnecessary to send the same report to the same <tt>report-uri</tt> more than once in
+the same web-browsing session.</t>
+        </section>
+        <section anchor="the-enforce-directive" numbered="true" toc="default">
+          <name>The enforce Directive</name>
+          <t>The <bcp14>OPTIONAL</bcp14> <tt>enforce</tt> directive is a valueless directive that, if present
+(i.e., it is "asserted"), signals to the UA that compliance to the CT Policy
+should be enforced (rather than report-only) and that the UA should refuse
+future connections that violate its CT Policy. When both the <tt>enforce</tt> directive
+and <tt>report-uri</tt> directive (as defined in <xref target="reporturi-syntax" format="default"/>) are present, the
+configuration is referred to as an "enforce-and-report" configuration,
+signaling to the UA that both compliance to the CT Policy should be enforced
+and violations should be reported.</t>
+        </section>
+        <section anchor="the-max-age-directive" numbered="true" toc="default">
+          <name>The max-age Directive</name>
+          <t>The <tt>max-age</tt> directive specifies the number of seconds after the reception of
+the Expect-CT header field during which the UA <bcp14>SHOULD</bcp14> regard the host from whom
+the message was received as a Known Expect-CT Host.</t>
+          <t>If a response contains an Expect-CT header field, then the response <bcp14>MUST</bcp14>
+contain an Expect-CT header field with a <tt>max-age</tt> directive. (A <tt>max-age</tt>
+directive need not appear in every Expect-CT header field in the response.)
+The <tt>max-age</tt> directive is <bcp14>REQUIRED</bcp14> to have a directive value, for which the
+syntax (after quoted-string unescaping, if necessary) is defined in
+	  <xref target="maxage-syntax" format="default"/>.</t>
+	  
+          <figure anchor="maxage-syntax">
+            <name>Syntax of the max-age Directive Value</name>
+            <sourcecode type="abnf" name=""><![CDATA[
+max-age-value = delta-seconds
+delta-seconds = 1*DIGIT
+]]></sourcecode>
+          </figure>
+	  
+          <t><tt>delta-seconds</tt> is used as defined in <xref target="RFC9111" section="1.3" sectionFormat="of"/>.</t>
+        </section>
+        <section anchor="examples" numbered="true" toc="default">
+          <name>Examples</name>
+          <t>The following three examples demonstrate valid Expect-CT response header fields
+(where the second splits the directives into two field instances):</t>
+          <figure anchor="example-header-fields" title="Examples of Valid Expect-CT ResponseHeader Fields"><artwork type="http-headers"><![CDATA[
+Expect-CT: max-age=86400, enforce
+
+Expect-CT: max-age=86400,enforce
+Expect-CT: report-uri="https://foo.example/report"
+
+Expect-CT: max-age=86400,report-uri="https://foo.example/report"
+]]></artwork>
+          </figure>
+        </section>
+      </section>
+      <section anchor="host-processing-model" numbered="true" toc="default">
+        <name>Host Processing Model</name>
+        <t>This section describes the processing model that Expect-CT Hosts implement.  The
+model has 2 parts: (1) the processing rules for HTTP request messages received
+over a secure transport (e.g., authenticated, non-anonymous TLS); and (2) the
+processing rules for HTTP request messages received over non-secure transports,
+such as TCP.</t>
+        <section anchor="http-over-secure-transport-request-type" numbered="true" toc="default">
+          <name>HTTP-over-Secure-Transport Request Type</name>
+          <t>An Expect-CT Host includes an Expect-CT header field in its response. The header
+field <bcp14>MUST</bcp14> satisfy the grammar specified in <xref target="response-header-field-syntax" format="default"/>.</t>
+          <t>Establishing a given host as an Expect-CT Host, in the context of a given UA,
+is accomplished as follows:</t>
+<ol spacing="normal" type="1">
+  <li>Over the HTTP protocol running over secure transport, by correctly returning
+(per this specification) a valid Expect-CT header field to the UA.</li>
+            <li>Through other mechanisms such as a client-side preloaded Expect-CT Host
+list.</li>
+          </ol>
+        </section>
+        <section anchor="http-request-type" numbered="true" toc="default">
+          <name>HTTP Request Type</name>
+          <t>Expect-CT Hosts <bcp14>SHOULD NOT</bcp14> include the Expect-CT header field in HTTP responses
+conveyed over non-secure transport.</t>
+        </section>
+      </section>
+      <section anchor="user-agent-processing-model" numbered="true" toc="default">
+        <name>User Agent Processing Model</name>
+        <t>The UA processing model relies on parsing domain names.  Note that
+internationalized domain names <bcp14>SHALL</bcp14> be canonicalized by the UA according to the
+scheme in <xref target="RFC6797" section="10" sectionFormat="of"/>.</t>
+        <t>The UA stores Known Expect-CT Hosts and their associated Expect-CT
+directives. This data is collectively known as a host's "Expect-CT metadata".</t>
+        <section anchor="missing-or-malformed-expect-ct-header-fields" numbered="true" toc="default">
+          <name>Missing or Malformed Expect-CT Header Fields</name>
+          <t>If an HTTP response does not include an Expect-CT header field that conforms to
+the grammar specified in <xref target="response-header-field-syntax" format="default"/>, then the UA <bcp14>MUST NOT</bcp14>
+update any Expect-CT metadata.</t>
+        </section>
+        <section anchor="expect-ct-header-field-processing" numbered="true" toc="default">
+          <name>Expect-CT Header Field Processing</name>
+          <t>If the UA receives an HTTP response over a secure transport that includes an
+Expect-CT header field conforming to the grammar specified in
+<xref target="response-header-field-syntax" format="default"/>, the UA <bcp14>MUST</bcp14> evaluate the connection on which
+the header field was received for compliance with the UA's CT Policy, and then
+process the Expect-CT header field as follows. UAs <bcp14>MUST</bcp14> ignore any Expect-CT
+header field received in an HTTP response conveyed over non-secure transport.</t>
+          <t>If the connection does not comply with the UA's CT Policy (i.e., the connection
+is not CT qualified), then the UA <bcp14>MUST NOT</bcp14> update any Expect-CT metadata. If the
+header field includes a <tt>report-uri</tt> directive, the UA <bcp14>SHOULD</bcp14> send a report to
+the specified <tt>report-uri</tt> (<xref target="header-field-processing-reporting" format="default"/>).</t>
+          <t>If the connection complies with the UA's CT Policy (i.e., the
+          connection is CT qualified), then the UA <bcp14>MUST</bcp14>
+          either:</t>
+	  
+          <ul spacing="normal">
+            <li>Note the host as a Known Expect-CT Host if it is not already so noted (see
+<xref target="noting-expect-ct" format="default"/>) or</li>
+            <li>Update the UA's cached information for the Known Expect-CT
+            Host if the <tt>enforce</tt>, <tt>max-age</tt>, or
+            <tt>report-uri</tt> header field value directives convey
+            information different from that already maintained by the UA. If
+            the <tt>max-age</tt> directive has a value of 0, the UA
+            <bcp14>MUST</bcp14> remove its cached Expect-CT information if the
+            host was previously noted as a Known Expect-CT Host and
+            <bcp14>MUST NOT</bcp14> note this host as a Known Expect-CT Host
+            if it is not already noted.</li>
+          </ul>
+          <t>If a UA receives an Expect-CT header field over a CT-compliant
+          connection that uses a version of Certificate Transparency other
+          than <xref target="RFC6962" format="default"/> or <xref
+          target="RFC9162" format="default"/>, the UA <bcp14>MUST</bcp14>
+          ignore the Expect-CT header field and clear any Expect-CT metadata
+          associated with the host.</t>
+          <section anchor="noting-expect-ct" numbered="true" toc="default">
+            <name>Noting Expect-CT</name>
+            <t>Upon receipt of the Expect-CT response header field over an error-free TLS
+connection (with X.509 certificate chain validation as described in
+<xref target="RFC5280" format="default"/>, as well as the validation described in <xref target="expect-ct-compliance" format="default"/> of this document),
+the UA <bcp14>MUST</bcp14> note the host as a Known Expect-CT Host, storing the host's domain
+name and its associated Expect-CT directives in non-volatile storage.</t>
+            <t>To note a host as a Known Expect-CT Host, the UA
+            <bcp14>MUST</bcp14> set its Expect-CT metadata in its Known
+            Expect-CT Host cache (as specified in <xref target="storage-model"
+            format="default"/>), using the metadata given in the most recently
+            received valid Expect-CT header field.</t>
+            <t>For forward compatibility, the UA <bcp14>MUST</bcp14> ignore any unrecognized Expect-CT header
+field directives while still processing those directives it does
+recognize. <xref target="response-header-field-syntax" format="default"/> specifies the directives <tt>enforce</tt>,
+<tt>max-age</tt>, and <tt>report-uri</tt>, but future specifications and implementations might
+use additional directives.</t>
+          </section>
+          <section anchor="storage-model" numbered="true" toc="default">
+            <name>Storage Model</name>
+            <t>If the substring matching the host production from the Request-URI (of the
+message to which the host responded) does not exactly match an existing Known
+Expect-CT Host's domain name, per the matching procedure for a Congruent Match
+specified in <xref target="RFC6797" section="8.2" sectionFormat="of"/>, then the UA <bcp14>MUST</bcp14> add this host to the
+	    Known Expect-CT Host cache. The UA caches:</t>
+	    
+          <ul spacing="normal">
+              <li>the Expect-CT Host's domain name.</li>
+              <li>whether the <tt>enforce</tt> directive is present.</li>
+              <li>the Effective Expiration Date, which is the Effective
+              Expect-CT Date plus the value of the <tt>max-age</tt>
+              directive. Alternatively, the UA <bcp14>MAY</bcp14> cache enough
+              information to calculate the Effective Expiration Date. The
+              Effective Expiration Date is calculated from when the UA
+              observed the Expect-CT header field and is independent of when
+              the response was generated.</li>
+              <li>the value of the <tt>report-uri</tt> directive, if present.</li>
+            </ul>
+            <t>If any other metadata from optional or future Expect-CT header
+            directives are present in the Expect-CT header field, and the UA
+            understands them, the UA <bcp14>MAY</bcp14> note them as well.</t>
+            <t>UAs <bcp14>MAY</bcp14> set an upper limit on the value of
+            <tt>max-age</tt> so that UAs that have noted erroneous Expect-CT Hosts
+            (whether by accident or due to attack) have some chance of
+            recovering over time.  If the server sets a <tt>max-age</tt> greater than
+            the UA's upper limit, the UA may behave as if the server set the
+            <tt>max-age</tt> to the UA's upper limit.  For example, if the UA caps
+            <tt>max-age</tt> at 5,184,000 seconds (60 days), and an Expect-CT Host sets
+            a <tt>max-age directive</tt> of 90 days in its Expect-CT header field, the
+            UA may behave as if the <tt>max-age</tt> were effectively 60 days. (One way
+            to achieve this behavior is for the UA to simply store a value of
+            60 days instead of the 90-day value provided by the Expect-CT
+            Host.)</t>
+          </section>
+        </section>
+        <section anchor="header-field-processing-reporting" numbered="true" toc="default">
+          <name>Reporting</name>
+          <t>If the UA receives, over a secure transport, an HTTP response that includes an
+Expect-CT header field with a <tt>report-uri</tt> directive, and the connection does
+not comply with the UA's CT Policy (i.e., the connection is not CT qualified),
+and the UA has not already sent an Expect-CT report for this connection, then
+the UA <bcp14>SHOULD</bcp14> send a report to the specified <tt>report-uri</tt> as specified in
+<xref target="reporting-expect-ct-failure" format="default"/>.</t>
+        </section>
+      </section>
+
+
+      <section anchor="expect-ct-compliance" numbered="true" toc="default">
+        <name>Evaluating Expect-CT Connections for CT Compliance</name>
+        <t>When a UA sets up a TLS connection, the UA determines whether the
+        host is a Known Expect-CT Host according to its Known Expect-CT Host
+        cache. An Expect-CT Host is "expired" if the Effective Expiration Date
+        refers to a date in the past. The UA <bcp14>MUST</bcp14> ignore any
+        expired Expect-CT Hosts in its cache and not treat such hosts as Known
+        Expect-CT Hosts.</t>
+        <t>When a UA connects to a Known Expect-CT Host using a TLS
+        connection, if the TLS connection has no errors, then the UA will
+        apply an additional correctness check: compliance with a CT Policy. A
+        UA should evaluate compliance with its CT Policy whenever connecting
+        to a Known Expect-CT Host. However, the check can be skipped for local
+        policy reasons (as discussed in <xref
+        target="skipping-ct-compliance-checks" format="default"/>) or in the
+        event that other checks cause the UA to terminate the connection
+        before CT compliance is evaluated. For example, a Public Key Pinning
+        failure <xref target="RFC7469" format="default"/> could cause the UA
+        to terminate the connection before CT compliance is
+        checked. Similarly, if the UA terminates the connection due to an
+        Expect-CT failure, this could cause the UA to skip subsequent
+        correctness checks. When the CT compliance check is skipped or
+        bypassed, Expect-CT reports (<xref
+        target="reporting-expect-ct-failure" format="default"/>) will not be
+        sent.</t>
+        <t>When CT compliance is evaluated for a Known Expect-CT Host, the UA
+        <bcp14>MUST</bcp14> evaluate compliance when setting up the TLS
+        session, before beginning an HTTP conversation over the TLS
+        channel.</t>
+        <t>If a connection to a Known Expect-CT Host violates the UA's CT
+        Policy (i.e., the connection is not CT qualified), and if the Known
+        Expect-CT Host's Expect-CT metadata indicates an <tt>enforce</tt>
+        configuration, the UA <bcp14>MUST</bcp14> treat the CT compliance
+        failure as an error. The UA <bcp14>MAY</bcp14> allow the user to
+        bypass the error unless connection errors should have no user recourse
+        due to other policies in effect (such as HSTS, as described in <xref
+        target="RFC6797" section="12.1" sectionFormat="of"/>).</t>
+        <t>If a connection to a Known Expect-CT Host violates the UA's CT
+        Policy, and if the Known Expect-CT Host's Expect-CT metadata includes
+        a <tt>report-uri</tt>, the UA <bcp14>SHOULD</bcp14> send an Expect-CT
+        report to that <tt>report-uri</tt> (<xref
+        target="reporting-expect-ct-failure" format="default"/>).</t>
+        <section anchor="skipping-ct-compliance-checks" numbered="true" toc="default">
+          <name>Skipping CT Compliance Checks</name>
+          <t>It is acceptable for a UA to skip CT compliance checks for some
+          hosts according to local policy. For example, a UA
+          <bcp14>MAY</bcp14> disable CT compliance checks for hosts whose
+          validated certificate chain terminates at a user-defined trust
+          anchor rather than a trust anchor built in to the UA (or underlying
+          platform).</t>
+          <t>If the UA does not evaluate CT compliance, e.g., because the user
+          has elected to disable it, or because a presented certificate chain
+          chains up to a user-defined trust anchor, UAs <bcp14>SHOULD
+          NOT</bcp14> send Expect-CT reports.</t>
+        </section>
+      </section>
+
+    </section>
+    <section anchor="reporting-expect-ct-failure" numbered="true" toc="default">
+      <name>Reporting Expect-CT Failure</name>
+      <t>When the UA attempts to connect to a Known Expect-CT Host and the
+      connection is not CT qualified, the UA <bcp14>SHOULD</bcp14> report
+      Expect-CT failures to the <tt>report-uri</tt>, if any, in the Known
+      Expect-CT Host's Expect-CT metadata.</t>
+      <t>When the UA receives an Expect-CT response header field over a connection that
+is not CT qualified, if the UA has not already sent an Expect-CT report for this
+connection, then the UA <bcp14>SHOULD</bcp14> report Expect-CT failures to the configured
+<tt>report-uri</tt>, if any.</t>
+      <section anchor="generating-a-violation-report" numbered="true" toc="default">
+        <name>Generating a Violation Report</name>
+
+        <t>To generate a violation <tt>report object</tt>, the UA constructs a JSON
+        <xref target="RFC8259" format="default"/> object with the following
+        keys and values:</t>
+
+
+	
+        <dl newline="true">
+          <dt>"date-time"</dt><dd> The value for this key indicates the UTC
+          time that the UA observed the CT compliance failure. The value is a
+          string formatted according to <xref target="RFC3339"
+          section="5.6" sectionFormat="of"/>, "Internet Date/Time Format".</dd>
+	  
+          <dt>"hostname"</dt><dd>The value is the hostname to which the UA
+          made the original request that failed the CT compliance check. The
+          value is provided as a string.</dd>
+	  
+          <dt>"port"</dt><dd>The value is the port to which the UA made the
+          original request that failed the CT compliance check. The value is
+          provided as an integer.</dd>
+	  
+          <dt>"scheme"</dt><dd>(optional) The value is the scheme with which
+          the UA made the original request that failed the CT compliance
+          check. The value is provided as a string. This key is optional and
+          is assumed to be "https" if not present.</dd>
+	  
+	  <dt>"effective-expiration-date"</dt><dd>The value indicates the
+	  Effective Expiration Date (see <xref target="storage-model"
+	  format="default"/>) for the Expect-CT Host that failed the CT
+	  compliance check, in UTC. The value is provided as a string
+	  formatted according to <xref target="RFC3339" section="5.6"
+	  sectionFormat="of"/>, "Internet Date/Time Format".</dd>
+	  
+          <dt>"served-certificate-chain"</dt><dd>The value is the
+          certificate chain as served by the Expect-CT Host during TLS session
+          setup. The value is provided as an array of strings, which
+          <bcp14>MUST</bcp14> appear in the order that the certificates were
+          served; each string in the array is the Privacy-Enhanced Mail (PEM)
+          representation of each X.509 certificate as described in <xref
+          target="RFC7468" format="default"/>.</dd>
+
+<dt>"validated-certificate-chain"</dt><dd>The value is the certificate chain
+as constructed by the UA during certificate chain verification. (This may
+differ from the value of the "served-certificate-chain" key.) The value is
+provided as an array of strings, which <bcp14>MUST</bcp14> appear in the order
+matching the chain that the UA validated; each string in the array is the
+PEM representation of each X.509 certificate as
+described in <xref target="RFC7468" format="default"/>. The first certificate
+in the chain represents the end-entity certificate being verified.  UAs that
+build certificate chains in more than one way during the validation process
+<bcp14>SHOULD</bcp14> send the last chain built.</dd>
+
+ 
+  <dt>"scts"</dt><dd>The value represents the SCTs (if any) that the UA received for the
+  Expect-CT Host and their validation statuses. The value is provided as an array
+  of JSON objects. The SCTs may appear in any order. Each JSON object in the array
+  has the following keys:</dd>
+	</dl>
+	
+<ul spacing="normal" indent="6">
+  <li>A "version" key, with an integer value. The UA <bcp14>MUST</bcp14> set
+  this value to 1 if the SCT is in the format defined in <xref
+  target="RFC6962" section="3.2" sectionFormat="of"/> or 2 if it is
+  in the format defined in <xref target="RFC9162" section="4.5"
+  sectionFormat="of"/>.</li>
+  
+  <li>The "status" key, with a string value that the UA <bcp14>MUST</bcp14>
+  set to one of the following values: "unknown" (indicating that the UA does
+  not have or does not trust the public key of the log from which the SCT was
+  issued); "valid" (indicating that the UA successfully validated the SCT as
+  described in <xref target="RFC6962" section="5.2" sectionFormat="of"/> or
+  <xref target="RFC9162" section="8.1.3" sectionFormat="of"/>); or "invalid"
+  (indicating that the SCT validation failed because of a bad signature or an
+  invalid timestamp).</li>
+  
+  <li>The "source" key, with a string value that indicates from where the UA
+  obtained the SCT, as defined in <xref target="RFC6962" section="3"
+  sectionFormat="of"/> and <xref target="RFC9162" section="6"
+  sectionFormat="of"/>. The UA <bcp14>MUST</bcp14> set the value to one of
+  the following: "tls-extension", "ocsp", or "embedded". These correspond to the three
+  methods of delivering SCTs in the TLS handshake that are described in <xref
+  target="RFC6962" section="3.3" sectionFormat="of"/>.</li>
+  
+  <li>The "serialized_sct" key, with a string value. If the value of the
+  "version" key is 1, the UA <bcp14>MUST</bcp14> set this value to
+  the base64-encoded <xref target="RFC4648" format="default"/> serialized
+  <tt>SignedCertificateTimestamp</tt> structure from <xref target="RFC6962"
+  section="3.2" sectionFormat="of"/>. The base64 encoding is defined in <xref
+  target="RFC4648" section="4" format="default"/>.  If the value of the
+  "version" key is 2, the UA <bcp14>MUST</bcp14> set this value to
+  the base64-encoded <xref target="RFC4648" format="default"/> serialized
+  <tt>TransItem</tt> structure representing the SCT, as defined in <xref
+  target="RFC9162" section="4.5" sectionFormat="of"/>.</li>
+  
+</ul>
+
+<dl newline="true">
+          <dt>"failure-mode"</dt><dd>The value indicates whether the Expect-CT
+          report was triggered by an Expect-CT policy in enforce or
+          report-only mode. The value is provided as a string. The UA
+          <bcp14>MUST</bcp14> set this value to "enforce" if the Expect-CT
+          metadata indicates an <tt>enforce</tt> configuration, and
+          "report-only" otherwise.</dd>
+
+          <dt>"test-report"</dt><dd>(optional) The value is set to true if the report is
+          being sent by a testing client to verify that the report server
+          behaves correctly. The value is provided as a boolean and
+          <bcp14>MUST</bcp14> be set to true if the report serves to test the
+          server's behavior and can be discarded.</dd>
+</dl>
+
+
+
+      </section>
+      <section anchor="sending-report" numbered="true" toc="default">
+        <name>Sending a Violation Report</name>
+        <t>The UA <bcp14>SHOULD</bcp14> report Expect-CT failures for Known
+        Expect-CT Hosts: that is, when a connection to a Known Expect-CT Host
+        does not comply with the UA's CT Policy and the host's Expect-CT
+        metadata contains a <tt>report-uri</tt>.</t>
+        <t>Additionally, the UA <bcp14>SHOULD</bcp14> report Expect-CT
+        failures for hosts for which it does not have any stored Expect-CT
+        metadata; that is, when the UA connects to a host and receives an
+        Expect-CT header field that contains the <tt>report-uri</tt>
+        directive, the UA <bcp14>SHOULD</bcp14> report an Expect-CT failure if
+        the connection does not comply with the UA's CT Policy.</t>
+        <t>The steps to report an Expect-CT failure are as follows.</t>
+        <ol spacing="normal" type="1">
+	  <li>Prepare a JSON object <tt>report object</tt> with the single key
+	  "expect-ct-report", whose value is the result of generating a
+	  violation <tt>report object</tt> as described in <xref
+	  target="generating-a-violation-report" format="default"/>.</li>
+          <li>Let <tt>report body</tt> be the JSON stringification of <tt>report object</tt>.</li>
+          <li>Let <tt>report-uri</tt> be the value of the <tt>report-uri</tt> directive in the Expect-CT
+header field.</li>
+          <li>Send an HTTP POST request to <tt>report-uri</tt> with a
+          <tt>Content-Type</tt> header field of
+          <tt>application/expect-ct-report+json</tt> and an entity body
+          consisting of <tt>report body</tt>.</li>
+        </ol>
+        <t>The UA <bcp14>MAY</bcp14> perform other operations as part of
+        sending the HTTP POST request, such as sending a Cross-Origin
+        Resource Sharing (CORS) preflight as part of <xref target="FETCH"
+        format="default"/>.</t>
+        <t>Future versions of this specification may need to modify or extend
+        the Expect-CT report format. They may do so by defining a new
+        top-level key to contain the report, replacing the "expect-ct-report"
+        key. <xref target="receiving-report" format="default"/> defines how
+        report servers should handle report formats that they do not
+        support.</t>
+      </section>
+      <section anchor="receiving-report" numbered="true" toc="default">
+        <name>Receiving a Violation Report</name>
+        <t>Upon receiving an Expect-CT violation report, the report server
+        <bcp14>MUST</bcp14> respond with a 2xx (Successful) status code if it
+        can parse the request body as valid JSON, the report conforms to the
+        format described in <xref target="generating-a-violation-report"
+        format="default"/>, and it recognizes the scheme, hostname, and port
+        in the "scheme", "hostname", and "port" fields of the report. If the
+        <tt>report body</tt> cannot be parsed or does not conform to the
+        format described in <xref target="generating-a-violation-report"
+        format="default"/>, or the report server does not expect to receive
+        reports for the scheme, hostname, or port in the report, then the
+        report server <bcp14>MUST</bcp14> respond with a 400 Bad Request
+        status code.</t>
+        <t>As described in <xref target="sending-report" format="default"/>,
+        future versions of this specification may define new report formats
+        that are sent with a different top-level key. If the report server
+        does not recognize the report format, the report server
+        <bcp14>MUST</bcp14> respond with a 501 Not Implemented status
+        code.</t>
+        <t>If the report's "test-report" key is set to true, the server <bcp14>MAY</bcp14> discard the
+report without further processing but <bcp14>MUST</bcp14> still return a 2xx (Successful)
+status code. If the "test-report" key is absent or set to false, the server
+<bcp14>SHOULD</bcp14> store the report for processing and analysis by the owner of the
+Expect-CT Host.</t>
+      </section>
+    </section>
+    <section anchor="usability-considerations" numbered="true" toc="default">
+      <name>Usability Considerations</name>
+      <t>When the UA detects a Known Expect-CT Host in violation of the UA's CT Policy,
+end users will experience denials of service. It is advisable for UAs to explain
+to users why they cannot access the Expect-CT Host, e.g., in a user interface
+that explains that the host's certificate cannot be validated.</t>
+    </section>
+    <section anchor="authoring-considerations" numbered="true" toc="default">
+      <name>Authoring Considerations</name>
+      <t>Expect-CT could be specified as a TLS extension or X.509 certificate
+      extension instead of an HTTP response header field. Using an HTTP header
+      field as the mechanism for Expect-CT introduces a layering mismatch; for
+      example, the software that terminates TLS and validates Certificate
+      Transparency information might know nothing about HTTP. Nevertheless, an
+      HTTP header field was chosen primarily for ease of deployment. In
+      practice, deploying new certificate extensions requires certificate
+      authorities to support them, and new TLS extensions require server
+      software updates, including possibly to servers outside of the site
+      owner's direct control (such as in the case of a third-party Content
+      Delivery Network (CDN)). Ease
+      of deployment is a high priority for Expect-CT because it is intended as
+      a temporary transition mechanism for user agents that are transitioning
+      to universal Certificate Transparency requirements.</t>
+    </section>
+
+    <section anchor="privacy-considerations" numbered="true" toc="default">
+      <name>Privacy Considerations</name>
+      <t>Expect-CT can be used to infer what Certificate Transparency Policy a
+      UA is using by attempting to retrieve specially configured websites
+      that pass one user agent's policies but not another's. Note that this
+      consideration is true of UAs that enforce CT policies without Expect-CT
+      as well.</t>
+      <t>Additionally, reports submitted to the <tt>report-uri</tt> could
+      reveal information to a third party about which web page is being
+      accessed and by which IP address, by using individual
+      <tt>report-uri</tt> values for individually tracked pages. This
+      information could be leaked even if client-side scripting were
+      disabled.</t>
+      <t>Implementations store state about Known Expect-CT Hosts and, hence,
+      which domains the UA has contacted. Implementations may choose to not
+      store this state subject to local policy (e.g., in the private browsing
+      mode of a web browser).</t>
+      <t>Violation reports, as noted in <xref target="reporting-expect-ct-failure" format="default"/>, contain
+information about the certificate chain that has violated the CT Policy. In some
+cases, such as an organization-wide compromise of the end-to-end security of TLS,
+this may include information about the interception tools and design used by the
+organization that the organization would otherwise prefer not be disclosed.</t>
+      <t>Because Expect-CT causes remotely detectable behavior, it's advisable
+      that UAs offer a way for privacy-sensitive end users to clear currently
+      noted Expect-CT Hosts and allow users to query the current state of
+      Known Expect-CT Hosts.</t>
+    </section>
+    <section anchor="security-considerations" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <section anchor="hostile-header-attacks" numbered="true" toc="default">
+        <name>Hostile Header Attacks</name>
+        <t>When UAs support the Expect-CT header field, it becomes a potential
+        vector for hostile header attacks against site owners. If a site owner
+        uses a certificate issued by a certificate authority that does not
+        embed SCTs nor serve SCTs via the Online Certificate Status Protocol
+        (OCSP) or TLS extension, a malicious server operator or attacker could
+        temporarily reconfigure the host to comply with the UA's CT Policy
+        and add the Expect-CT header field in enforcing mode with a long
+        <tt>max-age</tt>.  Implementing user agents would note this as an
+        Expect-CT Host (see <xref target="noting-expect-ct"
+        format="default"/>). After having done this, the configuration could
+        then be reverted to not comply with the CT Policy, prompting
+        failures. Note that this scenario would require the attacker to have
+        substantial control over the infrastructure in question, being able to
+        obtain different certificates, change server software, or act as a
+        man in the middle in connections.</t>
+
+        <t> Site operators can mitigate this situation by one of the following:
+        reconfiguring their web server to transmit SCTs using the TLS
+        extension defined in <xref target="RFC9162" section="6.5"
+        sectionFormat="of"/>; obtaining a certificate from an alternative
+        certificate authority that provides SCTs by one of the other methods;
+        or by waiting for the user agent's persisted notation of this as an
+        Expect-CT Host to reach its <tt>max-age</tt>. User agents may choose
+        to implement mechanisms for users to cure this situation, as noted in
+        <xref target="usability-considerations" format="default"/>.</t>
+      </section>
+      <section anchor="maximum-max-age" numbered="true" toc="default">
+        <name>Maximum max-age</name>
+        <t>There is a security trade-off in that low maximum values provide a
+        narrow window of protection for users that visit the Known Expect-CT
+        Host only infrequently, while high maximum values might result in a
+        denial of service to a UA in the event of a hostile header attack or
+        simply an error on the part of the site owner.</t>
+        <t>There is probably no ideal maximum for the <tt>max-age</tt>
+        directive. Since Expect-CT is primarily a policy-expansion and
+        investigation technology rather than an end-user protection, a value
+        on the order of 30 days (2,592,000 seconds) may be considered a
+        balance between these competing security concerns.</t>
+      </section>
+      <section anchor="amplification-attacks" numbered="true" toc="default">
+        <name>Amplification Attacks</name>
+        <t>Another kind of hostile header attack uses the <tt>report-uri</tt> mechanism on many
+hosts not currently exposing SCTs as a method to cause a denial of service to
+the host receiving the reports. If some highly trafficked websites emitted
+a non-enforcing Expect-CT header field with a <tt>report-uri</tt>, implementing UAs' reports
+could flood the reporting host. It is noted in <xref target="the-report-uri-directive" format="default"/> that UAs
+should limit the rate at which they emit reports, but an attacker may alter the
+Expect-CT header fields to induce UAs to submit different reports to different
+URIs to still cause the same effect.</t>
+      </section>
+    </section>
+      <section anchor="iana-considerations" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section anchor="header-field-registry" numbered="true" toc="default">
+        <name>Header Field Registry</name>
+        <t>This document registers the "Expect-CT" header field in the
+        "Hypertext Transfer Protocol (HTTP) Field Name Registry" registry
+        located at <eref brackets="angle"
+        target="https://www.iana.org/assignments/http-fields"/>.</t>
+        <dl newline="false" spacing="normal">
+          <dt>Header field name:</dt>
+          <dd>
+  Expect-CT</dd>
+          <dt>Applicable protocol:</dt>
+          <dd>
+  http</dd>
+          <dt>Status:</dt>
+          <dd>
+  permanent</dd>
+          <dt>Author/Change controller:</dt>
+          <dd>
+  IETF</dd>
+          <dt>Specification document(s):</dt>
+          <dd>
+  This document</dd>
+          <dt>Related information:</dt>
+          <dd>
+  (empty)</dd>
+        </dl>
+      </section>
+      <section anchor="media-types-registry" numbered="true" toc="default">
+        <name>Media Types Registry</name>
+
+<t>This document registers the <tt>application/expect-ct-report+json</tt> media type (which uses the suffix established in <xref target="RFC6839" format="default"/>) for Expect-CT violation reports in the "Media Types" registry as follows.</t>
+        <dl newline="false" spacing="normal">
+          <dt>Type name:</dt>
+          <dd>
+  application</dd>
+          <dt>Subtype name:</dt>
+          <dd>
+  expect-ct-report+json</dd>
+          <dt>Required parameters:</dt>
+          <dd>
+  n/a</dd>
+          <dt>Optional parameters:</dt>
+          <dd>
+  n/a</dd>
+          <dt>Encoding considerations:</dt>
+          <dd>
+  binary</dd>
+          <dt>Security considerations:</dt>
+          <dd>
+  See <xref target="security-considerations" format="default"/></dd>
+          <dt>Interoperability considerations:</dt>
+          <dd>
+  n/a</dd>
+          <dt>Published specification:</dt>
+          <dd>
+  This document</dd>
+          <dt>Applications that use this media type:</dt>
+          <dd>
+  UAs that implement Certificate Transparency compliance checks and reporting</dd>
+          <dt>Additional information:</dt>
+          <dd/>
+          <dt/>
+          <dd>Deprecated alias names for this type: n/a</dd>
+          <dt/>
+          <dd>Magic number(s): n/a</dd>
+          <dt/>
+          <dd>File extension(s): n/a</dd>
+          <dt/>
+          <dd>Macintosh file type code(s): n/a</dd>
+          <dt>Person &amp; email address to contact for further information:</dt>
+          <dd><br/>
+  Emily Stark (estark@google.com)</dd>
+          <dt>Intended usage:</dt>
+          <dd>
+  COMMON</dd>
+          <dt>Restrictions on usage:</dt>
+          <dd>
+  none</dd>
+          <dt>Author:</dt>
+          <dd>
+  Emily Stark (estark@google.com)</dd>
+          <dt>Change controller:</dt>
+          <dd>
+  IETF</dd>
+        </dl>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+
+
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6797.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7469.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6962.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3986.xml"/>
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8259.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3339.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7468.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4648.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6839.xml"/>
+
+
+
+
+
+<reference anchor='RFC9110' target="https://www.rfc-editor.org/info/rfc9110">
+<front>
+<title>HTTP Semantics</title>
+<author initials='R' surname='Fielding' fullname='Roy Fielding' role="editor">
+<organization />
+</author>
+<author initials='M' surname='Nottingham' fullname='Mark Nottingham' role="editor">
+<organization />
+</author>
+<author initials='J' surname='Reschke' fullname='Julian Reschke' role="editor">
+<organization />
+</author>
+<date year='2022' month='June' />
+</front>
+ <seriesInfo name='STD' value='97'/>
+ <seriesInfo name='RFC' value='9110'/>
+  <seriesInfo name='DOI' value='10.17487/RFC9110'/>
+</reference>
+
+
+<reference anchor='RFC9111' target="https://www.rfc-editor.org/info/rfc9111">
+<front>
+<title>HTTP Caching</title>
+<author initials='R' surname='Fielding' fullname='Roy T. Fielding' role="editor">
+<organization />
+</author>
+<author initials='M' surname='Nottingham' fullname='Mark Nottingham' role="editor">
+<organization />
+</author>
+<author initials='J' surname='Reschke' fullname='Julian Reschke' role="editor"> 
+<organization />
+</author>
+<date year='2022' month='June' />
+</front>
+ <seriesInfo name='STD' value='98'/>
+ <seriesInfo name='RFC' value='9111'/>
+  <seriesInfo name='DOI' value='10.17487/RFC9111'/>
+</reference>
+
+
+<xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9162.xml"/>
+
+      </references>
+
+
+
+      <references>
+        <name>Informative References</name>
+
+        <reference anchor="FETCH" target="https://fetch.spec.whatwg.org">
+          <front>
+            <title>Fetch - Living Standard</title>
+            <author>
+              <organization>WHATWG</organization>
+            </author>
+          </front>
+        </reference>
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8446.xml"/>
+
+      </references>
+    </references>
+
+    
+  </back>
+
+</rfc>
+
+

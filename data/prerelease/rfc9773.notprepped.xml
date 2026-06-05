@@ -1,0 +1,438 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" version="3" ipr="trust200902" docName="draft-ietf-acme-ari-08" number="9773" consensus="true" submissionType="IETF" category="std" updates="" obsoletes="" symRefs="true" sortRefs="true" xml:lang="en" tocInclude="true" indexInclude="true">
+
+<front>
+  <title abbrev="ACME ARI">ACME Renewal Information (ARI) Extension</title>
+  <seriesInfo name="RFC" value="9773"/>
+  <author initials="A." surname="Gable">
+    <organization>Internet Security Research Group</organization>
+    <address>
+      <email>aaron@letsencrypt.org</email>
+    </address>
+  </author>
+
+  <date month="June" year="2025"/>
+
+  <area>SEC</area>
+  <workgroup>acme</workgroup>
+
+<keyword>certificate</keyword>
+<keyword>CA</keyword>
+<keyword>x509</keyword>
+<keyword>pki</keyword>
+<keyword>webpki</keyword>
+<keyword>renew</keyword>
+<keyword>replace</keyword>
+
+<abstract>
+<t>This document specifies how an Automated Certificate Management Environment (ACME) server may provide suggestions to ACME clients as to when they should attempt to renew their certificates. This allows servers to mitigate load spikes and ensures that clients do not make false assumptions about appropriate certificate renewal periods.</t>
+</abstract>
+
+</front>
+
+<middle>
+
+  <section anchor="introduction"><name>Introduction</name>
+
+  
+  <t>Most ACME <xref target="RFC8555"/> clients today choose when to attempt to renew a certificate in one of three ways:</t>
+  <ol>
+    <li>they may be configured to renew at a specific interval (e.g., via cron),</li>
+    <li>they may parse the issued certificate to determine its expiration date and renew a specific amount of time before then, or</li>
+    <li>they may parse the issued certificate and renew when some percentage of its validity period has passed.</li>
+  </ol>
+  <t>The first two create significant barriers against the issuing Certification Authority (CA) changing certificate lifetimes. All three ways  may lead to load clustering for the issuing CA due to its inability to schedule renewal requests.</t>
+  <t>Allowing issuing CAs to suggest a period in which clients should renew their certificates enables dynamic time-based load balancing. This allows a CA to better respond to exceptional circumstances. For example:</t>
+  <ul>
+    <li>a CA could suggest that clients renew prior to a mass-revocation event to mitigate the impact of the revocation, or</li>
+    <li>a CA could suggest that clients renew earlier than they normally would to reduce the size of an upcoming mass-renewal spike.</li></ul>
+<t>This document specifies the ACME Renewal Information (ARI) extension, a mechanism by which ACME servers may provide suggested renewal windows to ACME clients and by which ACME clients may inform ACME servers that they have successfully renewed and replaced a certificate.</t>
+</section>
+
+<section anchor="conventions-and-definitions"><name>Conventions and Definitions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+
+<t>Throughout this document, the word "renewal" and its variants are taken to encompass any combination of "Renewal", "Re-Key", and "Modification" as defined in <xref target="RFC3647"/>.</t>
+<t>This document assumes that the certificates being issued by the ACME server are in compliance with <xref target="RFC5280"/> and, in particular, contain the Authority Key Identifier extension and the keyIdentifier field within that extension.</t>
+</section>
+
+<section anchor="extensions-to-the-directory-object"><name>Extensions to the Directory Object</name>
+<t>An ACME server that wishes to provide renewal information <bcp14>MUST</bcp14> include a new field, "<tt>renewalInfo</tt>", in its directory object.</t>
+<table>
+<thead>
+<tr>
+<th>Field</th>
+<th>URL in Value</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>renewalInfo</td>
+<td>Renewal information</td>
+</tr>
+</tbody>
+</table>
+
+<sourcecode type="json"><![CDATA[
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{
+  "newNonce": "https://acme.example.com/new-nonce",
+  "newAccount": "https://acme.example.com/new-account",
+  "newOrder": "https://acme.example.com/new-order",
+  "newAuthz": "https://acme.example.com/new-authz",
+  "revokeCert": "https://acme.example.com/revoke-cert",
+  "keyChange": "https://acme.example.com/key-change",
+  "renewalInfo": "https://acme.example.com/renewal-info",
+  "meta": {
+    "termsOfService": "https://example.com/acme/terms",
+    "website": "https://example.com/acme/docs",
+    "caaIdentities": ["example.com"],
+    "externalAccountRequired": false
+  }
+}
+]]></sourcecode>
+</section>
+
+<section anchor="getting-renewal-information"><name>Getting Renewal Information</name>
+
+<section anchor="the-renewalinfo-resource"><name>The RenewalInfo Resource</name>
+<t>The RenewalInfo resource is a new resource type introduced to the ACME protocol. This new resource allows clients to query the server for suggestions on when they should renew certificates.</t>
+<t>To request the suggested renewal information for a certificate, the client sends an unauthenticated GET request to a path under the server's <tt>renewalInfo</tt> URL.</t>
+<t>The path component is a unique identifier for the certificate in question. The unique identifier is constructed by concatenating the base64url encoding <xref target="RFC4648"/> of the keyIdentifier field of the certificate's Authority Key Identifier (AKI) <xref target="RFC5280"/> extension, the period character ".", and the base64url encoding of the DER-encoded Serial Number field (without the tag and length bytes). All trailing "<tt>=</tt>" characters <bcp14>MUST</bcp14> be stripped from both parts of the unique identifier.</t>
+<t>Thus, the full request URL is constructed as follows (split onto multiple lines for readability), where the "<tt>||</tt>" operator indicates string concatenation and the <tt>renewalInfo</tt> URL is taken from the Directory object:</t>
+
+<sourcecode type=""><![CDATA[
+url = renewalInfo || '/' ||
+      base64url(AKI keyIdentifier) || '.' || base64url(Serial)
+]]></sourcecode>
+
+<t>For example, to request renewal information for the end-entity certificate given in Appendix A, the client would make the request as follows:</t>
+
+<ol spacing="normal">
+<li>The keyIdentifier field of the certificate's AKI extension has the hexadecimal bytes <tt>69:88:5B:6B:87:46:40:41:E1:B3:7B:84:7B:A0:AE:2C:DE:01:C8:D4</tt> as its ASN.1 Octet String value. The base64url encoding of those bytes is <tt>aYhba4dGQEHhs3uEe6CuLN4ByNQ=</tt>.</li>
+<li>The certificate's Serial Number field has the hexadecimal bytes <tt>00:87:65:43:21</tt> as its DER encoding (note the leading zero byte to ensure the serial number remains positive despite the leading 1 bit in <tt>0x87</tt>). The base64url encoding of those bytes is <tt>AIdlQyE=</tt>.</li>
+<li>Stripping the trailing padding characters and concatenating with the separator, the unique identifier is therefore <tt>aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE</tt>, and the client makes the request:</li>
+</ol>
+
+<sourcecode type=""><![CDATA[
+GET /renewal-info/aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE HTTP/1.1
+Host: acme.example.com
+Accept: application/json
+]]></sourcecode>
+</section>
+
+<section anchor="renewalinfo-objects"><name>RenewalInfo Objects</name>
+<t>The structure of an ACME RenewalInfo object is as follows:</t>
+
+<dl spacing="normal" newline="true">
+  <dt><tt>suggestedWindow</tt> (object, required):</dt><dd>A JSON object with
+  two keys, "<tt>start</tt>" and "<tt>end</tt>", whose values are timestamps,
+  encoded in the format specified in <xref target="RFC3339"/>, which bound the
+  window of time in which the CA recommends renewing the certificate.</dd>
+  <dt><tt>explanationURL</tt> (string, optional):</dt><dd>A URL pointing to a
+  page that may explain why the suggested renewal window has its current
+  value. For example, it may be a page explaining the CA's dynamic
+  load-balancing strategy or a page documenting which certificates are
+  affected by a mass-revocation event. Clients <bcp14>SHOULD</bcp14> provide
+  this URL to their operator, if present.</dd>
+</dl>
+
+<sourcecode type="json"><![CDATA[
+HTTP/1.1 200 OK
+Content-Type: application/json
+Retry-After: 21600
+
+{
+  "suggestedWindow": {
+    "start": "2025-01-02T04:00:00Z",
+    "end": "2025-01-03T04:00:00Z"
+  },
+  "explanationURL": "https://acme.example.com/docs/ari"
+}
+]]></sourcecode>
+<t>Clients <bcp14>MUST</bcp14> attempt renewal at a time of their choosing based on the suggested renewal window. The following algorithm is <bcp14>RECOMMENDED</bcp14> for choosing a renewal time:</t>
+
+<ol spacing="normal">
+<li>Make a <tt>renewalInfo</tt> request to get a suggested renewal window.</li>
+<li>Select a uniform random time within the suggested window.</li>
+<li>If the selected time is in the past, attempt renewal immediately.</li>
+<li>Otherwise, if the client can schedule itself to attempt renewal at exactly the selected time, do so.</li>
+<li>Otherwise, if the selected time is before the next time that the client would wake up normally, attempt renewal immediately.</li>
+<li>Otherwise, sleep until the time indicated by the Retry-After header and return to Step 1.</li>
+</ol>
+
+<t>In all cases, renewal attempts are subject to the client's existing error backoff and retry intervals.</t>
+<t>In particular, cron-based clients may find they need to increase their run frequency to check ARI more frequently. Those clients will need to store information about failures so that increasing their run frequency doesn't lead to retrying failures without proper backoff. Typical information stored should include: number of failures for a given order (defined by the set of identifiers on the order) and time of the most recent failure.</t>
+<t>A RenewalInfo object in which the <tt>end</tt> timestamp equals or precedes the <tt>start</tt> timestamp is invalid. Servers <bcp14>MUST NOT</bcp14> serve such a response, and clients <bcp14>MUST</bcp14> treat one as though they failed to receive any response from the server (e.g., retry at an appropriate interval, renew on a fallback schedule, etc.).</t>
+</section>
+
+<section anchor="schedule-for-checking-the-renewalinfo-resource"><name>Schedule for Checking the RenewalInfo Resource</name>
+<t>Clients <bcp14>SHOULD</bcp14> fetch a certificate's RenewalInfo immediately after issuance.</t>
+<t>During the lifetime of a certificate, the renewal information needs to be fetched frequently enough that clients learn about changes in the suggested window quickly, but without overwhelming the server. This protocol uses the Retry-After header <xref target="RFC9110"/> to indicate to clients how often to retry. Note that in other HTTP applications, Retry-After often indicates the minimum time to wait before retrying a request. In this protocol, it indicates the desired (i.e., both requested minimum and maximum) amount of time to wait.</t>
+<t>Clients <bcp14>MUST NOT</bcp14> check a certificate's RenewalInfo after the certificate has expired. Clients <bcp14>MUST NOT</bcp14> check a certificate's RenewalInfo after they consider the certificate to be replaced (for instance, after a new certificate for the same identifiers has been received and configured).</t>
+
+<section anchor="server-choice-of-retry-after"><name>Server Choice of Retry-After</name>
+<t>Servers set the Retry-After header based on their requirements on how quickly to perform a revocation. For instance, a server that needs to revoke certificates within 24 hours of notification of a problem might choose to reserve twelve hours for investigation, six hours for clients to fetch updated RenewalInfo objects, and six hours for clients to perform a renewal. Setting a small value for Retry-After means that clients can respond more quickly but also incurs more load on the server. Servers should estimate their expected load based on the number of clients, keeping in mind that third parties may also monitor <tt>renewalInfo</tt> endpoints.</t>
+</section>
+
+<section anchor="client-handling-of-retry-after"><name>Client Handling of Retry-After</name>
+<t>After an initial fetch of a certificate's RenewalInfo, clients <bcp14>MUST</bcp14> fetch it again as soon as possible after the time indicated in the Retry-After header (backoff on errors takes priority, though). Clients <bcp14>MUST</bcp14> set reasonable limits on their checking interval. For example, values under one minute could be treated as if they were one minute, and values over one day could be treated as if they were one day.</t>
+</section>
+
+<section anchor="error-handling"><name>Error Handling</name>
+<t>Temporary errors include, for instance:</t>
+
+<ul spacing="compact">
+<li>Connection timeout</li>
+<li>Request timeout</li>
+<li>5xx HTTP errors</li>
+</ul>
+<t>On receiving a temporary error, clients <bcp14>SHOULD</bcp14> do exponential backoff with a capped number of tries. If all tries are exhausted, clients <bcp14>MUST</bcp14> treat the request as a long-term error.</t>
+<t>Examples of long-term errors include:</t>
+
+<ul spacing="compact">
+<li>Retry-After is invalid or not present</li>
+<li>RenewalInfo object is invalid</li>
+<li>DNS lookup failure</li>
+<li>Connection refused</li>
+<li>Non-5xx HTTP error</li>
+</ul>
+<t>On receiving a long-term error, clients <bcp14>MUST</bcp14> make the next <tt>renewalInfo</tt> request as soon as possible after six hours have passed (or some other locally configured default).</t>
+</section>
+</section>
+</section>
+
+<section anchor="extensions-to-the-order-object"><name>Extensions to the Order Object</name>
+<t>In order to convey information regarding which certificate requests represent renewals of previous certificates, a new field is added to the Order object:</t>
+<dl spacing="normal" newline="true">
+  <dt><tt>replaces</tt> (string, optional):</dt><dd>A string uniquely
+  identifying a previously issued certificate that this order is intended to
+  replace. This unique identifier is constructed in the same way as the path
+  component for GET requests described in <xref target="the-renewalinfo-resource" />.</dd>
+</dl>
+<t>Clients <bcp14>SHOULD</bcp14> include this field in newOrder requests if there is a clear predecessor certificate, as is the case for most certificate renewals. Clients <bcp14>SHOULD NOT</bcp14> include this field if the ACME server has not indicated that it supports this protocol by advertising the <tt>renewalInfo</tt> resource in its Directory.</t>
+
+<sourcecode type=""><![CDATA[
+POST /new-order HTTP/1.1
+Host: acme.example.com
+Content-Type: application/jose+json
+
+{
+  "protected": base64url({
+    "alg": "ES256",
+    "kid": "https://acme.example.com/acct/evOfKhNU60wg",
+    "nonce": "5XJ1L3lEkMG7tR6pA00clA",
+    "url": "https://acme.example.com/new-order"
+  }),
+  "payload": base64url({
+    "identifiers": [
+      { "type": "dns", "value": "acme.example.com" }
+    ],
+    "replaces": "aYhba4dGQEHhs3uEe6CuLN4ByNQ.AIdlQyE"
+  }),
+  "signature": "H6ZXtGjTZyUnPeKn...wEA4TklBdh3e454g"
+}
+]]></sourcecode>
+<t>Servers <bcp14>SHOULD</bcp14> check that the identified certificate and the newOrder request correspond to the same ACME Account, that they share at least one identifier, and that the identified certificate has not already been marked as replaced by a different Order that is not "invalid". Correspondence checks beyond this (such as requiring exact identifier matching) are left up to server policy. If any of these checks fail, the server <bcp14>SHOULD</bcp14> reject the newOrder request. If the server rejects the request because the identified certificate has already been marked as replaced, it <bcp14>MUST</bcp14> return an HTTP 409 (Conflict) with a problem document of type "alreadyReplaced" (see <xref target="acme-error-types"/>).</t>
+<t>If the server accepts a newOrder request with a "replaces" field, it <bcp14>MUST</bcp14> reflect that field in the response and in subsequent requests for the corresponding Order object.</t>
+<t>This replacement information may serve many purposes, including but not limited to:</t>
+
+<ul spacing="normal">
+<li>granting newOrder requests that arrive during the suggested renewal window of their identified predecessor certificate higher priority or allowing them to bypass rate limits, if the server's policy uses such;</li>
+<li>tracking the replacement of certificates that have been affected by a compliance incident, so that they can be revoked immediately after they are replaced; and</li>
+<li>tying together certificates issued under the same contract with an entity identified by External Account Binding.</li>
+</ul>
+</section>
+
+<section anchor="security-considerations"><name>Security Considerations</name>
+<t>The extensions to the ACME protocol described in this document build upon the security considerations and threat model defined in <xref target="RFC8555" section="10.1"/>.</t>
+<t>This document specifies that RenewalInfo resources are exposed and accessed via unauthenticated GET requests, a departure from the requirement in RFC 8555 that clients send POST-as-GET requests to fetch resources from the server. This is because the information contained in RenewalInfo resources is not considered confidential and because allowing RenewalInfo resources to be easily cached is advantageous to shed the load from clients that do not respect the Retry-After header. As always, servers should take measures to ensure that unauthenticated requests for renewal information cannot result in denial-of-service attacks. These measures might include ensuring that a cache does not include superfluous request headers or query parameters in its cache key, instituting IP-based rate limits, or other general best-practice measures.</t>
+<t>Note that this protocol could exhibit undesired behavior in the presence of significant clock skew between the ACME client and server. For example, if a server places the suggested renewal window wholly in the past to encourage a client to renew immediately, a client with a sufficiently slow clock might nonetheless see the window as being in the future. Similarly, a server that wishes to schedule renewals very precisely may have difficulty doing so if some clients have skewed clocks (or do not implement ARI at all). Server operators should take this concern into account when setting suggested renewal windows. However, many other protocols (including TLS handshakes themselves) fall apart with sufficient clock skew, so this is not unique to this protocol.</t>
+</section>
+
+<section anchor="iana-considerations">
+  <name>IANA Considerations</name>
+
+<section anchor="acme-resource-type">
+  <name>ACME Resource Type</name>
+  <t>IANA has added the following entry to the "ACME Resource Types" registry within the "Automated Certificate Management Environment (ACME) Protocol" registry group at <eref target="https://www.iana.org/assignments/acme" brackets="angle"/>:</t>
+<table>
+<thead>
+<tr>
+<th>Field Name</th>
+<th>Resource Type</th>
+<th>Reference</th>
+</tr>
+</thead>
+
+<tbody>
+<tr>
+<td>renewalInfo</td>
+<td>RenewalInfo object</td>
+<td>This document</td>
+</tr>
+</tbody>
+</table></section>
+
+<section anchor="acme-renewalinfo-object-fields">
+  <name>ACME RenewalInfo Object Fields</name>
+  <t>IANA has added the following new registry to the "Automated Certificate
+  Management Environment (ACME) Protocol" registry group at <eref
+  target="https://www.iana.org/assignments/acme" brackets="angle"/>:</t>
+  
+  <dl spacing="normal" newline="true">
+    <dt>Registry Name:</dt><dd>ACME RenewalInfo Object Fields</dd>
+    <dt>Registration Procedure:</dt><dd>Specification Required (see <xref target="RFC8126"/>). The designated
+    expert should ensure that any new fields added to this registry carry
+    useful and unique information that does not better belong elsewhere in the
+    ACME protocol.</dd>
+    <dt>Template:</dt>
+    <dd>
+      <dl spacing="compact" newline="false">
+	<dt>Field name:</dt><dd>The string to be used as a field name in the JSON object</dd>
+	<dt>Field type:</dt><dd>The type of value to be provided, e.g., string, boolean, array of string</dd>
+	<dt>Reference:</dt><dd>Where this field is defined</dd>
+      </dl>
+    </dd>
+    <dt>Initial contents:</dt>
+    <dd>
+      <table>
+	<thead>
+	  <tr>
+	    <th>Field Name</th>
+	    <th>Field Type</th>
+	    <th>Reference</th>
+	  </tr>
+	</thead>
+	<tbody>
+	  <tr>
+	    <td>suggestedWindow</td>
+	    <td>object</td>
+	    <td>This document</td>
+	  </tr>
+	  <tr>
+	    <td>explanationURL</td>
+	    <td>string</td>
+	    <td>This document</td>
+	  </tr>
+	</tbody>
+      </table>
+    </dd>
+  </dl>
+
+</section>
+
+<section anchor="acme-order-object-fields">
+  <name>ACME Order Object Fields</name>
+  <t>IANA has added the following entry to the "ACME Order Object Fields"
+  registry within the "Automated Certificate Management Environment (ACME)
+  Protocol" registry group at <eref
+  target="https://www.iana.org/assignments/acme" brackets="angle"/>:</t>
+
+  <table>
+    <thead>
+      <tr>
+	<th>Field Name</th>
+	<th>Field Type</th>
+	<th>Configurable</th>
+	<th>Reference</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+	<td>replaces</td>
+	<td>string</td>
+	<td>true</td>
+	<td>This document</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+
+<section anchor="acme-error-types">
+  <name>ACME Error Types</name>
+  <t>IANA has added the following entry to the "ACME Error Types" registry
+  within the "Automated Certificate Management Environment (ACME) Protocol"
+  registry group at <eref
+  target="https://www.iana.org/assignments/acme" brackets="angle"/>:</t>
+
+  <table>
+    <thead>
+      <tr>
+	<th>Type</th>
+	<th>Description</th>
+	<th>Reference</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+	<td>alreadyReplaced</td>
+	<td>The request specified a predecessor certificate that has already been marked as replaced</td>
+	<td>This document</td>
+      </tr>
+    </tbody>
+  </table>
+</section>
+</section>
+
+</middle>
+
+<back>
+<references><name>References</name>
+<references><name>Normative References</name>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3339.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4648.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5280.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8555.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+</references>
+<references><name>Informative References</name>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3647.xml"/>
+<xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+</references>
+</references>
+
+<section anchor="appendix-a-example-certificate" numbered="false"><name>Appendix A. Example Certificate</name>
+
+<sourcecode type=""><![CDATA[
+-----BEGIN CERTIFICATE-----
+MIIBQzCB66ADAgECAgUAh2VDITAKBggqhkjOPQQDAjAVMRMwEQYDVQQDEwpFeGFt
+cGxlIENBMCIYDzAwMDEwMTAxMDAwMDAwWhgPMDAwMTAxMDEwMDAwMDBaMBYxFDAS
+BgNVBAMTC2V4YW1wbGUuY29tMFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEeBZu
+7cbpAYNXZLbbh8rNIzuOoqOOtmxA1v7cRm//AwyMwWxyHz4zfwmBhcSrf47NUAFf
+qzLQ2PPQxdTXREYEnKMjMCEwHwYDVR0jBBgwFoAUaYhba4dGQEHhs3uEe6CuLN4B
+yNQwCgYIKoZIzj0EAwIDRwAwRAIge09+S5TZAlw5tgtiVvuERV6cT4mfutXIlwTb
++FYN/8oCIClDsqBklhB9KAelFiYt9+6FDj3z4KGVelYM5MdsO3pK
+-----END CERTIFICATE-----
+]]></sourcecode>
+
+</section>
+
+<section anchor="acknowledgments" numbered="false">
+<name>Acknowledgments</name>
+<t>My thanks to <contact fullname="Roland Shoemaker"/> and <contact fullname="Jacob Hoffman-Andrews"/> for coming up with the initial idea of ARI and for helping me learn the IETF process. Thanks also to <contact fullname="Samantha Frank"/>, <contact fullname="Matt Holt"/>, <contact fullname="Ilari Liusvaara"/>, and <contact fullname="Wouter Tinus"/> for contributing client implementations, and to <contact fullname="Freddy Zhang"/> for contributing an independent server implementation. Finally, thanks to <contact fullname="Rob Stradling"/>, <contact fullname="Andrew Ayer"/>, and <contact fullname="J.C. Jones"/> for providing meaningful feedback and suggestions that significantly improved this specification.</t>
+</section>
+
+</back>
+
+</rfc>

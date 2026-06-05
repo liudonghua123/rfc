@@ -1,0 +1,1479 @@
+<?xml version='1.0' encoding='utf-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" number="9288" category="info" ipr="trust200902" docName="draft-ietf-opsec-ipv6-eh-filtering-10" obsoletes="" updates="" submissionType="IETF" xml:lang="en" consensus="true" tocInclude="true" tocDepth="2" symRefs="true" sortRefs="true" version="3">
+  <!-- xml2rfc v2v3 conversion 3.12.10 -->
+  <front>
+    <title abbrev="Filtering of IPv6 Packets with EHs">Recommendations on the Filtering of IPv6 Packets Containing IPv6 Extension Headers at Transit Routers</title>
+    <seriesInfo name="RFC" value="9288"/>
+    <author fullname="Fernando Gont" initials="F." surname="Gont">
+      <organization abbrev="SI6 Networks">SI6 Networks</organization>
+      <address>
+        <postal>
+          <street>Segurola y Habana 4310 7mo piso</street>
+          <city>Ciudad Autonoma de Buenos Aires</city>
+          <country>Argentina</country>
+        </postal>
+        <email>fgont@si6networks.com</email>
+        <uri>https://www.si6networks.com</uri>
+      </address>
+    </author>
+    <author fullname="Will (Shucheng) Liu" initials="W." surname="Liu">
+      <organization>Huawei Technologies</organization>
+      <address>
+        <postal>
+          <street>Bantian, Longgang District</street>
+          <city>Shenzhen</city>
+          <code>518129</code>
+          <country>China</country>
+        </postal>
+        <email>liushucheng@huawei.com</email>
+      </address>
+    </author>
+<date month="August" year="2022" />
+    <area>Operations and Management (ops)</area>
+    <workgroup>opsec</workgroup>
+
+ <keyword>Denial of Service</keyword>
+ <keyword>Distributed Denial of Service</keyword>
+ <keyword>DoS</keyword>
+ <keyword>DDoS</keyword>
+ <keyword>ACL</keyword>
+ <keyword>filtering policy</keyword>
+     <abstract>
+      <t>
+   This document analyzes the security implications of IPv6 Extension Headers and associated IPv6 options. Additionally, it discusses the operational and
+   interoperability implications of discarding packets based on the
+   IPv6 Extension Headers and IPv6 options they contain. Finally, it provides advice on the filtering of such IPv6
+   packets at transit routers for traffic not directed to them, for those cases where such filtering is deemed as necessary.
+</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="intro" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>IPv6 Extension Headers (EHs) allow for the extension of the IPv6
+   protocol and provide support for core functionality, such as IPv6
+   fragmentation.  However, common implementation limitations suggest that EHs present a challenge for IPv6 packet routing equipment, particularly when the IPv6 header chain needs to be processed for, as an example, enforcing Access Control Lists (ACLs) or implementing other functions <xref target="RFC9098" format="default"/>.
+</t>
+      <t>Several studies (e.g., <xref target="Huston-2022" format="default"/>, <xref target="I-D.vyncke-v6ops-james" format="default"/>, and <xref target="RFC7872" format="default"/>) suggest that there is widespread dropping of IPv6 packets that contain IPv6 EHs. In some cases, such packet drops occur at transit routers. While some operators are known to intentionally drop packets that contain IPv6 EHs, it is possible that some of the measured packet drops are the result of inappropriate advice in this area.</t>
+      <t>This document analyzes both the general security implications of
+   IPv6 EHs, as well as the security implications of
+   specific EH and option types. It also provides advice on the
+   filtering of IPv6 packets based on the IPv6 EHs and
+   the IPv6 options they contain. Since
+   various protocols may use IPv6 EHs (possibly with IPv6
+   options), discarding packets based on the IPv6 EHs or
+   IPv6 options they contain can have implications on the proper
+   functioning of such protocols.  Thus, this document also attempts to
+   discuss the operational and interoperability implications of such
+   filtering policies.</t>
+      <t>The resulting packet filtering policy typically depends on where in the network such policy is enforced. When the policy is enforced in a transit network, the policy typically follows a "deny-list" approach, where only packets with clear negative implications are dropped. On the other hand, when the policy is enforced closer to the destination systems, the policy typically follows an "accept-list" approach, where only traffic that is expected to be received is allowed. The advice in this document is aimed only at transit routers that may need to enforce a filtering policy based on the IPv6 EHs and IPv6 options a packet may contain, following a "deny-list" approach; hence, it is likely to be much more permissive than a filtering policy to be employed at, for example, the edge of an enterprise network. The advice in this document is meant to improve the current situation of the dropping of packets with IPv6 EHs in the Internet <xref target="RFC7872" format="default"/> in such cases where packets are being dropped due to inappropriate or missing guidelines.</t>
+            <t>This document is similar in nature to
+   <xref target="RFC7126" format="default"/>, which addresses the same problem for the IPv4 case. However, in IPv6, the problem space is compounded by the fact that IPv6 specifies a number of IPv6 EHs and a number of IPv6 options that may be valid only when included in specific EH types.</t>
+      <t>This document completes and complements the considerations for protecting the control plane from packets containing IP options that can be found in <xref target="RFC6192" format="default"/>.</t>
+      <t><xref target="terms" format="default"/> specifies the terminology and conventions employed throughout this document. <xref target="ipv6-extension-headers-discussion" format="default"/> discusses IPv6 EHs and provides advice in the area of filtering IPv6 packets that contain such IPv6 EHs. <xref target="ipv6-options-discussion" format="default"/> discusses IPv6 options and provides advice in the area of filtering IPv6 packets that contain such options.  
+      </t>
+      
+</section>
+    <section anchor="terms" numbered="true" toc="default">
+      <name>Terminology and Assumptions Employed in This Document</name>
+      <section numbered="true" toc="default">
+        <name>Terminology</name>
+        <t>The terms "permit" (allow the traffic), "drop" (drop with no notification to sender), and "reject" (drop with appropriate notification to sender) are employed as defined in <xref target="RFC3871" format="default"/>. Throughout this document, we also employ the term "discard" as a generic term to indicate the act of discarding a packet, irrespective of whether the sender is notified of such a drop and whether the specific filtering action is logged.
+</t>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Applicability Statement</name>
+        <t>This document provides advice on the filtering of IPv6 packets with EHs at transit routers for traffic not explicitly destined to them, for cases in which such filtering is deemed as necessary.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Router Default Behavior and Features</name>
+        <t>This document assumes that nodes comply with the requirements in <xref target="RFC7045" format="default"/>. Namely,
+	</t>	
+	
+ <blockquote>If a forwarding node discards a packet containing a standard IPv6
+   extension header, it <bcp14>MUST</bcp14> be the result of a configurable policy and
+   not just the result of a failure to recognise such a header.  This
+   means that the discard policy for each standard type of extension
+   header <bcp14>MUST</bcp14> be individually configurable.  The default configuration
+   <bcp14>SHOULD</bcp14> allow all standard extension headers.</blockquote>
+        <t>
+
+	  The advice provided in this document is only meant to guide an operator in configuring forwarding devices and is not to be interpreted as advice regarding default configuration settings for network devices. That is, this document provides advice with respect to operational policies but does not change the implementation defaults required by <xref target="RFC7045" format="default"/>.
+
+	  
+</t>
+        <t>We recommend that configuration options be made available to govern the processing of each IPv6 EH type and each IPv6 Option Type. Such configuration options should include the following possible settings:
+	</t>
+        <ul spacing="normal">
+          <li>Permit this IPv6 EH or IPv6 Option Type.</li>
+          <li>Drop packets containing this IPv6 EH or IPv6 Option Type.</li>
+          <li>Reject packets containing this IPv6 EH or IPv6 Option Type (where the packet drop is signaled with an ICMPv6 error message).</li>
+          <li>Rate-limit traffic containing this IPv6 EH or IPv6 Option Type.</li>
+          <li>Ignore this IPv6 EH or IPv6 Option Type (as if it was not present), and process the packet according the rules for the remaining headers. We note that if a packet carries forwarding information (e.g., in an IPv6 Routing Header (RH)), this might be an inappropriate or undesirable action.</li>
+        </ul>
+        <t>We note that special care needs to be taken when devices log packet drops/rejects. Devices should count the number of packets dropped/rejected, but the logging of drop/reject events should be limited so as to not overburden device resources.</t>
+        <t>Finally, we note that when discarding packets, it is generally desirable that the sender be signaled of the packet drop, since this is of use for trouble-shooting purposes. However, throughout this document (when recommending that packets be discarded), we generically refer to the action as "discard" without specifying whether the sender is signaled of the packet drop.</t>
+      </section>
+    </section>
+    <section anchor="ipv6-extension-headers-discussion" numbered="true" toc="default">
+      <name>IPv6 Extension Headers</name>
+      <section numbered="true" toc="default">
+        <name>General Discussion</name>
+        <t>IPv6 EHs <xref target="RFC8200" format="default"/> allow for the extension of the IPv6 protocol. Since both IPv6 EHs and upper-layer protocols share the same namespace ("Next Header" registry/namespace), <xref target="RFC7045" format="default"/> identifies which of the currently assigned Internet Protocol numbers identify IPv6 EHs vs. upper-layer protocols. This document discusses the filtering of packets based on the IPv6 EHs (as specified by <xref target="RFC7045" format="default"/>) they contain.
+        </t>
+	<t>
+<xref target="RFC8200" format="default"/> specifies that non-fragmented IPv6 datagrams and IPv6 First-Fragments must contain the entire IPv6 header chain <xref target="RFC7112" format="default"/>. Therefore, intermediate systems can enforce the filtering policies discussed in this document or resort to simply discarding the offending packets when they fail to include the entire IPv6 header chain <xref target="RFC8200" format="default"/>. </t>
+
+<t>
+We note that in order to implement filtering rules on the fast path, it may be necessary for the filtering device to limit the depth into the packet that can be inspected before giving up. In circumstances where such
+      a limitation exists, it is recommended that implementations provide a
+      configuration option that specifies whether to discard packets if
+      the aforementioned limit is encountered.  Operators may then
+      determine, according to their own circumstances, how such packets
+      will be handled.
+</t>
+ 
+
+
+</section>
+      <section anchor="ipv6-eh-general-implications" numbered="true" toc="default">
+        <name>General Security Implications</name>
+        <t>In some device architectures, IPv6 packets that contain IPv6 EHs can cause the corresponding packets to be processed on the slow path and, hence, may be leveraged for the purpose of Denial-of-Service (DoS) attacks <xref target="RFC9098" format="default"/> <xref target="Cisco-EH" format="default"/> <xref target="FW-Benchmark" format="default"/>.
+</t>
+        <t>Operators are urged to consider the IPv6 EH and IPv6 options handling capabilities of their devices as they make deployment decisions in the future.</t>
+      </section>
+      <section anchor="ipv6-ehs-rationale" numbered="true" toc="default">
+        <name>Rationale for Our Advice on the Handling of IPv6 Packets with Specific IPv6 Extension Headers</name>
+        <ul spacing="normal">
+          <li>IPv6 packets with IPv6 Extension Headers (or options) that are not expected to traverse transit routers should be dropped.</li>
+          <li>IPv6 packets with IPv6 Extension Headers (or options) that are only
+    expected to traverse transit routers when a specific technology is
+    employed should be permitted (or dropped) based on the knowledge
+    regarding the use of such technology in the transit provider in question
+    (i.e., permit the packets if the technology is employed, or drop them).
+    </li>
+          <li>IPv6 packets with IPv6 Extension Headers (or options) that represent
+    a concrete attack vector to network infrastructure devices should be dropped.</li>
+          <li>IPv6 packets with any other IPv6 Extension Headers (or options)
+    should be permitted. This is an intentional  trade-off made to
+    minimize ossification.</li>
+        </ul>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Summary of Advice on the Handling of IPv6 Packets with Specific IPv6 Extension Headers</name>
+        <t>This section summarizes the advice provided in <xref target="advice-ehs" format="default"/>, providing references to the specific sections in which a detailed analysis can be found.</t>
+        <table anchor="eh-table" align="center">
+          <name>Summary of Advice on the Handling of IPv6 Packets with Specific IPv6 Extension Headers</name>
+          <thead>
+            <tr>
+              <th align="center">EH Type</th>
+              <th align="center">Filtering Policy</th>
+              <th align="center">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="center">Hop-by-Hop Options Header (Proto=0)</td>
+              <td align="center">Drop or Ignore</td>
+              <td align="center">
+                <xref target="proto0" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Routing Header (Proto=43)</td>
+              <td align="center">Drop only Routing Type 0, Routing Type 1, and Routing Type 3. Permit other Routing Types</td>
+              <td align="center">
+                <xref target="proto43" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Fragment Header (Proto=44)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto44" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Encapsulating Security Payload (Proto=50)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto50" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Authentication Header (Proto=51)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto51" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Destination Options Header(Proto=60)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto60" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Mobility Header (Proto=135)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto135" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Host Identity Protocol (Proto=139)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto139" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Shim6 Protocol (Proto=140)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="proto140" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Use for experimentation and testing (Proto=253 and
+         254)</td>
+              <td align="center">Drop</td>
+              <td align="center">
+                <xref target="proto253254" format="default"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="advice-ehs" numbered="true" toc="default">
+        <name>Advice on the Handling of IPv6 Packets with Specific IPv6 Extension Headers</name>
+        <section anchor="proto0" numbered="true" toc="default">
+          <name>IPv6 Hop-by-Hop Options (Protocol Number=0)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Hop-by-Hop (HBH) Options header is used to carry optional information that may be examined by every node along a packet's delivery path. It is expected that nodes will examine the Hop-by-Hop Options header if explicitly configured to do so.</t>	
+            <aside>
+            <t>NOTE: A previous revision of the IPv6 core specification <xref target="RFC2460" format="default"/> originally required all nodes to examine and process the Hop-by-Hop Options header. However, even before the publication of <xref target="RFC8200" format="default"/>, a number of implementations already provided the option of ignoring this header unless explicitly configured to examine it.
+</t>
+</aside>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC8200" format="default"/>. As of May 2022, the following options have been specified for the Hop-by-Hop Options header:
+</t>
+<ul spacing="normal">
+              <li>Type 0x00: Pad1 <xref target="RFC8200" format="default"/></li>
+              <li>Type 0x01: PadN <xref target="RFC8200" format="default"/></li>
+              <li>Type 0x05: Router Alert <xref target="RFC2711" format="default"/></li>
+              <li>Type 0x07: CALIPSO <xref target="RFC5570" format="default"/></li>
+              <li>Type 0x08: SMF_DPD <xref target="RFC6621" format="default"/></li>
+              <li>Type 0x23: RPL Option <xref target="RFC9008" format="default"/></li>
+              <li>Type 0x26: Quick-Start <xref target="RFC4782" format="default"/></li>
+              <li>Type 0x4D: (Deprecated)</li>
+              <li>Type 0x63: RPL Option <xref target="RFC6553" format="default"/></li>
+              <li>Type 0x6D: MPL Option <xref target="RFC7731" format="default"/></li>
+	      <li>Type 0x8A: Endpoint Identification (Deprecated) <xref target="NIMROD-EID" format="default"/></li>
+              <li>Type 0xC2: Jumbo Payload <xref target="RFC2675" format="default"/></li>
+              <li>Type 0xEE: IPv6 DFF Header <xref target="RFC6971" format="default"/></li>
+              <li>Type 0x1E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x3E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x5E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x7E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x9E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0xBE: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0xDE: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0xFE: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+            </ul>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Legacy nodes that process this extension header might be subject to DoS attacks.</t>
+            <aside>
+            <t>NOTE: While <xref target="RFC8200" format="default"/> has removed the requirement for all nodes to examine and process the Hop-by-Hop Options header, the deployed base may still reflect the legacy <xref target="RFC2460"/> behavior for a while; hence, the potential security problems of this EH are still of concern.
+</t>
+</aside>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets containing a Hop-by-Hop Options header would break any of the protocols that rely on it for proper functioning. For example, it would break RSVP <xref target="RFC2205" format="default"/> and multicast deployments and would cause IPv6 jumbograms to be discarded.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Nodes implementing <xref target="RFC8200" format="default"/> would already ignore this extension header unless explicitly required to process it. For legacy nodes <xref target="RFC2460" format="default"/>, the recommended configuration for the processing of these packets depends on the features and capabilities of the underlying platform, the configuration of the platform, and also the deployment environment of the platform. On platforms that allow the forwarding of packets with IPv6 HBH Options headers on the fast path, we recommend that packets with IPv6 HBH Options headers be forwarded as normal. Otherwise, on platforms in which the processing of packets with IPv6 HBH Options headers is carried out in the slow path and an option is provided to rate-limit these packets, we recommend that this option be selected. Finally, when packets containing IPv6 HBH Options headers are processed in the slow path and the underlying platform does not have any mitigation options available for attacks based on these packets, we recommend that such platforms discard packets containing IPv6 HBH Options headers.</t>
+            <t>Finally, we note that the Routing Protocol for Low-Power and Lossy Networks (RPL) routers <xref target="RFC6550" format="default"/>  must not discard packets based on the presence of an IPv6 Hop-by-Hop Options header, as this would break the RPL.</t>
+          </section>
+        </section>
+        <section anchor="proto43" numbered="true" toc="default">
+          <name>Routing Header (Protocol Number=43)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Routing Header is used by an IPv6 source to list one or more intermediate nodes to be "visited" on the way to a packet's destination. </t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC8200" format="default"/>. The Routing Type 0 had originally been specified in <xref target="RFC2460" format="default"/> and was later obsoleted by <xref target="RFC5095" format="default"/>; thus, it was removed from <xref target="RFC8200" format="default"/>.</t>
+            <t>As of May 2022, the following Routing Types have been specified:</t>
+	    <ul spacing="normal">
+              <li>Type 0: Source Route (DEPRECATED) <xref target="RFC2460" format="default"/> <xref target="RFC5095" format="default"/></li>
+              <li>Type 1: Nimrod (DEPRECATED)</li>
+              <li>Type 2: Type 2 Routing Header <xref target="RFC6275" format="default"/></li>
+              <li>Type 3: RPL Source Route Header <xref target="RFC6554" format="default"/></li>
+              <li>Type 4: Segment Routing Header (SRH) <xref target="RFC8754" format="default"/></li>
+              <li>Types 5-252: Unassigned</li>
+              <li>Type 253: RFC3692-style Experiment 1 <xref target="RFC4727" format="default"/></li>
+              <li>Type 254: RFC3692-style Experiment 2 <xref target="RFC4727" format="default"/></li>
+              <li>Type 255: Reserved</li>
+            </ul>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>The security implications of Routing Headers of Routing Type 0 have been discussed in detail in <xref target="Biondi-2007" format="default"/> and <xref target="RFC5095" format="default"/>. Routing Type 1 was never widely implemented. The security implications of Routing Headers of Routing Type 2, Routing Type 3, and Routing Type 4 (SRH) are discussed in <xref target="RFC6275" format="default"/>,  <xref target="RFC6554" format="default"/>, and <xref target="RFC8754" format="default"/>, respectively.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            
+            <t>Blocking packets containing Routing Headers of Routing Type 0 or Routing Type 1 has no operational implications, since both have been deprecated. Blocking packets containing Routing Headers of Routing Type 2 would break Mobile IPv6. Packets containing Routing Headers of Routing Type 3 may be safely blocked at RPL domain boundaries, since such headers are employed within a single RPL domain. Blocking packets containing Routing Headers of Routing Type 4 (SRH) will break Segment Routing (SR) deployments if the filtering policy is enforced on packets being forwarded within an SR domain.</t>
+            </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+
+            <t>Intermediate systems should discard packets containing Routing Headers of Routing Type 0, Routing Type 1, or Routing Type 3. Other Routing Types should be permitted, as required by <xref target="RFC7045" format="default"/>.</t>
+          </section>
+        </section>
+        <section anchor="proto44" numbered="true" toc="default">
+          <name>Fragment Header (Protocol Number=44)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This EH provides the fragmentation and reassembly functionality for IPv6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC8200" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>The security implications of the Fragment Header range from DoS attacks (e.g., based on flooding a target with IPv6 fragments) to information leakage attacks <xref target="RFC7739" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Blocking packets that contain a Fragment Header will break any protocol that may rely on fragmentation (e.g., the DNS <xref target="RFC1034" format="default"/>). However, IP fragmentation is known to introduce fragility to Internet communication <xref target="RFC8900" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets that contain a Fragment Header.</t>
+          </section>
+        </section>
+        <section anchor="proto50" numbered="true" toc="default">
+          <name>Encapsulating Security Payload (Protocol Number=50)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This EH is employed for the IPsec suite <xref target="RFC4303" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC4303" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Besides the general implications of IPv6 EHs, this EH could be employed to potentially perform a DoS attack at the destination system by wasting CPU resources in validating the contents of the packet.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that employ this EH would break IPsec deployments.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets containing the Encapsulating Security Payload EH.</t>
+          </section>
+        </section>
+        <section anchor="proto51" numbered="true" toc="default">
+          <name>Authentication Header (Protocol Number=51)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Authentication Header can be employed to provide authentication services in
+   IPv4 and IPv6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC4302" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Besides the general implications of IPv6 EHs, this EH could be employed to potentially perform a DoS attack at the destination system by wasting CPU resources in validating the contents of the packet.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that employ this EH would break IPsec deployments.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets containing an Authentication Header.</t>
+          </section>
+        </section>
+        <section anchor="proto60" numbered="true" toc="default">
+          <name>Destination Options (Protocol Number=60)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Destination Options (DO) header is used to carry optional information that needs be examined only by a packet's destination node(s).</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC8200" format="default"/>. As of May 2022, the following options have been specified for this EH:
+</t>
+<ul spacing="normal">
+              <li>Type 0x00: Pad1 <xref target="RFC8200" format="default"/></li>
+              <li>Type 0x01: PadN <xref target="RFC8200" format="default"/></li>
+              <li>Type 0x04: Tunnel Encapsulation Limit <xref target="RFC2473" format="default"/></li>
+              <li>Type 0x0F: IPv6 Performance and Diagnostic Metrics (PDM) <xref target="RFC8250" format="default"/></li>
+              <li>Type 0x4D: (Deprecated)</li>
+              <li>Type 0xC9: Home Address <xref target="RFC6275" format="default"/></li>
+              <li>Type 0x8A: Endpoint Identification (Deprecated) <xref target="NIMROD-EID" format="default"/></li>
+              <li>Type 0x8B: ILNP Nonce <xref target="RFC6744" format="default"/></li>
+              <li>Type 0x8C: Line-Identification Option <xref target="RFC6788" format="default"/></li>
+              <li>Type 0x1E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x3E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x5E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x7E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0x9E: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0xBE: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0xDE: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+              <li>Type 0xFE: RFC3692-style Experiment <xref target="RFC4727" format="default"/></li>
+            </ul>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>No security implications are known, other than the general security implications of IPv6 EHs. For a discussion of possible security implications of specific options specified for the DO header, please see <xref target="opt-filtering" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain a Destination Options header would break protocols that rely on this EH type for conveying information (such as the Identifier-Locator Network Protocol (ILNP) <xref target="RFC6740" format="default"/> and Mobile IPv6 <xref target="RFC6275" format="default"/>), as well as IPv6 tunnels that employ the Tunnel Encapsulation Limit option <xref target="RFC2473"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets that contain a Destination Options header.</t>
+          </section>
+        </section>
+        <section anchor="proto135" numbered="true" toc="default">
+          <name>Mobility Header (Protocol Number=135)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Mobility Header is an EH used by mobile nodes, correspondent nodes, and home agents in all messaging related to the creation and management of bindings in Mobile IPv6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC6275" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>A thorough security assessment of the security implications of the Mobility Header and related mechanisms can be found in <xref target="RFC6275" sectionFormat="of" section="15"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets containing this EH would break Mobile IPv6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets that contain a Mobility Header.</t>
+          </section>
+        </section>
+        <section anchor="proto139" numbered="true" toc="default">
+          <name>Host Identity Protocol (Protocol Number=139)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This EH is employed with the Host Identity Protocol (HIP), which is a protocol that allows consenting hosts to securely establish and maintain shared IP-layer state, allowing the separation of the identifier and locator roles of IP addresses, thereby enabling continuity of communications across IP address changes.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC7401" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>The security implications of the HIP header are discussed in detail in <xref target="RFC7401" sectionFormat="of" section="8"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain a HIP header would break HIP deployments.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets that contain a HIP header.</t>
+          </section>
+        </section>
+        <section anchor="proto140" numbered="true" toc="default">
+          <name>Shim6 Protocol (Protocol Number=140)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This EH is employed by the Shim6 protocol <xref target="RFC5533" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This EH is specified in <xref target="RFC5533" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>The specific security implications are discussed in detail in <xref target="RFC5533" sectionFormat="of" section="16"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain this EH will break Shim6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should permit packets containing this EH.</t>
+          </section>
+        </section>
+        <section anchor="proto253254" numbered="true" toc="default">
+          <name>Use for Experimentation and Testing (Protocol Numbers=253 and 254)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>These IPv6 EHs are employed for performing RFC3692-style experiments (see <xref target="RFC3692" format="default"/> for details).</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>These EHs are specified in <xref target="RFC3692" format="default"/> and <xref target="RFC4727" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>The security implications of these EHs will depend on their specific use.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>For obvious reasons, discarding packets that contain these EHs limits the ability to perform legitimate experiments across IPv6 routers.
+</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Operators should determine, according to their own circumstances, whether to discard packets containing these EHs.</t>
+
+</section>
+        </section>
+      </section>
+      <section anchor="unknown-headers" numbered="true" toc="default">
+        <name>Advice on the Handling of Packets with Unknown IPv6 Extension Headers</name>
+        <t>We refer to IPv6 EHs that have not been assigned an Internet Protocol number by IANA (and marked as such) in <xref target="IANA-PROTOCOLS" format="default"/> as "unknown IPv6 Extension Headers" ("unknown IPv6 EHs").
+</t>
+        <section numbered="true" toc="default">
+          <name>Uses</name>
+          <t>New IPv6 EHs may be specified as part of future extensions to the IPv6 protocol.
+</t>
+          <t>Since IPv6 EHs and upper-layer protocols employ the same namespace, it is impossible to tell whether an unknown Internet Protocol number is being employed for an IPv6 EH or an upper-layer protocol.
+</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Specification</name>
+          <t>The processing of unknown IPv6 EHs is specified in <xref target="RFC7045" format="default"/>.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Specific Security Implications</name>
+          <t>For obvious reasons, it is impossible to determine specific security implications of unknown IPv6 EHs.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Operational and Interoperability Impact If Blocked</name>          
+          <t>As noted in <xref target="RFC7045" format="default"/>, discarding unknown IPv6 EHs may slow down the deployment of new IPv6 EHs and transport protocols. The corresponding IANA registry, which is <xref target="IANA-PROTOCOLS" format="default"/>, should be monitored such that filtering rules are updated as new IPv6 EHs are standardized.</t>
+          <t>We note that since IPv6 EHs and upper-layer protocols share the same numbering space, discarding unknown IPv6 EHs may result in packets encapsulating unknown upper-layer protocols being discarded.  
+</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Advice</name>
+          <t>Operators should determine, according to their own circumstances, whether to discard packets containing unknown IPv6 EHs.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="ipv6-options-discussion" numbered="true" toc="default">
+      <name>IPv6 Options</name>
+      <section anchor="ipv6-options-general-discussion" numbered="true" toc="default">
+        <name>General Discussion</name>
+        <t>The following subsections describe specific security implications of different IPv6 options and provide advice regarding filtering packets that contain such options.
+</t>
+      </section>
+      <section anchor="ipv6-options-general-implications" numbered="true" toc="default">
+        <name>General Security Implications of IPv6 Options</name>
+        <t>The general security implications of IPv6 options are closely related to those discussed in <xref target="ipv6-eh-general-implications" format="default"/> for IPv6 EHs. Essentially, packets that contain IPv6 options might need to be processed by an IPv6 router's general-purpose CPU and, hence, could present a Distributed Denial-of-Service (DDoS) risk to that router's general-purpose CPU (and thus to the router itself). For some architectures, a possible mitigation would be to rate-limit the packets that are to be processed by the general-purpose CPU (see, e.g., <xref target="Cisco-EH" format="default"/>).</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Summary of Advice on the Handling of IPv6 Packets with Specific IPv6 Options</name>
+        <t>This section summarizes the advice provided in <xref target="opt-filtering" format="default"/>, and it includes references to the specific sections in which a detailed analysis can be found.</t>
+        <table anchor="option-table" align="center">
+          <name>Summary of Advice on the Handling of IPv6 Packets with Specific IPv6 Options</name>
+          <thead>
+            <tr>
+              <th align="center">Option</th>
+              <th align="center">Filtering Policy</th>
+              <th align="center">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="center">Pad1 (Type=0x00)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x00" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">PadN (Type=0x01)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x01" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Tunnel Encapsulation Limit (Type=0x04)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x04" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Router Alert (Type=0x05)</td>
+              <td align="center">Permit based on needed functionality</td>
+              <td align="center">
+                <xref target="x05" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">CALIPSO (Type=0x07)</td>
+              <td align="center">Permit based on needed functionality</td>
+              <td align="center">
+                <xref target="x07" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">SMF_DPD (Type=0x08)</td>
+              <td align="center">Permit based on needed functionality</td>
+              <td align="center">
+                <xref target="x08" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">PDM Option (Type=0x0F)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x0F" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">RPL Option (Type=0x23)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x23" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Quick-Start (Type=0x26)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x26" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Deprecated (Type=0x4D)</td>
+              <td align="center">Drop</td>
+              <td align="center">
+                <xref target="x4D" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">MPL Option (Type=0x6D)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x6D" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Jumbo Payload (Type=0xC2)</td>
+              <td align="center">Permit based on needed functionality</td>
+              <td align="center">
+                <xref target="xC2" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">RPL Option (Type=0x63)</td>
+              <td align="center">Drop</td>
+              <td align="center">
+                <xref target="x63" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Endpoint Identification (Type=0x8A)</td>
+              <td align="center">Drop</td>
+              <td align="center">
+                <xref target="x8A" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">ILNP Nonce (Type=0x8B)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="x8B" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Line-Identification Option (Type=0x8C)</td>
+              <td align="center">Drop</td>
+              <td align="center">
+                <xref target="x8C" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">Home Address (Type=0xC9)</td>
+              <td align="center">Permit</td>
+              <td align="center">
+                <xref target="xC9" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">IP_DFF (Type=0xEE)</td>
+              <td align="center">Permit based on needed functionality</td>
+              <td align="center">
+                <xref target="xEE" format="default"/></td>
+            </tr>
+            <tr>
+              <td align="center">RFC3692-style Experiment (Types = 0x1E, 0x3E, 0x5E, 0x7E, 0x9E, 0xBE, 0xDE, 0xFE)</td>
+              <td align="center">Permit based on needed functionality</td>
+              <td align="center">
+                <xref target="x1E" format="default"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="opt-filtering" numbered="true" toc="default">
+        <name>Advice on the Handling of Packets with Specific IPv6 Options</name>
+        <t>The following subsections contain a description of each of the IPv6 options that have so far been specified, a summary of the security implications of each of such options, a discussion of possible 
+    interoperability implications if packets containing such options are 
+    discarded, and specific advice regarding whether packets containing these options should be permitted.</t>
+        <section anchor="x00" numbered="true" toc="default">
+          <name>Pad1 (Type=0x00)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is used when necessary to align subsequent options and to pad out the containing header to a multiple of 8 octets in length.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC8200" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>None.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain this option would potentially break any protocol that relies on IPv6 options.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x01" numbered="true" toc="default">
+          <name>PadN (Type=0x01)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is used when necessary to align subsequent options and to pad out the containing header to a multiple of 8 octets in length.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC8200" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Because of the possible size of this option, it could be leveraged as a large-bandwidth covert channel.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain this option would potentially break any protocol that relies on IPv6 options.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard IPv6 packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x04" numbered="true" toc="default">
+          <name>Tunnel Encapsulation Limit (Type=0x04)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Tunnel Encapsulation Limit option can be employed to specify how many further levels of nesting the packet is permitted to undergo.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC2473" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC2473" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets based on the presence of this option could result in tunnel traffic being discarded.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x05" numbered="true" toc="default">
+          <name>Router Alert (Type=0x05)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Router Alert option <xref target="RFC2711" format="default"/> is employed by a number of protocols, including the Resource reSerVation Protocol (RSVP) <xref target="RFC2205" format="default"/>, Multicast Listener Discovery (MLD) <xref target="RFC2710" format="default"/> <xref target="RFC3810" format="default"/>, Multicast Router Discovery (MRD) <xref target="RFC4286" format="default"/>, and General Internet Signaling Transport (GIST) <xref target="RFC5971" format="default"/>. Its usage is discussed in detail in <xref target="RFC6398" format="default"/>.
+</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC2711" format="default"/>.</t>
+          </section>
+          <section anchor="ra-usage" numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Since this option causes the contents of the packet to be inspected by the handling device, this option could be leveraged for performing DoS attacks. The security implications of the Router Alert option are discussed in detail in <xref target="RFC6398" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain this option would break any protocols that rely on them, such as RSVP and multicast deployments. Please see <xref target="ra-usage" format="default"/> for further details.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Packets containing this option should be permitted in environments where support for RSVP, multicast routing, or similar protocols is required.</t>
+          </section>
+        </section>
+        <section anchor="x07" numbered="true" toc="default">
+          <name>CALIPSO (Type=0x07)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is used for encoding explicit packet Sensitivity Labels on IPv6 packets.  It is intended for use only within Multi-Level Secure (MLS) networking environments that are both trusted and trustworthy.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC5570" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Presence of this option in a packet does not by itself create any
+          specific new threat. Packets with this option ought not normally be
+          seen on the global public Internet.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>If packets with this option are discarded or if the option is
+          stripped from the packet during transmission from source to
+          destination, then the packet itself is likely to be discarded by the
+          receiver because it is not properly labeled. In some cases, the
+          receiver might receive the packet but associate an incorrect
+          Sensitivity Label with the received data from the packet whose Common Architecture Label
+	  IPv6 Security Option (CALIPSO)
+          was stripped by a middlebox (such as a packet scrubber). Associating an
+          incorrect Sensitivity Label can cause the received information
+          to be handled either as more sensitive than it really is
+          ("upgrading") or as less sensitive than it really is
+            ("downgrading"), either of which is problematic. As noted in <xref target="RFC5570" format="default"/>, IPsec <xref target="RFC4301" format="default"/> <xref target="RFC4302" format="default"/> <xref target="RFC4303" format="default"/> can be employed to protect the CALIPSO.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>
+Recommendations for handling the CALIPSO depend on the deployment environment rather than on whether an intermediate system 
+  happens to be deployed as a transit device (e.g., IPv6 transit router).</t>
+            <t>Explicit configuration is the only method via which an intermediate system
+ can know whether that particular intermediate system has been 
+ deployed within an MLS environment.  In many cases, 
+ ordinary commercial intermediate systems (e.g., IPv6 routers and firewalls) 
+ are the majority of the deployed intermediate systems inside an MLS 
+ network environment. </t>
+            <t>For intermediate systems that DO NOT implement <xref target="RFC5570" format="default"/>, there 
+ should be a configuration option to either (a) drop packets containing 
+ the CALIPSO or  (b) ignore the presence of the CALIPSO
+ and forward the packets normally.  In non-MLS environments, such
+ intermediate systems should have this configuration option set to (a)
+ above.  In MLS environments, such intermediate systems should
+ have this option set to (b) above.  The default setting for this configuration
+ option should be set to (a) above, because MLS environments are much
+ less common than non-MLS environments.
+</t>
+            <t>For intermediate systems that DO implement <xref target="RFC5570" format="default"/>, there should 
+ be configuration options (a) and (b) from the preceding paragraph and 
+ also a third configuration option (c) to process packets containing
+ a CALIPSO as per <xref target="RFC5570" format="default"/>.  When deployed in non-MLS
+ environments, such intermediate systems should have this configuration
+ option set to (a) above.  When deployed in MLS environments, such
+ intermediate systems should have this configuration option set to (c).  The default setting
+ for this configuration option <bcp14>MAY</bcp14> be set to (a) above, because MLS 
+ environments are much less common than non-MLS environments.
+</t>
+          </section>
+        </section>
+        <section anchor="x08" numbered="true" toc="default">
+          <name>SMF_DPD (Type=0x08)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is employed in the (experimental) Simplified Multicast Forwarding (SMF) for unique packet identification for IPv6 Identification-based DPD (I-DPD) and as a mechanism to guarantee non-collision of hash values for different packets when Hash-based DPD (H-DPD) is used.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC6621" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>None. The use of transient numeric identifiers is subject to the security and privacy considerations discussed in <xref target="I-D.irtf-pearg-numeric-ids-generation" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Dropping packets containing this option within a Mobile Ad Hoc Network (MANET) domain would break SMF. However, dropping such packets at the border of such domain would have no negative impact.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems that are not within a MANET domain should discard packets that contain this option.</t>
+          </section>
+        </section>
+        <section anchor="x0F" numbered="true" toc="default">
+          <name>PDM (Type=0x0F)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is employed to convey sequence numbers and timing information in IPv6 packets as a basis for measurements.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC8250" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC8250" format="default"/>. Additionally, since this option employs transient numeric identifiers, implementations may be subject to the issues discussed in <xref target="I-D.irtf-pearg-numeric-ids-generation" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Dropping packets containing this option will result in negative interoperability implications for traffic employing this option as a basis for measurements.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x23" numbered="true" toc="default">
+          <name>RPL Option (Type=0x23)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The RPL Option provides a mechanism to include routing information in each datagram that a RPL router forwards.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC9008" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC9008" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>This option can survive outside of a RPL instance. As a result, discarding packets based on the presence of this option would break some use cases for RPL (see <xref target="RFC9008" format="default"/>).</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard IPv6 packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x26" numbered="true" toc="default">
+          <name>Quick-Start (Type=0x26)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This IP option is used in the specification of Quick-Start for
+          TCP and IP, which is an experimental mechanism that allows transport
+          protocols, in cooperation with routers, to determine an allowed
+          sending rate at the start and, at times, in the middle of a data
+          transfer (e.g., after an idle period) <xref target="RFC4782" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC4782" format="default"/> on the "Experimental" track.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t><xref target="RFC4782" sectionFormat="of" section="9.6"/> notes that Quick-Start is
+          vulnerable to two kinds of attacks: </t>
+            <ul spacing="normal">
+              <li>attacks to increase the routers' processing and state load
+              and</li>
+              <li>attacks with bogus Quick-Start Requests to temporarily tie up
+              available Quick-Start bandwidth, preventing routers from
+              approving Quick-Start Requests from other connections</li>
+            </ul>
+            <t>We note that if routers in a given environment do not implement and enable the Quick-Start mechanism, only the general security 
+implications of IP options (discussed in <xref target="ipv6-options-general-implications" format="default"/>) would apply.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>If packets with IPv6 Quick Start options are blocked, the host trying to establish a TCP
+	    connection will fall back to not including the Quick Start option -- this means that the
+	    feature will be disabled, and additional delays in connection establishment
+	    will be introduced (as discussed in <xref target="RFC4782" sectionFormat="of"
+	    section="4.7.2"/>). We note,
+          however, that Quick-Start has been proposed as a mechanism that could
+          be of use in controlled environments and not as a mechanism that
+          would be intended or appropriate for ubiquitous deployment in the
+          global Internet <xref target="RFC4782" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard IPv6 packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x4D" numbered="true" toc="default">
+          <name>Deprecated (Type=0x4D)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>No information has been found about this option type.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>No information has been found about this option type.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>No information has been found about this option type; hence, it has been impossible to perform the corresponding security assessment.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Unknown.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should discard packets that contain this option.</t>
+          </section>
+        </section>
+        <section anchor="x63" numbered="true" toc="default">
+          <name>RPL Option (Type=0x63)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The RPL Option provides a mechanism to include routing information in each datagram that a RPL router forwards.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option was originally specified in <xref target="RFC6553" format="default"/>. It has been deprecated by <xref target="RFC9008" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC6553" sectionFormat="of" section="5"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>This option is meant to be employed within a RPL instance. As a result, discarding packets based on the presence of this option outside of a RPL instance will not result in interoperability implications.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should discard packets that contain a RPL Option.</t>
+          </section>
+        </section>
+        <section anchor="x6D" numbered="true" toc="default">
+          <name>MPL Option (Type=0x6D)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is used with the Multicast Protocol for Low power and Lossy Networks (MPL), which provides IPv6 multicast forwarding in
+   constrained networks.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC7731" format="default"/> and is meant to be included only in Hop-by-Hop Options headers.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC7731" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Dropping packets that contain an MPL Option within an MPL network would break the MPL. However, dropping such packets at the border of such networks will have no negative impact.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard packets based on the presence of this option. However, since this option has been specified for the Hop-by-Hop Options header, such systems should consider the discussion in <xref target="proto0" format="default"/>.</t>
+          </section>
+        </section>
+        <section anchor="x8A" numbered="true" toc="default">
+          <name>Endpoint Identification (Type=0x8A)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Endpoint Identification option was meant to be used with the Nimrod routing architecture <xref target="NIMROD-DOC" format="default"/> but has never seen widespread deployment.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="NIMROD-DOC" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>Undetermined.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>None.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should discard packets that contain this option.</t>
+          </section>
+        </section>
+        <section anchor="x8B" numbered="true" toc="default">
+          <name>ILNP Nonce (Type=0x8B)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is employed by the Identifier-Locator Network Protocol for IPv6 (ILNPv6) to provide protection against off-path attacks for packets when ILNPv6 is in use and as a signal during initial network-layer session creation that ILNPv6 is proposed for use with this network-layer session, rather than classic IPv6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC6744" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC6744" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets that contain this option will break ILNPv6 deployments.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="x8C" numbered="true" toc="default">
+          <name>Line-Identification Option (Type=0x8C)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is used by an Edge Router to identify the subscriber premises in scenarios where several subscriber premises may be logically connected to the same interface of an Edge Router.</t>
+
+</section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC6788" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are discussed in <xref target="RFC6788" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Since this option is meant to be used when tunneling Neighbor Discovery messages in some broadband network deployment scenarios, discarding packets based on the presence of this option at intermediate systems will result in no interoperability implications.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should discard packets that contain this option.</t>
+          </section>
+        </section>
+        <section anchor="xC2" numbered="true" toc="default">
+          <name>Jumbo Payload (Type=0XC2)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Jumbo Payload option provides the means for supporting payloads larger than 65535 bytes.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC2675" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>There are no specific issues arising from this option, except for improper validity checks of the option and associated packet lengths.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding packets based on the presence of this option will cause IPv6 jumbograms to be discarded.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>An operator should permit this option only in specific scenarios in which support for IPv6 jumbograms is required.
+</t>
+          </section>
+        </section>
+        <section anchor="xC9" numbered="true" toc="default">
+          <name>Home Address (Type=0xC9)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>The Home Address option is used by a Mobile IPv6 node while away from home to inform the recipient of the mobile node's home address.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC6275" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>There are no (known) additional security implications, other than those discussed in <xref target="RFC6275" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Discarding IPv6 packets based on the presence of this option will break Mobile IPv6.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems should not discard IPv6 packets based on the presence of this option.</t>
+          </section>
+        </section>
+        <section anchor="xEE" numbered="true" toc="default">
+          <name>IP_DFF (Type=0xEE)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>This option is employed with the (experimental) Depth-First Forwarding (DFF) in unreliable networks.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>This option is specified in <xref target="RFC6971" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>These are specified in <xref target="RFC6971" format="default"/>.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>Dropping packets containing this option within a routing domain that is running DFF would break DFF. However, dropping such packets at the border of such domains will have no operational or interoperability implications.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Intermediate systems that do not operate within a routing domain that is running DFF should discard packets containing this option.</t>
+          </section>
+        </section>
+        <section anchor="x1E" numbered="true" toc="default">
+          <name>RFC3692-Style Experiment (Types = 0x1E, 0x3E, 0x5E, 0x7E, 0x9E, 0xBE, 0xDE, 0xFE)</name>
+          <section numbered="true" toc="default">
+            <name>Uses</name>
+            <t>These options can be employed for performing RFC3692-style experiments. It is only appropriate to use these values in
+          explicitly configured experiments; they must not be shipped as defaults in implementations.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specification</name>
+            <t>These options are specified in <xref target="RFC4727" format="default"/> in the context of
+          RFC3692-style experiments.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Specific Security Implications</name>
+            <t>The specific security implications will depend on the specific use of these options.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Operational and Interoperability Impact If Blocked</name>
+            <t>For obvious reasons, discarding packets that contain these options limits the ability to perform legitimate experiments across IPv6 routers.</t>
+          </section>
+          <section numbered="true" toc="default">
+            <name>Advice</name>
+            <t>Operators should determine, according to their own circumstances, whether to discard packets containing these IPv6 options.</t>
+
+</section>
+        </section>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Advice on the Handling of Packets with Unknown IPv6 Options</name>
+        <t>We refer to IPv6 options that have not been assigned an IPv6 Option Type in the corresponding registry, which is <xref target="IANA-IPV6-PARAM" format="default"/>, as "unknown IPv6 options".</t>
+        <section numbered="true" toc="default">
+          <name>Uses</name>
+          <t>New IPv6 options may be specified as part of future protocol work.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Specification</name>
+          <t>The processing of unknown IPv6 options is specified in <xref target="RFC8200" format="default"/>.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Specific Security Implications</name>
+          <t>For obvious reasons, it is impossible to determine specific security implications of unknown IPv6 options.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Operational and Interoperability Impact If Blocked</name>
+          <t>Discarding unknown IPv6 options may slow down the deployment of new IPv6 options. As noted in <xref target="I-D.gont-6man-ipv6-opt-transmit" format="default"/>, the corresponding IANA registry, which is <xref target="IANA-IPV6-PARAM" format="default"/>, should be monitored such that IPv6 option filtering rules are updated as new IPv6 options are standardized.</t>
+        </section>
+        <section numbered="true" toc="default">
+          <name>Advice</name>
+          <t>Operators should determine, according to their own circumstances, whether to discard packets containing unknown IPv6 options.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+    <section anchor="Privacy" numbered="true" toc="default">
+      <name>Privacy Considerations</name>
+      <t>
+There are no privacy considerations associated with this document.
+</t>
+    </section>
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>
+This document provides advice on the filtering of IPv6 packets that contain IPv6 EHs (and possibly IPv6 options) at IPv6 transit routers. It is meant to improve the current situation of widespread dropping of such IPv6 packets in those cases where the drops result from improper configuration defaults or inappropriate advice in this area.
+</t>
+      <t>
+   As discussed in <xref target="ipv6-ehs-rationale" format="default"/>, one of the
+   underlying principles for the advice provided in this document is
+   that IPv6 packets with specific EHs or options that may represent an
+   attack vector for infrastructure devices should be dropped. While
+   this policy helps mitigate some specific attack vectors, the
+   recommendations in this document will not help to mitigate
+   vulnerabilities based on implementation errors <xref target="RFC9098" format="default"/>. 
+</t>
+      <t>We also note that depending on the router architecture, attempts to filter packets based on the presence of IPv6 EHs or options might itself represent an attack vector to network infrastructure devices <xref target="RFC9098" format="default"/>.</t>
+    </section>
+
+  </middle>
+  <back>
+<displayreference target="I-D.irtf-pearg-numeric-ids-generation" to="NUMERIC-IDS"/>
+<displayreference target="I-D.vyncke-v6ops-james" to="JAMES"/>
+<displayreference target="I-D.gont-6man-ipv6-opt-transmit" to="IPv6-OPTIONS"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+<reference  anchor='RFC1034' target='https://www.rfc-editor.org/info/rfc1034'>
+<front>
+<title>Domain names - concepts and facilities</title>
+<author initials='P.' surname='Mockapetris' fullname='P. Mockapetris'><organization /></author>
+<date year='1987' month='November' />
+<abstract><t>This RFC is the revised basic definition of The Domain Name System.  It obsoletes RFC-882.  This memo describes the domain style names and their used for host address look up and electronic mail forwarding.  It discusses the clients and servers in the domain name system and the protocol used between them.</t></abstract>
+</front>
+<seriesInfo name='STD' value='13'/>
+<seriesInfo name='RFC' value='1034'/>
+<seriesInfo name='DOI' value='10.17487/RFC1034'/>
+</reference>
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5570.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2205.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2675.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4301.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4302.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4303.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6275.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7401.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5533.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3692.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4727.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2710.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3810.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4286.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5971.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2711.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.5095.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6550.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6621.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6971.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7045.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7112.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.4782.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6788.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6740.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6744.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2473.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6553.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6554.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6398.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8754.xml"/>
+
+<reference  anchor='RFC9008' target='https://www.rfc-editor.org/info/rfc9008'>
+<front>
+<title>Using RPI Option Type, Routing Header for Source Routes, and IPv6-in-IPv6 Encapsulation in the RPL Data Plane</title>
+<author initials='M.I.' surname='Robles' fullname='M.I. Robles'><organization /></author>
+<author initials='M.' surname='Richardson' fullname='M. Richardson'><organization /></author>
+<author initials='P.' surname='Thubert' fullname='P. Thubert'><organization /></author>
+<date year='2021' month='April' />
+<abstract><t>This document looks at different data flows through Low-Power and Lossy Networks (LLN) where RPL (IPv6 Routing Protocol for Low-Power and Lossy Networks) is used to establish routing. The document enumerates the cases where RPL Packet Information (RPI) Option Type (RFC 6553), RPL Source Route Header (RFC 6554), and IPv6-in-IPv6 encapsulation are required in the data plane. This analysis provides the basis upon which to design efficient compression of these headers. This document updates RFC 6553 by adding a change to the RPI Option Type. Additionally, this document updates RFC 6550 by defining a flag in the DODAG Information Object (DIO) Configuration option to indicate this change and updates RFC 8138 as well to consider the new Option Type when the RPL Option is decompressed.</t></abstract>
+</front>
+<seriesInfo name='RFC' value='9008'/>
+<seriesInfo name='DOI' value='10.17487/RFC9008'/>
+</reference>
+
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7731.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8200.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8250.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.8900.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.2460.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.3871.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.6192.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7126.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7739.xml"/>
+        <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.irtf-pearg-numeric-ids-generation.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.9098.xml"/>
+        <xi:include href="https://xml2rfc.ietf.org/public/rfc/bibxml/reference.RFC.7872.xml"/>
+ <xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.vyncke-v6ops-james.xml"/>
+
+        <reference anchor="Huston-2022" target="https://iepg.org/2022-03-20-ietf113/huston-v6frag.pdf">
+          <front>
+            <title>IPv6 Fragmentation and EH Behaviours</title>
+            <author fullname="Geoff Huston" initials="G." surname="Huston">
+              <organization abbrev="APNIC"/>
+              <address>
+                <email>gih@apnic.net</email>
+                <uri>https://www.apnic.net</uri>
+              </address>
+            </author>
+            <author fullname="Joao Damas" initials="J." surname="Damas">
+              <organization abbrev="APNIC"/>
+            </author>
+            <date month="March" year="2022"/>
+          </front>
+          <refcontent>IEPG Meeting at IETF 113"</refcontent>
+        </reference>
+
+<reference anchor="NIMROD-EID">
+   <front>
+      <title>Endpoint Identifier Destination Option</title>
+      <author initials="C." surname="Lynn" fullname="Dr. Charles W. Lynn Jr.">
+         </author>
+      <date month="March" day="2" year="1996" />
+   </front>
+   <seriesInfo name="Internet-Draft" value="draft-ietf-nimrod-eid-00" />
+</reference>
+
+        <reference anchor="NIMROD-DOC" target="http://ana-3.lcs.mit.edu/~jnc/nimrod">
+          <front>
+            <title>Nimrod Documentation</title>
+	    <author/>
+	  </front>
+        </reference>
+
+        <reference anchor="Biondi-2007" target="http://www.secdev.org/conf/IPv6_RH_security-csw07.pdf">
+          <front>
+            <title>IPv6 Routing Header Security</title>
+            <author fullname="P. Biondi" initials="P." surname="Biondi">
+              <organization/>
+            </author>
+            <author fullname="A. Ebalard" initials="A." surname="Ebalard">
+              <organization/>
+            </author>
+            <date month="April" year="2007"/>
+          </front>
+          <refcontent>CanSecWest Security Conference</refcontent>
+        </reference>
+
+        <reference anchor="IANA-PROTOCOLS" target="https://www.iana.org/assignments/protocol-numbers">
+          <front>
+            <title>Protocol Numbers</title>
+	    <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="IANA-IPV6-PARAM" target="https://www.iana.org/assignments/ipv6-parameters">
+          <front>
+            <title>Internet Protocol Version 6 (IPv6) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+
+        <reference anchor="FW-Benchmark" target="https://www.ipv6hackers.org/files/meetings/ipv6-hackers-1/zack-ipv6hackers1-firewall-security-assessment-and-benchmarking.pdf">
+          <front>
+            <title abbrev="Firewall Benchmarking">Firewall Security Assessment and Benchmarking IPv6 Firewall Load Tests</title>
+            <author initials="E." surname="Zack" fullname="Eldad Zack">
+  </author>
+            <date month="June" year="2013"/>
+          </front>
+          <refcontent>IPv6 Hackers Meeting #1, Berlin, Germany</refcontent>
+  </reference>
+
+        <reference anchor="Cisco-EH" target="https://www.cisco.com/en/US/technologies/tk648/tk872/technologies_white_paper0900aecd8054d37d.pdf">
+          <front>
+            <title abbrev="Cisco IPv6 EH">IPv6 Extension Headers Review and Considerations</title>
+            <author initials="" surname="" fullname="">
+	      <organization>Cisco Systems</organization>
+  </author>
+            <date month="October" year="2006"/>
+          </front>
+          <refcontent>Whitepaper</refcontent>
+	</reference>
+<xi:include href="https://datatracker.ietf.org/doc/bibxml3/reference.I-D.gont-6man-ipv6-opt-transmit.xml"/>
+      </references>
+</references>
+    <section numbered="false" toc="default">
+      <name>Acknowledgements</name> 
+      
+      <t>The authors would like to thank <contact fullname="Ron Bonica"/> for his work on earlier draft versions of this document.</t>
+      <t>The authors of this document would like to thank (in alphabetical order) <contact fullname="Mikael Abrahamsson"/>, <contact fullname="Brian Carpenter"/>, <contact fullname="Tim Chown"/>, <contact fullname="Roman Danyliw"/>, <contact fullname="Darren Dukes"/>, <contact fullname="Lars Eggert"/>, <contact fullname="David Farmer"/>, <contact fullname="Mike Heard"/>, <contact fullname="Bob Hinden"/>, <contact fullname="Christian Huitema"/>, <contact fullname="Benjamin Kaduk"/>, <contact fullname="Erik Kline"/>, <contact fullname="Murray Kucherawy"/>, <contact fullname="Jen Linkova"/>, <contact fullname="Carlos Pignataro"/>, <contact fullname="Alvaro Retana"/>, <contact fullname="Maria Ines Robles"/>, <contact fullname="Zaheduzzaman Sarker"/>, <contact fullname="Donald Smith"/>, <contact fullname="Pascal Thubert"/>, <contact fullname="Ole Troan"/>, <contact fullname="Gunter Van de Velde"/>, <contact fullname="Éric Vyncke"/>, and <contact fullname="Robert Wilton"/> for providing valuable comments on earlier draft versions of this document.</t>
+      <t>This document borrows some text and analysis from <xref target="RFC7126" format="default"/>, which is authored by <contact fullname="Fernando Gont"/>, <contact fullname="Randall Atkinson"/>, and <contact fullname="Carlos Pignataro"/>.</t>
+      <t>The authors would like to thank <contact fullname="Warren Kumari"/> and <contact fullname="Éric Vyncke"/> for their guidance during the publication process for this document.</t>
+      <t>Fernando would also like to thank <contact fullname="Brian Carpenter"/> and <contact fullname="Ran Atkinson"/> who, over the years, have answered many questions and provided valuable comments that have benefited his protocol-related work (including the present document).</t>
+    </section> 
+  </back>
+</rfc>
