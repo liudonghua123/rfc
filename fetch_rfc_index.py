@@ -64,6 +64,62 @@ def post_multi_search(api_key: str, page: int, per_page: int = PER_PAGE) -> Dict
         return json.loads(resp.read().decode("utf-8"))
 
 
+def write_additional_formats(index_payload: Dict[str, Any], output_dir: Path) -> Dict[str, Path]:
+    """Write the RFC index as JSON plus several compact binary formats."""
+    output_dir.mkdir(exist_ok=True)
+
+    written: Dict[str, Path] = {
+        "json": output_dir / "index.json",
+        "msgpack": output_dir / "index.msgpack",
+        "cbor": output_dir / "index.cbor",
+        "protobuf": output_dir / "index.pb",
+        "parquet": output_dir / "index.parquet",
+        "arrow": output_dir / "index.arrow",
+    }
+
+    written["json"].write_text(
+        json.dumps(index_payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    try:
+        import msgpack
+    except ImportError:
+        print("Warning: msgpack is not installed; skipping .msgpack export.", file=sys.stderr)
+    else:
+        written["msgpack"].write_bytes(msgpack.packb(index_payload, use_bin_type=True, strict_types=True))
+
+    try:
+        import cbor2
+    except ImportError:
+        print("Warning: cbor2 is not installed; skipping .cbor export.", file=sys.stderr)
+    else:
+        written["cbor"].write_bytes(cbor2.dumps(index_payload))
+
+    try:
+        from google.protobuf import json_format
+        from google.protobuf.struct_pb2 import Struct
+    except ImportError:
+        print("Warning: protobuf is not installed; skipping .pb export.", file=sys.stderr)
+    else:
+        struct = Struct()
+        json_format.ParseDict(index_payload, struct)
+        written["protobuf"].write_bytes(struct.SerializeToString())
+
+    try:
+        import pyarrow as pa
+        import pyarrow.feather as feather
+        import pyarrow.parquet as pq
+    except ImportError:
+        print("Warning: pyarrow is not installed; skipping Parquet/Arrow exports.", file=sys.stderr)
+    else:
+        table = pa.Table.from_pylist(index_payload.get("data", []))
+        pq.write_table(table, written["parquet"])
+        feather.write_feather(table, written["arrow"])
+
+    return written
+
+
 def main() -> None:
     OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -99,10 +155,14 @@ def main() -> None:
         "data": all_hits,
     }
 
-    INDEX_FILE.write_text(json.dumps(index_payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    written = write_additional_formats(index_payload, OUTPUT_DIR)
     FACET_FILE.write_text(json.dumps(facet_counts, indent=2, ensure_ascii=False), encoding="utf-8")
 
-    print(f"Saved {INDEX_FILE} with {len(all_hits)} hits")
+    print(f"Saved {written['json']} with {len(all_hits)} hits")
+    for format_name in ("msgpack", "cbor", "protobuf", "parquet", "arrow"):
+        path = written[format_name]
+        if path.exists():
+            print(f"Saved {path} ({format_name.upper()})")
     print(f"Saved {FACET_FILE} with {len(facet_counts)} facet groups")
 
 
