@@ -1,0 +1,1810 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-deprecate-obsolete-kex-08" category="std" consensus="true" submissionType="IETF" xml:lang="en" number="10015" updates="4162, 4279, 4346, 4785, 5246, 5288, 5289, 5469, 5487, 5932, 6209, 6347, 6367, 6655, 7905, 8422, 9325" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <link href="https://datatracker.ietf.org/doc/draft-ietf-tls-deprecate-obsolete-kex-08" rel="prev"/>
+  <front>
+    <title abbrev="Deprecating Obsolete Key Exchanges in (D)TLS 1.2">Deprecating Obsolete Key Exchange Methods in TLS 1.2 and DTLS 1.2</title>
+    <seriesInfo name="RFC" value="10015"/>
+    <author initials="N." surname="Aviram" fullname="Nimrod Aviram">
+      <organization/>
+      <address>
+        <email>nimrod.aviram@gmail.com</email>
+      </address>
+    </author>
+    <date year="2026" month="July"/>
+    <area>SEC</area>
+    <workgroup>tls</workgroup>
+    <keyword>RSA</keyword>
+    <keyword>Diffie-Hellman</keyword>
+    <keyword>DH</keyword>
+    <keyword>DHE</keyword>
+    <keyword>ECDH</keyword>
+    <keyword>ECDHE</keyword>
+    <abstract>
+      <?line 203?>
+
+<t>For (D)TLS 1.2, this document deprecates the use of two key exchanges, namely Diffie-Hellman (DH) over
+a finite field and RSA. It also discourages the use of static Elliptic Curve Diffie-Hellman (ECDH)
+cipher suites.</t>
+      <t>These prescriptions apply only to (D)TLS 1.2, since (D)TLS 1.0 and TLS 1.1 are
+deprecated by RFC 8996 and (D)TLS 1.3 either does not use the affected
+algorithms or does not share the relevant configuration options.
+(There is no DTLS version 1.1.)</t>
+      <t>This document updates RFCs 4162, 4279, 4346, 4785, 5246, 5288, 5289, 5469,
+5487, 5932, 6209, 6347, 6367, 6655, 7905, 8422, and 9325 to either deprecate or
+discourage the use of cipher suites using the above key exchange
+methods in (D)TLS 1.2 connections.</t>
+    </abstract>
+  </front>
+  <middle>
+    <?line 219?>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t>(D)TLS 1.2 supports a variety of key exchange algorithms, including RSA, Diffie-Hellman (DH)
+over a finite field, and Elliptic Curve Diffie-Hellman (ECDH).</t>
+      <t>DH key exchange, over any group, comes in ephemeral and non-ephemeral
+varieties. Non-ephemeral DH algorithms use static DH public keys included in
+the authenticating peer's certificate; see <xref target="RFC4492"/> for discussion.  In
+contrast, ephemeral DH algorithms use ephemeral DH public keys sent in the
+handshake and authenticated by the peer's certificate.  Ephemeral and non-ephemeral finite field DH
+algorithms are called DHE and DH (or FFDHE and FFDH), respectively,
+and ephemeral and non-ephemeral elliptic curve DH algorithms are
+called ECDHE and ECDH, respectively <xref target="RFC4492"/>.</t>
+      <t>In general, non-ephemeral cipher suites are not recommended due to their lack of
+forward secrecy. Moreover, as demonstrated by the Raccoon attack <xref target="RACCOON"/> on finite field DH, public key reuse (either via non-ephemeral cipher suites or reused keys with
+ephemeral cipher suites) can lead to timing side channels that may leak connection
+secrets. For ECDH, invalid curve attacks similarly exploit secret
+reuse in order to break security <xref target="ICA"/>, further demonstrating the risk of reusing
+public keys. While both side channels can be avoided in implementations, experience
+shows that in practice, implementations may fail to thwart such attacks due to the
+complexity and number of the required mitigations.</t>
+      <t>Additionally, RSA key exchange suffers from security problems that are independent
+of implementation choices as well as problems that stem purely from the difficulty
+of implementing security countermeasures correctly.</t>
+      <t>At a rough glance, the problems affecting FFDHE in (D)TLS 1.2 are as follows:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>FFDHE suffers from interoperability problems because there is no mechanism for
+negotiating the group, and some implementations only support small group sizes
+(see <xref section="1" sectionFormat="comma" target="RFC7919"/>).</t>
+        </li>
+        <li>
+          <t>FFDHE groups may have small subgroups, which enables several attacks
+<xref target="SUBGROUPS"/>. When presented with a custom, non-standardized FFDHE group, a handshaking client cannot practically verify that the group chosen by the server does not suffer from this problem. There is also no mechanism for such handshakes to fall back to other key exchange parameters that are acceptable to the client.
+Custom FFDHE groups are widespread (as a result of advice based on <xref target="WEAK-DH"/>).
+Therefore, clients cannot simply reject handshakes that present custom, and thus potentially dangerous, groups.</t>
+        </li>
+        <li>
+          <t>In practice, some operators use 1024-bit FFDHE groups since this is the
+maximum size that ensures wide support (see <xref section="1" sectionFormat="comma" target="RFC7919"/>).
+This size leaves only a small security margin versus the current discrete log record,
+which stands at 795 bits <xref target="DLOG795"/>.</t>
+        </li>
+        <li>
+          <t>Expanding on the previous point, just a handful of very large computations allow
+an attacker to cheaply decrypt a relatively large fraction of FFDHE traffic
+(namely, traffic encrypted using particular standardized groups) <xref target="WEAK-DH"/>.</t>
+        </li>
+        <li>
+          <t>When secrets are not fully ephemeral, FFDHE suffers from the Raccoon side-channel attack <xref target="RACCOON"/>. (Note that FFDH is inherently vulnerable to the Raccoon attack
+unless constant-time mitigations are employed.)</t>
+        </li>
+      </ol>
+      <t>The problems affecting RSA key exchange in (D)TLS 1.2 are as follows:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>RSA key exchange offers no forward secrecy, by construction.</t>
+        </li>
+        <li>
+          <t>RSA key exchange may be vulnerable to Bleichenbacher's attack <xref target="BLEI"/>.
+Experience shows that variants of this attack arise every few years because
+implementing the relevant countermeasure correctly is difficult (see
+<xref target="ROBOT"/>, <xref target="NEW-BLEI"/>, and <xref target="DROWN"/>).</t>
+        </li>
+        <li>
+          <t>In addition to the above point, there is no convenient mechanism in (D)TLS 1.2 for
+the domain separation of keys. Therefore, a single endpoint that is vulnerable to
+Bleichenbacher's attack would affect all endpoints sharing the same RSA key (see
+<xref target="XPROT"/> and <xref target="DROWN"/>).</t>
+        </li>
+      </ol>
+      <t>This document updates 
+<xref target="RFC4162"/>, <xref target="RFC4279"/>, <xref target="RFC4346"/>, <xref target="RFC4785"/>, <xref target="RFC5246"/>, <xref target="RFC5288"/>, <xref target="RFC5289"/>, <xref target="RFC5469"/>, <xref target="RFC5487"/>, <xref target="RFC5932"/>, <xref target="RFC6209"/>, <xref target="RFC6347"/>, <xref target="RFC6367"/>, <xref target="RFC6655"/>, <xref target="RFC7905"/>, <xref target="RFC8422"/>, and <xref target="RFC9325"/> to remediate the above problems, by deprecating and discouraging the use of affected cipher suites, as listed in Sections <xref target="ecdhcs" format="counter"/>, <xref target="dhecs" format="counter"/>, <xref target="rsacs" format="counter"/>, and <xref target="cert" format="counter"/>.</t>
+      <t>BCP 195 <xref target="RFC8996"/> <xref target="RFC9325"/> contains the latest IETF recommendations for users of the (D)TLS protocol (and specifically, (D)TLS 1.2), and this
+document updates <xref target="RFC9325"/> in several points. <xref target="update-9325"/> details the exact differences.
+All other recommendations in the BCP documents remain valid.</t>
+      <section anchor="requirements-language">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL NOT</bcp14>",
+    "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be
+    interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/> <xref
+    target="RFC8174"/> when, and only when, they appear in all capitals, as
+    shown here.
+        </t>
+</section>
+    </section>
+    <section anchor="non-ephemeral">
+      <name>Non-Ephemeral Diffie-Hellman</name>
+      <t>Clients <bcp14>MUST NOT</bcp14> offer and servers <bcp14>MUST NOT</bcp14> select non-ephemeral FFDH cipher suites in (D)TLS 1.2 connections.
+(Note that (D)TLS 1.0 and TLS 1.1 are deprecated by <xref target="RFC8996"/>, and (D)TLS 1.3 does not
+support FFDH <xref target="RFC9846"/> <xref target="RFC9147"/>.) This includes all cipher suites listed in <xref target="deprecated-cs"/> in
+<xref target="dhcs"/>.</t>
+      <t>Clients <bcp14>SHOULD NOT</bcp14> offer and servers <bcp14>SHOULD NOT</bcp14> select non-ephemeral ECDH cipher suites in (D)TLS 1.2 connections. (This requirement is already present in <xref target="RFC9325"/>.
+Note that (D)TLS 1.0 and TLS 1.1 are deprecated by <xref target="RFC8996"/>, and
+(D)TLS 1.3 does not support ECDH <xref target="RFC9846"/> <xref target="RFC9147"/>.) This includes all cipher suites listed
+in <xref target="discouraged-cs"/> in <xref target="ecdhcs"/>.</t>
+      <t>In addition, to avoid the use of non-ephemeral DH, clients <bcp14>SHOULD NOT</bcp14> use and servers <bcp14>SHOULD NOT</bcp14> accept certificates with fixed DH parameters. These certificate types are rsa_fixed_dh, dss_fixed_dh, rsa_fixed_ecdh, and ecdsa_fixed_ecdh as listed in <xref target="cert"/>. These values only apply to (D)TLS versions of 1.2 and below.</t>
+    </section>
+    <section anchor="dhe">
+      <name>Ephemeral Finite Field Diffie-Hellman</name>
+      <t>Clients <bcp14>MUST NOT</bcp14> offer and servers <bcp14>MUST NOT</bcp14> select FFDHE cipher suites in (D)TLS 1.2 connections.
+This includes all cipher suites listed in <xref target="deprecated-dhe-cs"/> in <xref target="dhecs"/>.
+(Note that (D)TLS 1.0 and TLS 1.1 are deprecated by <xref target="RFC8996"/>.) FFDHE cipher suites in (D)TLS 1.3 do not suffer from the problems presented in <xref target="introduction"/>; see <xref target="RFC9846"/> and <xref target="RFC9147"/>. Therefore, clients and servers <bcp14>MAY</bcp14> offer FFDHE cipher suites in (D)TLS 1.3 connections.</t>
+    </section>
+    <section anchor="rsa">
+      <name>RSA</name>
+      <t>Clients <bcp14>MUST NOT</bcp14> offer and servers <bcp14>MUST NOT</bcp14> select RSA cipher suites in (D)TLS 1.2
+connections. (Note that (D)TLS 1.0 and TLS 1.1 are deprecated by <xref target="RFC8996"/>, and (D)TLS
+1.3 does not support static RSA <xref target="RFC9846"/> <xref target="RFC9147"/>.) This includes all cipher suites
+listed in <xref target="deprecated-rha-cs"/> in <xref target="rsacs"/>. Note that these cipher suites were previously
+marked as not recommended in the "TLS Cipher Suites" registry <xref target="TLS-REGISTRY"/>.</t>
+    </section>
+    <section anchor="updates-to-cipher-suites-and-tls-clientcertificatetype-identifiers">
+      <name>Updates to Cipher Suites and TLS ClientCertificateType Identifiers</name>
+      <t>The following subsections mention the use of "D" in the "Recommended" column of the "TLS Cipher Suites" and "TLS ClientCertificateType Identifiers" registries <xref target="TLS-REGISTRY"/>. See <xref target="RFC9847"/> for information on the use of the "D".</t>
+      <section anchor="dhcs">
+        <name>DH Cipher Suites Deprecated by This Document</name>
+        <t>IANA has set the "Recommended" column to "D" and added this document as a reference for the following entries in the "TLS Cipher Suites" registry <xref target="TLS-REGISTRY"/>:</t>
+        <table anchor="deprecated-cs">
+          <thead>
+            <tr>
+              <th align="left">Cipher Suite</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">TLS_DH_DSS_EXPORT_WITH_DES40_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_DES_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_EXPORT_WITH_DES40_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_DES_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_EXPORT_WITH_RC4_40_MD5</td>
+              <td align="left">
+                <xref target="RFC4346"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_RC4_128_MD5</td>
+              <td align="left">
+                <xref target="RFC5246"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_EXPORT_WITH_DES40_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_DES_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_AES_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_AES_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_AES_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_SEED_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4162"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_SEED_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4162"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_SEED_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4162"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_CAMELLIA_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_CAMELLIA_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_CAMELLIA_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_RSA_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_DSS_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DH_anon_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="ecdhcs">
+        <name>ECDH Cipher Suites Whose Use Is Discouraged by This Document</name>
+        <t><xref target="RFC9325"/> specifies that implementations <bcp14>SHOULD NOT</bcp14> negotiate the following cipher suites; accordingly, they appeared with "N" in the "Recommended" column in the IANA "TLS Cipher Suites" registry <xref target="TLS-REGISTRY"/>. Per this document, IANA has updated them to have "D" in the "Recommended" column to align with <xref target="RFC9847"/> (and added this document as a reference for each). This document also records the rationale for discouraging use of these cipher suites, and it cites prior analyses and attacks that demonstrate the associated risks (see <xref target="sec-considerations"/>).</t>
+        <table anchor="discouraged-cs">
+          <thead>
+            <tr>
+              <th align="left">Cipher Suite</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_NULL_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_RC4_128_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_NULL_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_RC4_128_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_anon_WITH_NULL_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_anon_WITH_RC4_128_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_anon_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_anon_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_anon_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8422"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_AES_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_AES_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5289"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_CAMELLIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_CAMELLIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_ECDSA_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_ECDH_RSA_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="dhecs">
+        <name>DHE Cipher Suites Deprecated by This Document</name>
+        <t>IANA has set the "Recommended" column to "D" and added this document as a reference for the following entries in the "TLS Cipher Suites" registry <xref target="TLS-REGISTRY"/>:</t>
+        <table anchor="deprecated-dhe-cs">
+          <thead>
+            <tr>
+              <th align="left">Cipher Suite</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">TLS_DHE_DSS_EXPORT_WITH_DES40_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_DES_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_EXPORT_WITH_DES40_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_DES_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_NULL_SHA</td>
+              <td align="left">
+                <xref target="RFC4785"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_AES_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_RC4_128_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_SEED_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4162"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_SEED_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4162"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_NULL_SHA256</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_NULL_SHA384</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_CAMELLIA_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CAMELLIA_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_DSS_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_CAMELLIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_128_CCM</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_256_CCM</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_128_CCM_8</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_AES_256_CCM_8</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_128_CCM</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_AES_256_CCM</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_RSA_WITH_CHACHA20_POLY1305_SHA256</td>
+              <td align="left">
+                <xref target="RFC7905"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_DHE_PSK_WITH_CHACHA20_POLY1305_SHA256</td>
+              <td align="left">
+                <xref target="RFC7905"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_PSK_DHE_WITH_AES_128_CCM_8</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_PSK_DHE_WITH_AES_256_CCM_8</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="rsacs">
+        <name>RSA Cipher Suites Deprecated by This Document</name>
+        <t>IANA has set the "Recommended" column to "D" and added this document as a reference for the following entries in the "TLS Cipher Suites" registry <xref target="TLS-REGISTRY"/>:</t>
+        <table anchor="deprecated-rha-cs">
+          <thead>
+            <tr>
+              <th align="left">Cipher Suite</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">TLS_RSA_WITH_NULL_MD5</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_NULL_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_EXPORT_WITH_RC4_40_MD5</td>
+              <td align="left">
+                <xref target="RFC4346"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_RC4_128_MD5</td>
+              <td align="left">
+                <xref target="RFC5246"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_RC4_128_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_EXPORT_WITH_RC2_CBC_40_MD5</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_IDEA_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_EXPORT_WITH_DES40_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4346"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_DES_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC8996"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_NULL_SHA</td>
+              <td align="left">
+                <xref target="RFC4785"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_NULL_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5246"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_CAMELLIA_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_CAMELLIA_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_RC4_128_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/> <xref target="RFC6347"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_3DES_EDE_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_AES_128_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_AES_256_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4279"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_SEED_CBC_SHA</td>
+              <td align="left">
+                <xref target="RFC4162"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5288"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_AES_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_AES_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_AES_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_AES_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_NULL_SHA256</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_NULL_SHA384</td>
+              <td align="left">
+                <xref target="RFC5487"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_CAMELLIA_256_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC5932"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_ARIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_ARIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_ARIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_ARIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6209"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_CAMELLIA_128_GCM_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_CAMELLIA_256_GCM_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_CAMELLIA_128_CBC_SHA256</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_CAMELLIA_256_CBC_SHA384</td>
+              <td align="left">
+                <xref target="RFC6367"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_128_CCM</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_256_CCM</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_128_CCM_8</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_WITH_AES_256_CCM_8</td>
+              <td align="left">
+                <xref target="RFC6655"/></td>
+            </tr>
+            <tr>
+              <td align="left">TLS_RSA_PSK_WITH_CHACHA20_POLY1305_SHA256</td>
+              <td align="left">
+                <xref target="RFC7905"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="cert">
+        <name>TLS ClientCertificateType Identifiers Deprecated by This Document</name>
+        <t>IANA has set the "Recommended" column to "D" and added this document as a reference for the following entries in the "TLS ClientCertificateType Identifiers" registry <xref target="TLS-REGISTRY"/>:</t>
+        <table>
+          <thead>
+            <tr>
+              <th align="left">Certificate Type</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">rsa_fixed_dh (3)</td>
+              <td align="left">
+                <xref target="RFC5246"/> <xref target="RFC9847"/></td>
+            </tr>
+            <tr>
+              <td align="left">dss_fixed_dh (4)</td>
+              <td align="left">
+                <xref target="RFC5246"/> <xref target="RFC9847"/></td>
+            </tr>
+            <tr>
+              <td align="left">rsa_fixed_ecdh (65)</td>
+              <td align="left">
+                <xref target="RFC8422"/> <xref target="RFC9847"/></td>
+            </tr>
+            <tr>
+              <td align="left">ecdsa_fixed_ecdh (66)</td>
+              <td align="left">
+                <xref target="RFC8422"/> <xref target="RFC9847"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+    <section anchor="update-9325">
+      <name>Updates to RFC 9325</name>
+      <t>This document updates <xref target="RFC9325"/> with respect to the use of (D)TLS 1.2, and <xref target="rfc9325-updates"/>
+lists the exact changes. All of these changes are made in <xref section="4.1" sectionFormat="of" target="RFC9325"/>.</t>
+      <table anchor="rfc9325-updates">
+        <thead>
+          <tr>
+            <th align="left"></th>
+            <th align="left">RFC 9325</th>
+            <th align="right">RFC 10015</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">Non-ephemeral FFDH</td>
+            <td align="left">
+              <bcp14>SHOULD NOT</bcp14></td>
+            <td align="right">
+              <bcp14>MUST NOT</bcp14></td>
+          </tr>
+          <tr>
+            <td align="left">Non-ephemeral ECDH</td>
+            <td align="left">
+              <bcp14>SHOULD NOT</bcp14></td>
+            <td align="right">No change</td>
+          </tr>
+          <tr>
+            <td align="left">Fixed DH certificate types</td>
+            <td align="left">Unspecified</td>
+            <td align="right">
+              <bcp14>SHOULD NOT</bcp14></td>
+          </tr>
+          <tr>
+            <td align="left">Ephemeral FFDH</td>
+            <td align="left">
+              <bcp14>SHOULD NOT</bcp14></td>
+            <td align="right">
+              <bcp14>MUST NOT</bcp14></td>
+          </tr>
+          <tr>
+            <td align="left">Static RSA</td>
+            <td align="left">
+              <bcp14>SHOULD NOT</bcp14></td>
+            <td align="right">
+              <bcp14>MUST NOT</bcp14></td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>The "TLS Cipher Suites" and "TLS ClientCertificateType Identifiers" registries both appear within the "Transport Layer Security (TLS) Parameters" registry group <xref target="TLS-REGISTRY"/>. IANA has updated entries in the "TLS Cipher Suites" registry <xref target="TLS-REGISTRY"/> as indicated in Sections <xref target="dhcs" format="counter"/>, <xref target="ecdhcs" format="counter"/>, <xref target="dhecs" format="counter"/>, and <xref target="rsacs" format="counter"/>. IANA has also updated entries in the "TLS ClientCertificateType Identifiers" registry as indicated in <xref target="cert"/>.</t>
+      <t>For each entry listed in Sections <xref target="dhcs" format="counter"/>, <xref target="ecdhcs" format="counter"/>, <xref target="dhecs" format="counter"/>, <xref target="rsacs" format="counter"/>, and <xref target="cert" format="counter"/>,
+IANA has set the "Recommended" column to "D" and updated the entry's Reference column to refer to this document. For information about the use of "D" in the "Recommended" column, see <xref target="RFC9847"/>.</t>
+    </section>
+    <section anchor="sec-considerations">
+      <name>Security Considerations</name>
+      <t>Non-ephemeral finite field DH cipher suites (TLS_DH_*), as well as ephemeral key reuse
+for finite field DH cipher suites, are prohibited due to the Raccoon attack <xref target="RACCOON"/>. Both are
+already considered bad practice since they do not provide forward secrecy. However,
+the Raccoon attack revealed that timing side channels in processing TLS premaster secrets may be
+exploited to reveal the encrypted premaster secret.</t>
+      <t>As for non-ephemeral ECDH cipher suites (TLS_ECDH_*), forgoing forward secrecy
+not only allows retroactive decryption in the event of key compromise but may
+also enable a broad category of attacks where the attacker exploits key reuse
+to repeatedly query a cryptographic secret.</t>
+      <t>This category includes, but is not necessarily limited to, the following
+examples:</t>
+      <ol spacing="normal" type="1"><li>
+          <t>Invalid curve attacks, where the attacker exploits key reuse to repeatedly
+query and eventually learn the key itself. These attacks have been shown to be
+practical against real-world TLS implementations <xref target="ICA"/>.</t>
+        </li>
+        <li>
+          <t>Side-channel attacks, where the attacker exploits key reuse and an additional
+side channel to learn a cryptographic secret. For an example of such an attack,
+refer to <xref target="MAY4"/>.</t>
+        </li>
+        <li>
+          <t>Fault attacks, where the attacker exploits key reuse and incorrect
+calculations to learn a cryptographic secret. For an example of such an attack,
+see <xref target="PARIS256"/>.</t>
+        </li>
+      </ol>
+      <t>Such attacks are often implementation-dependent, including the above examples.
+However, these examples demonstrate that building a system that reuses keys and
+avoids this category of attacks is difficult in practice. In contrast, avoiding
+key reuse not only prevents decryption in the event of key compromise, but it also
+precludes this category of attacks altogether. Therefore, this document
+discourages the reuse of ECDH public keys.</t>
+      <t>As for ephemeral finite field DH in (D)TLS 1.2 (TLS_DHE_* and TLS_PSK_DHE_*), as explained above, clients have no practical way to support these cipher suites while ensuring they only negotiate security parameters that are acceptable to them. In (D)TLS 1.2, the server chooses the DH group, and custom groups are prevalent. Therefore, once the client includes these cipher suites in its handshake and the server presents a custom group, the client cannot complete the handshake while ensuring security. Verifying the group structure is prohibitively expensive for the client. Using a safelist of known-good groups is also impractical, since server operators were encouraged to generate their own custom group. Further, there is no mechanism for the handshake to fall back to other parameters that are acceptable to both the client and server.</t>
+    </section>
+  </middle>
+  <back>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9846.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7919.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4162.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4279.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4346.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4785.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5246.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5288.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5289.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5469.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5487.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5932.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6209.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6347.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6367.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6655.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7905.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8422.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9325.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8996.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9147.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9847.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="RACCOON" target="https://raccoon-attack.com/RacoonAttack.pdf">
+          <front>
+            <title>Raccoon Attack: Finding and Exploiting Most-Significant-Bit-Oracles in TLS-DH(E)</title>
+            <author initials="R." surname="Merget">
+              <organization/>
+            </author>
+            <author initials="M." surname="Brinkmann">
+              <organization/>
+            </author>
+            <author initials="N." surname="Aviram">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <author initials="J." surname="Mittmann">
+              <organization/>
+            </author>
+            <author initials="J." surname="Schwenk">
+              <organization/>
+            </author>
+            <date year="2020" month="September" day="09"/>
+          </front>
+        </reference>
+        <reference anchor="ICA" target="https://link.springer.com/content/pdf/10.1007/978-3-319-24174-6_21.pdf">
+          <front>
+            <title>Practical invalid curve attacks on TLS-ECDH</title>
+            <author initials="T." surname="Jager">
+              <organization/>
+            </author>
+            <author initials="J." surname="Schwenk">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <date year="2015" month="September" day="21"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1007/978-3-319-24174-6_21"/>
+          <refcontent>ESORICS 2015, Part I, Lecture Notes in Computer Science, vol. 9326, pp. 407-425</refcontent>
+        </reference>
+        <reference anchor="TLS-REGISTRY" target="https://www.iana.org/assignments/tls-parameters">
+          <front>
+            <title>Transport Layer Security (TLS) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+        <reference anchor="WEAK-DH" target="https://weakdh.org/">
+          <front>
+            <title>Weak Diffie-Hellman and the Logjam Attack</title>
+            <author initials="D." surname="Adrian">
+              <organization/>
+            </author>
+            <author initials="K." surname="Bhargavan">
+              <organization/>
+            </author>
+            <author initials="Z." surname="Durumeric">
+              <organization/>
+            </author>
+            <author initials="P." surname="Gaudry">
+              <organization/>
+            </author>
+            <author initials="M." surname="Green">
+              <organization/>
+            </author>
+            <author initials="J. A." surname="Halderman">
+              <organization/>
+            </author>
+            <author initials="N." surname="Heninger">
+              <organization/>
+            </author>
+            <author initials="D." surname="Springall">
+              <organization/>
+            </author>
+            <author initials="E." surname="Thomé">
+              <organization/>
+            </author>
+            <author initials="L." surname="Valenta">
+              <organization/>
+            </author>
+            <author initials="B." surname="VanderSloot">
+              <organization/>
+            </author>
+            <author initials="E." surname="Wustrow">
+              <organization/>
+            </author>
+            <author initials="S." surname="Zanella-Béguelin">
+              <organization/>
+            </author>
+            <author initials="P." surname="Zimmermann">
+              <organization/>
+            </author>
+            <date year="2015" month="October"/>
+          </front>
+        </reference>
+        <reference anchor="SUBGROUPS" target="https://eprint.iacr.org/2016/995/20161017:193515">
+          <front>
+            <title>Measuring small subgroup attacks against Diffie-Hellman</title>
+            <author initials="L." surname="Valenta">
+              <organization/>
+            </author>
+            <author initials="D." surname="Adrian">
+              <organization/>
+            </author>
+            <author initials="A." surname="Sanso">
+              <organization/>
+            </author>
+            <author initials="S." surname="Cohney">
+              <organization/>
+            </author>
+            <author initials="J." surname="Fried">
+              <organization/>
+            </author>
+            <author initials="M." surname="Hastings">
+              <organization/>
+            </author>
+            <author initials="J. A." surname="Halderman">
+              <organization/>
+            </author>
+            <author initials="N." surname="Heninger">
+              <organization/>
+            </author>
+            <date year="2016" month="October" day="17"/>
+          </front>
+          <refcontent>Cryptology ePrint Archive, Paper 2016/995</refcontent>
+        </reference>
+        <reference anchor="BLEI">
+          <front>
+            <title>Chosen Ciphertext Attacks against Protocols Based on the RSA Encryption Standard PKCS #1</title>
+            <author initials="D." surname="Bleichenbacher">
+              <organization/>
+            </author>
+            <date year="1998"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1007/BFb0055716"/>
+          <refcontent>Advances in Cryptology -- CRYPTO'98, Lecture Notes in Computer Science, vol. 1462, pp. 1-12</refcontent>
+        </reference>
+        <reference anchor="ROBOT" target="https://www.usenix.org/system/files/conference/usenixsecurity18/sec18-bock.pdf">
+          <front>
+            <title>Return Of Bleichenbacher's Oracle Threat (ROBOT)</title>
+            <author initials="H." surname="Boeck">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <author initials="C." surname="Young">
+              <organization/>
+            </author>
+            <date year="2018" month="August"/>
+          </front>
+          <refcontent>Proceedings of the 27th USENIX Security Symposium</refcontent>
+        </reference>
+        <reference anchor="NEW-BLEI" target="https://www.usenix.org/system/files/conference/usenixsecurity14/sec14-paper-meyer.pdf">
+          <front>
+            <title>Revisiting SSL/TLS Implementations: New Bleichenbacher Side Channels and Attacks</title>
+            <author initials="C." surname="Meyer">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <author initials="E." surname="Weiss">
+              <organization/>
+            </author>
+            <author initials="J." surname="Schwenk">
+              <organization/>
+            </author>
+            <author initials="S." surname="Schinzel">
+              <organization/>
+            </author>
+            <author initials="E." surname="Tews">
+              <organization/>
+            </author>
+            <date year="2014" month="August"/>
+          </front>
+          <refcontent>Proceedings of the 23rd USENIX Security Symposium</refcontent>
+        </reference>
+        <reference anchor="DROWN" target="https://drownattack.com/drown-attack-paper.pdf">
+          <front>
+            <title>DROWN: Breaking TLS using SSLv2</title>
+            <author initials="N." surname="Aviram">
+              <organization/>
+            </author>
+            <author initials="S." surname="Schinzel">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <author initials="N." surname="Heninger">
+              <organization/>
+            </author>
+            <author initials="M." surname="Dankel">
+              <organization/>
+            </author>
+            <author initials="J." surname="Steube">
+              <organization/>
+            </author>
+            <author initials="L." surname="Valenta">
+              <organization/>
+            </author>
+            <author initials="D." surname="Adrian">
+              <organization/>
+            </author>
+            <author initials="J. A." surname="Halderman">
+              <organization/>
+            </author>
+            <author initials="V." surname="Dukhovni">
+              <organization/>
+            </author>
+            <author initials="E." surname="Käsper">
+              <organization/>
+            </author>
+            <author initials="S." surname="Cohney">
+              <organization/>
+            </author>
+            <author initials="S." surname="Engels">
+              <organization/>
+            </author>
+            <author initials="C." surname="Paar">
+              <organization/>
+            </author>
+            <author initials="Y." surname="Shavitt">
+              <organization/>
+            </author>
+            <date year="2016" month="August"/>
+          </front>
+          <refcontent>Proceedings of the 25th USENIX Security Symposium</refcontent>
+        </reference>
+        <reference anchor="XPROT">
+          <front>
+            <title>On the Security of TLS 1.3 and QUIC Against Weaknesses in PKCS#1 v1.5 Encryption</title>
+            <author initials="T." surname="Jager">
+              <organization/>
+            </author>
+            <author initials="J." surname="Schwenk">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <date year="2015" month="October"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/2810103.2813657"/>
+          <refcontent>Proceedings of the 22nd ACM SIGSAC Conference on Computer and Communications Security, pp. 1185-1196</refcontent>
+        </reference>
+        <reference anchor="DLOG795" target="https://eprint.iacr.org/2020/697">
+          <front>
+            <title>Comparing the difficulty of factorization and discrete logarithm: a 240-digit experiment</title>
+            <author initials="F." surname="Boudot">
+              <organization/>
+            </author>
+            <author initials="P." surname="Gaudry">
+              <organization/>
+            </author>
+            <author initials="A." surname="Guillevic">
+              <organization/>
+            </author>
+            <author initials="N." surname="Heninger">
+              <organization/>
+            </author>
+            <author initials="E." surname="Thomé">
+              <organization/>
+            </author>
+            <author initials="P." surname="Zimmermann">
+              <organization/>
+            </author>
+            <date year="2020" month="August" day="17"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1007/978-3-030-56880-1_3"/>
+          <refcontent>Cryptology ePrint Archive, Paper 2020/697</refcontent>
+        </reference>
+        <reference anchor="MAY4" target="https://dl.acm.org/doi/pdf/10.1145/3133956.3134029">
+          <front>
+            <title>May the Fourth Be With You: A Microarchitectural Side Channel Attack on Several Real-World Applications of Curve25519</title>
+            <author initials="D." surname="Genkin">
+              <organization/>
+            </author>
+            <author initials="L." surname="Valenta">
+              <organization/>
+            </author>
+            <author initials="Y." surname="Yarom">
+              <organization/>
+            </author>
+            <date year="2017" month="October" day="30"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1145/3133956.3134029"/>
+          <refcontent>Proceedings of the 2017 ACM SIGSAC Conference on Computer and Communications Security</refcontent>
+        </reference>
+        <reference anchor="PARIS256" target="https://i.blackhat.com/us-18/Wed-August-8/us-18-Valsorda-Squeezing-A-Key-Through-A-Carry-Bit-wp.pdf">
+          <front>
+            <title>The PARIS256 Attack</title>
+            <author initials="S." surname="Devlin">
+              <organization/>
+            </author>
+            <author initials="F." surname="Valsorda">
+              <organization/>
+            </author>
+            <date year="2018" month="August" day="08"/>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4492.xml"/>
+      </references>
+    </references>
+    <?line 671?>
+
+<section numbered="false" anchor="acks">
+      <name>Acknowledgments</name>
+      <t>This document includes many important contributions from <contact fullname="Carrie Bartle"/>, who wrote much of the prose and presented it several times at the IETF TLS WG.</t>
+      <t>The document was inspired by discussions on the TLS WG mailing list and
+a suggestion by <contact fullname="Filippo Valsorda"/> following the release of the Raccoon attack <xref target="RACCOON"/>.
+Thanks to <contact fullname="Christopher A. Wood"/> for writing up the initial draft of this document.
+Thanks also to <contact fullname="Thomas Fossati"/>, <contact fullname="Sean Turner"/>, <contact fullname="Joe Salowey"/>, <contact fullname="Yaron Sheffer"/>, <contact fullname="Christian Buchgraber"/>, <contact fullname="John Preuß Mattsson"/>, and <contact fullname="Manuel Pégourié-Gonnard"/> for their comments and suggestions.</t>
+    </section>
+  </back>
+</rfc>

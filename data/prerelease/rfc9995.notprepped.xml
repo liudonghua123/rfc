@@ -1,0 +1,304 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-cose-hash-envelope-10" category="std" consensus="true" submissionType="IETF" xml:lang="en" number="9995" tocInclude="true" sortRefs="true" symRefs="true" version="3">
+
+  <link href="https://datatracker.ietf.org/doc/draft-ietf-cose-hash-envelope-latest" rel="prev"/>
+  <front>
+    <title abbrev="COSE Hash Envelope">CBOR Object Signing and Encryption (COSE) Hash Envelope</title>
+    <seriesInfo name="RFC" value="9995"/>
+    <author initials="O." surname="Steele" fullname="Orie Steele">
+      <organization/>
+      <address>
+        <email>orie@or13.io</email>
+      </address>
+    </author>
+    <author initials="S." surname="Lasker" fullname="Steve Lasker">
+      <organization/>
+      <address>
+        <email>stevenlasker@hotmail.com</email>
+      </address>
+    </author>
+    <author initials="H." surname="Birkholz" fullname="Henk Birkholz">
+      <organization abbrev="Fraunhofer SIT">Fraunhofer SIT</organization>
+      <address>
+        <postal>
+          <street>Rheinstrasse 75</street>
+          <city>Darmstadt</city>
+          <code>64295</code>
+          <country>Germany</country>
+        </postal>
+        <email>henk.birkholz@ietf.contact</email>
+      </address>
+    </author>
+    <date year="2026" month="July"/>
+    <area>sec</area>
+    <workgroup>cose</workgroup>
+    <abstract>
+    
+<t>This document defines new CBOR Object Signing and Encryption (COSE) header parameters for signaling a payload as an output of a hash function.
+This mechanism enables faster validation, as access to the original payload is not required for signature validation.
+Additionally, hints of the hashed payload's content format and availability are defined, providing references to optional discovery mechanisms that can help to find the original payload content.</t>
+    </abstract>
+  </front>
+  <middle>
+
+<section anchor="introduction">
+      <name>Introduction</name>
+      <t><xref section="2" sectionFormat="of" target="RFC9052"/> defines detached payloads for COSE, using <tt>nil</tt> as the payload.
+In order to verify a COSE_Sign or a COSE_Mac, the recipient requires access to the payload content.
+Hashes are already used on a regular basis as identifiers for payload data, such as documents or software components.
+As hashes typically are smaller than the payload data they represent, they are simpler to transport.
+Additional hints in the protected header ensure cryptographic agility for the hashing and signing algorithms.
+Hashes and other identifiers are commonly used as hints to discover and distinguish resources.
+Using a hash as an identifier for a resource has the advantage of enabling integrity checking.</t>
+      <t>In some applications, such as remote signing procedures, conveyance of hashes instead of original payload content reduces transmission time and costs.</t>
+    </section>
+    <section anchor="terminology">
+      <name>Terminology</name>
+      <t>The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+"<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> when, and only when, they
+appear in all capitals, as shown here.</t>
+
+<t>The terms "COSE" and "CDDL" are defined in <xref target="RFC9052"/> and <xref target="RFC8610"/>, respectively.
+The term "payload" is defined in <xref section="4.1" sectionFormat="of" target="RFC9052"/> for COSE_Sign and in <xref section="6.1" sectionFormat="of" target="RFC9052"/> for COSE_Mac.
+The term "preimage" refers to the set of input values to a function that produce a given output, called the "image".
+A hash function applied to a message (preimage) produces a digest value (image).</t>
+    </section>
+    <section anchor="param-spec">
+      <name>Header Parameters</name>
+      <t>This document specifies the following new header parameters commonly used alongside hashes to identify resources:</t>
+      <dl>
+        <dt>258:</dt>
+        <dd>
+          <t>The hash algorithm used to produce the payload.</t>
+        </dd>
+        <dt>259:</dt>
+        <dd>
+          <t>The content type of the bytes that were hashed (preimage) to produce the payload, given as a content-format number (<xref section="12.3" sectionFormat="of" target="RFC7252"/>) or as a media-type name optionally with parameters (<xref section="8.3" sectionFormat="of" target="RFC9110"/>).</t>
+        </dd>
+        <dt>260:</dt>
+        <dd>
+          <t>An identifier enabling retrieval of the original resource (preimage) identified by the payload.</t>
+        </dd>
+      </dl>
+    </section>
+    <section anchor="hash-envelope-cddl">
+      <name>Hash Envelope CDDL</name>
+      <sourcecode type="cddl" markers="true"><![CDATA[
+Hash_Envelope = #6.18(Hash_Envelope_as_COSE_Sign1)
+
+Hash_Envelope_as_COSE_Sign1 = [
+    protected: bstr .cbor Hash_Envelope_Protected_Header,
+    unprotected: Hash_Envelope_Unprotected_Header,
+    payload: bstr / nil,
+    signature: bstr
+]
+
+Hash_Envelope_Protected_Header = {
+    ? &(alg: 1) => int,
+    &(payload_hash_alg: 258) => int,
+    ? &(payload_preimage_content_type: 259) => uint / tstr,
+    ? &(payload_location: 260) => tstr,
+    * (int / tstr) => any
+}
+
+Hash_Envelope_Unprotected_Header = {
+    * (int / tstr) => any
+}
+]]></sourcecode>
+      <ul spacing="normal">
+        <li>
+          <t>Label <tt>1</tt> (alg) is the cryptographic algorithm to use.</t>
+        </li>
+        <li>
+          <t>Label <tt>258</tt> (payload_hash_alg) <bcp14>MUST</bcp14> be present in the protected header and <bcp14>MUST NOT</bcp14> be present in the unprotected header.</t>
+        </li>
+        <li>
+          <t>Label <tt>259</tt> (payload_preimage_content_type) <bcp14>MAY</bcp14> be present in the protected header and <bcp14>MUST NOT</bcp14> be present in the unprotected header.</t>
+        </li>
+        <li>
+          <t>Label <tt>260</tt> (payload_location) <bcp14>MAY</bcp14> be present in the protected header and <bcp14>MUST NOT</bcp14> be present in the unprotected header.</t>
+        </li>
+        <li>
+          <t>Label <tt>3</tt> (content_type) <bcp14>MUST NOT</bcp14> be present in the protected or unprotected headers.</t>
+        </li>
+      </ul>
+      <t>Label <tt>3</tt> (content_type) is easily confused with Label <tt>259</tt> (payload_preimage_content_type).
+The difference between content_type (3) and payload_preimage_content_type (259) is that content_type is used to identify the content format associated with payload, whereas payload_preimage_content_type is used to identify the content format of the bytes that are hashed to produce the payload.</t>
+      <t>Output from hash algorithms is generally small; thus, the payload is typically expected to be inline.
+But it can also be detached, as in any other COSE message <xref target="RFC9052"/>.</t>
+      <t>For example, when the actual content is a byte string (bstr), a verifier appraising the payload has to decide whether that bstr represents the digest bytes or the preimage bytes. Setting payload_preimage_content_type to bstr makes clear that the preimage bytes themselves were a bstr.</t>
+      <section anchor="envelope-extended-diagnostic-notation">
+        <name>Envelope Extended Diagnostic Notation</name>
+        <t>The following informative example uses Extended Diagnostic Notation as defined in Appendix G of <xref target="RFC8610"/> and demonstrates how to construct a hash envelope for a resource already commonly referenced by its hash.</t>
+        <sourcecode type="cbor-diag"><![CDATA[
+18([ # COSE_Sign1
+  <<{
+    / signature alg   / 1: -35, # ES384
+    / key identifier  / 4: h'75726e3a...32636573',
+    / COSE_Sign1 type / 16: "application/example+cose",
+    / hash algorithm  / 258: -16, # sha256
+    / media type      / 259: "application/spdx+json",
+    / location        /
+         260: "https://sbom.example/.../manifest.spdx.json"
+  }>>
+  / unprotected / {},
+  / payload     / h'935b5a91...e18a588a',
+         # SHA-256 digest of manifest.spdx.json"
+  / signature   / h'15280897...93ef39e5'
+         # ECDSA Signature with SHA-384 and P-384
+])
+]]></sourcecode>
+        <t>In this example, a System Package Data Exchange <xref target="SPDX"/> Software Bill of Materials (SBOM) in JSON format is already commonly identified by its SHA-256 hash.
+The content type for "manifest.spdx.json" is already well known as "application/spdx+json" and is <eref target="https://www.iana.org/assignments/media-types/application/spdx+json">registered with IANA</eref>.</t>
+        <t>The full JSON SBOM is available at a URL, such as "https://sbom.example/.../manifest.spdx.json".</t>
+        <t>The payload of this COSE_Sign1 is the SHA-256 hash of "manifest.spdx.json".</t>
+        <t>The type of this COSE_Sign1 is "application/example+cose", but other types may be used to establish more-specific media types for signatures of hashes.</t>
+        <t>The signature is produced using ES384, as defined in <xref section="3.4" sectionFormat="of" target="RFC7518"/>, which means using the Elliptic Curve Digital Signature Algorithm (ECDSA) with the SHA-384 hash function and P-384 elliptic curve.</t>
+        <t>This example is chosen to highlight that an existing system may use a hash algorithm such as SHA-256.
+This hash becomes the payload of a COSE_Sign1.
+When signed with a signature algorithm that is parameterized via a hash function, such as ECDSA with SHA-384, the to-be-signed structure is as described in <xref section="4.4" sectionFormat="of" target="RFC9052"/>.</t>
+        <t>The resulting signature is computed over the protected header and payload, providing integrity and authenticity for the hash algorithm, content type, and location of the associated resource, in this case a software bill of materials.</t>
+      </section>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <section anchor="choice-of-hash-function">
+        <name>Choice of Hash Function</name>
+        <t>The hash/signature algorithm combination is <bcp14>RECOMMENDED</bcp14> to be at least as strong as the payload hash algorithm.
+For example, if the payload was produced with SHA-256, and is signed with ECDSA, use at least P-256 and SHA-256.
+Note that, when using a pre-hash algorithm, the algorithm <bcp14>MUST</bcp14> be registered in the IANA "COSE Algorithms" registry <xref target="COSE-Algorithms"/> and <bcp14>MUST</bcp14> be distinguishable from non-pre-hash variants that may also be present.</t>
+      </section>
+      <section anchor="coseencrypt">
+        <name>COSE_Encrypt</name>
+        <t>Only COSE_Sign/COSE_Sign1 and COSE_Mac/COSE_Mac0 are in scope for this document. COSE_Encrypt/COSE_Encrypt0 is out of scope for this document.
+At the time of publication, there is no known use case for COSE_Encrypt/COSE_Encrypt0.
+It may be covered by a future extension, which would address whether the hash function is applied before or after encryption and clarify privacy considerations.</t>
+      </section>
+      <section anchor="payload-verification">
+        <name>Payload Verification</name>
+        <t>If a payload-location is specified, a verifier can choose to fetch the content and confirm that the digest of it, produced with the function defined by payload-hash-alg, matches the payload bytes. Verifiers that do not have access to the internet and obtain the preimage via other means will not be able to perform that check nor to derive utility from it.</t>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <section anchor="cose-header-parameters">
+        <name>COSE Header Parameters</name>
+        <t>IANA has registered the COSE header parameters defined in <xref target="param-spec"/> (as listed in <xref target="iana-header-params"/>) in the "COSE Header Parameters" registry <xref target="COSE-HDR-PARAMS"/>.  They have been registered in the 'Integer values from 256 to 65535' range per the 'Specification Required' registration policy <xref target="RFC8126"/>.</t>
+        <table anchor="iana-header-params">
+          <name>Newly Registered COSE Header Parameters</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Label</th>
+              <th align="left">Value Type</th>
+              <th align="left">Value Registry</th>
+              <th align="left">Description</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>payload-hash-alg</tt></td>
+              <td align="left">258</td>
+              <td align="left">int</td>
+              <td align="left">
+                <xref target="COSE-Algorithms"/></td>
+              <td align="left">The hash algorithm used to produce the payload of a COSE_Sign1</td>
+              <td align="left">RFC 9995, <xref target="param-spec"/></td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>preimage-content-type</tt></td>
+              <td align="left">259</td>
+              <td align="left">uint&nbsp;/ tstr</td>
+              <td align="left">
+                <xref target="CoAP-Content-Formats"/></td>
+              <td align="left">The content-format number or content-type (media-type name) of data that has been hashed to produce the payload of the COSE_Sign1</td>
+              <td align="left">RFC 9995, <xref target="param-spec"/></td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>payload-location</tt></td>
+              <td align="left">260</td>
+              <td align="left">tstr</td>
+              <td align="left">(none)</td>
+              <td align="left">The string or URI hint for the location of the data hashed to produce the payload of a COSE_Sign1</td>
+              <td align="left">RFC 9995, <xref target="param-spec"/></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </middle>
+  <back>
+
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7252.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8610.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9052.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9110.xml"/>
+        <reference anchor="COSE-HDR-PARAMS" target="https://www.iana.org/assignments/cose">
+          <front>
+            <title>CBOR Object Signing and Encryption (COSE)</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="SPDX" target="https://spdx.dev/use/specifications/">
+          <front>
+            <title>SPDX Specification</title>
+            <author>
+              <organization/>
+            </author>
+            <date/>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7518.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <reference anchor="COSE-Algorithms" target="https://www.iana.org/assignments/cose">
+          <front>
+            <title>COSE Algorithms</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+        <reference anchor="CoAP-Content-Formats" target="https://www.iana.org/assignments/cose">
+          <front>
+            <title>CoAP Content-Formats</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+            <date/>
+          </front>
+        </reference>
+      </references>
+    </references>
+
+<section numbered="false" anchor="acknowledgments">
+      <name>Acknowledgments</name>
+      <t>The following individuals provided input into the final form of the document: <contact fullname="Carsten Bormann"/>, <contact fullname="Antoine Delignat-Lavaud"/>, and <contact fullname="Cedric Fournet"/>.</t>
+    </section>
+  </back>
+</rfc>

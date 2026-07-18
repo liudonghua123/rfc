@@ -1,0 +1,871 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-tls-hybrid-design-16" number="9954" updates="" obsoletes="" category="info" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en" consensus="true">
+
+  <front>    
+    <title abbrev="Hybrid Key Exchange in TLS 1.3">Hybrid Key Exchange in TLS 1.3</title>
+    <seriesInfo name="RFC" value="9954"/>
+    <author initials="D." surname="Stebila" fullname="Douglas Stebila">
+      <organization>University of Waterloo</organization>
+      <address>
+        <email>dstebila@uwaterloo.ca</email>
+      </address>
+    </author>
+    <author initials="S." surname="Fluhrer" fullname="Scott Fluhrer">
+      <organization>Cisco Systems</organization>
+      <address>
+        <email>sfluhrer@cisco.com</email>
+      </address>
+    </author>
+    <author initials="S." surname="Gueron" fullname="Shay Gueron">
+      <organization abbrev="U. Haifa &amp; Meta">University of Haifa and Meta</organization>
+      <address>
+        <email>shay.gueron@gmail.com</email>
+      </address>
+    </author>
+    <date year="2026" month="July"/>
+
+    <area>SEC</area>
+    <workgroup>tls</workgroup>
+    
+<keyword>Post-Quantum</keyword>
+
+    <abstract>
+<t>Hybrid key exchange refers to using multiple key exchange algorithms simultaneously and combining the result with the goal of providing security even if a way is found to defeat the encryption for all but one of the component algorithms.  It is motivated by the transition to post-quantum cryptography.  This document provides a construction for hybrid key exchange in the Transport Layer Security (TLS) protocol version 1.3.</t>
+    </abstract>
+  </front>
+  <middle>
+
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t>This document gives a construction for hybrid key exchange in TLS 1.3.  The overall design approach is a simple, "concatenation"-based approach: Each hybrid key exchange combination should be viewed as a single new key exchange method that should be negotiated and transmitted using the existing TLS 1.3 mechanisms.</t>
+      <t>This document does not propose specific post-quantum mechanisms; see <xref target="scope"/> for more on the scope of this document.</t>
+      <section anchor="terminology">
+        <name>Terminology</name>
+	<t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>",
+    "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>",
+    "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are
+    to be interpreted as described in BCP&nbsp;14 <xref target="RFC2119"/>
+    <xref target="RFC8174"/> when, and only when, they appear in all capitals,
+    as shown here. 
+</t>
+ <t>For the purposes of this document, it is helpful to divide cryptographic algorithms into two classes:</t>
+        <ul spacing="normal">
+          <li>
+            <t>"Traditional" algorithms: Algorithms that are widely deployed today but may be deprecated in the future.  In the context of TLS 1.3, examples of traditional key exchange algorithms include Elliptic Curve Diffie-Hellman (ECDH) using secp256r1 or x25519 or finite field Diffie-Hellman.</t>
+          </li>
+          <li>
+            <t>"Next-generation" (or "next-gen") algorithms: Algorithms that are not yet widely deployed but may eventually be widely deployed.  An additional facet of these algorithms is that the cryptographic community may have less confidence in their security due to them being relatively new or less studied.  This includes "post-quantum" algorithms.</t>
+          </li>
+        </ul>
+        <t>In this context, "hybrid" key exchange means the use of two (or more) key exchange algorithms based on different cryptographic assumptions, e.g., one traditional algorithm and one next-generation algorithm, with the purpose of the final session key being secure as long as at least one of the component key exchange algorithms remains unbroken.
+When one of the algorithms is traditional and one is post-quantum, this is a Post-Quantum Traditional Hybrid Scheme <xref target="RFC9794"/>; while this is the initial use case for this document, the document is not limited to this case.
+	This document uses the term "component" algorithms to refer to the algorithms combined in a hybrid key exchange.</t>
+
+        <t>Some researchers prefer the term "composite" to refer to the use of multiple algorithms to distinguish from "hybrid public key encryption", in which a key encapsulation mechanism and data encapsulation mechanism are combined to create public key encryption.</t>
+        <t>It is intended that the component algorithms within a hybrid key exchange are to be performed, that is, negotiated and transmitted, within the TLS 1.3 handshake.  Any out-of-band method of exchanging keying material is considered out-of-scope.</t>
+        <t>The primary motivation of this document is preparing for post-quantum algorithms.  However, it is possible that public key cryptography based on alternative mathematical constructions will be desired to mitigate risks independent of the advent of a quantum computer, for example, because of a cryptanalytic breakthrough.  As such, this document opts for the more generic term "next-generation" algorithms rather than exclusively "post-quantum" algorithms.</t>
+        <t>Note that TLS 1.3 uses the term "groups" to refer to key exchange algorithms -- for example, the <tt>supported_groups</tt> extension -- since all key exchange algorithms in TLS 1.3 are Diffie-Hellman-based.  As a result, some parts of this document will refer to data structures or messages with the term "group" in them despite using a key exchange algorithm that is neither Diffie-Hellman-based nor a group.</t>
+      </section>
+      <section anchor="motivation">
+        <name>Motivation for Use of Hybrid Key Exchange</name>
+        <t>A hybrid key exchange algorithm allows early adopters eager for post-quantum security to have the potential of post-quantum security (possibly from a less-well-studied algorithm) while still retaining at least the security currently offered by traditional algorithms.  They may even need to retain traditional algorithms due to regulatory constraints, for example, US National Institute of Standards and Technology (NIST) FIPS compliance.</t>
+        <t>Ideally, one would not use hybrid key exchange: One would have confidence in a single algorithm and parameterization that will stand the test of time.  However, this may not be the case in the face of quantum computers and cryptanalytic advances more generally.</t>
+        <t>Many (though not all) post-quantum algorithms currently under consideration are relatively new; they have not been subject to the same depth of study as RSA and finite field or elliptic curve Diffie-Hellman; thus, the security community does not necessarily have as much confidence in their fundamental security or the concrete security level of specific parameterizations.</t>
+        <t>Moreover, it is possible that after next-generation algorithms are defined, and for a period of time thereafter, conservative users may not have full confidence in some algorithms.</t>
+        <t>Some users may want to accelerate adoption of post-quantum cryptography due to the threat of retroactive decryption (also known as "harvest-now-decrypt-later"): If a cryptographic assumption is broken due to the advent of a quantum computer or some other cryptanalytic breakthrough, confidentiality of information can be broken retroactively by any adversary who has passively recorded handshakes and encrypted communications.  Hybrid key exchange enables potential security against retroactive decryption while not fully abandoning traditional cryptosystems.</t>
+        <t>As such, there may be users for whom hybrid key exchange is an appropriate step prior to an eventual transition to next-generation algorithms. Users should consider the confidence they have in each hybrid component to assess that the hybrid system meets the desired motivation.</t>
+      </section>
+      <section anchor="scope">
+        <name>Scope</name>
+        <t>This document focuses on hybrid ephemeral key exchange in TLS 1.3 <xref target="RFC9846"/>.  It intentionally does not address:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Selecting which next-generation algorithms to use in TLS 1.3 or algorithm identifiers or encoding mechanisms for next-generation algorithms.</t>
+          </li>
+          <li>
+            <t>Authentication using next-generation algorithms.  While quantum computers could retroactively decrypt previous sessions, session authentication cannot be retroactively broken.</t>
+          </li>
+        </ul>
+      </section>
+      <section anchor="goals">
+        <name>Goals</name>
+        <t>The primary goal of a hybrid key exchange mechanism is to facilitate the establishment of a shared secret that remains secure as long as one of the component key exchange mechanisms remains unbroken.</t>
+        <t>In addition to the primary cryptographic goal, there may be several additional goals in the context of TLS 1.3:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Backwards compatibility: Clients and servers who are "hybrid-aware", i.e., compliant with whatever hybrid key exchange standard is developed for TLS, should remain compatible with endpoints and middleboxes that are not hybrid-aware.  The three scenarios to consider are:
+            </t>
+            <ol spacing="normal" type="1"><li>
+                <t>Hybrid-aware client, hybrid-aware server: These parties should establish a hybrid shared secret.</t>
+              </li>
+              <li>
+                <t>Hybrid-aware client, non-hybrid-aware server:  These parties should establish a non-hybrid shared secret (assuming the hybrid-aware client is willing to downgrade to non-hybrid-only).</t>
+              </li>
+              <li>
+                <t>Non-hybrid-aware client, hybrid-aware server:  These parties should establish a non-hybrid shared secret (assuming the hybrid-aware server is willing to downgrade to non-hybrid-only).</t>
+              </li>
+            </ol>
+            <t>
+Ideally, backwards compatibility should be achieved without extra round trips and without sending duplicate information; see below.</t>
+          </li>
+          <li>
+            <t>High performance: Use of hybrid key exchange should not be prohibitively expensive in terms of computational performance.  In general, this will depend on the performance characteristics of the specific cryptographic algorithms used and, as such, is outside the scope of this document.  See <xref target="PST"/> for preliminary results about performance characteristics.</t>
+          </li>
+          <li>
+            <t>Low latency: Use of hybrid key exchange should not substantially increase the latency experienced to establish a connection.  Factors affecting this may include the following:
+            </t>
+            <ul spacing="normal">
+              <li>
+                <t>The computational performance characteristics of the specific algorithms used.  See above.</t>
+              </li>
+              <li>
+                <t>The size of messages to be transmitted.  Public key and ciphertext sizes for post-quantum algorithms range from hundreds of bytes to over one hundred kilobytes, so this impact can be substantial.  See <xref target="PST"/> for preliminary results in a laboratory setting and <xref target="LANGLEY"/> for preliminary results on more realistic networks.</t>
+              </li>
+              <li>
+                <t>Additional round trips added to the protocol.  See below.</t>
+              </li>
+            </ul>
+          </li>
+          <li>
+            <t>No extra round trips: Attempting to negotiate hybrid key exchange should not lead to extra round trips in any of the three hybrid-aware/non-hybrid-aware scenarios listed above.</t>
+          </li>
+          <li>
+            <t>Minimal duplicate information: Attempting to negotiate hybrid key exchange should not mean having to send multiple public keys of the same type.</t>
+          </li>
+        </ul>
+        <t>The tolerance for lower performance and increased latency due to use of hybrid key exchange will depend on the context and use case of the systems and the network involved.</t>
+      </section>
+    </section>
+    <section anchor="kems">
+      <name>Key Encapsulation Mechanisms</name>
+      <t>This document models key agreement as key encapsulation mechanisms (KEMs), which consist of three algorithms:</t>
+      <ul spacing="normal">
+        <li>
+          <t><tt>KeyGen() -&gt; (pk, sk)</tt>: A probabilistic key generation algorithm, which generates a public key <tt>pk</tt> and a secret key <tt>sk</tt>.</t>
+        </li>
+        <li>
+          <t><tt>Encaps(pk) -&gt; (ct, ss)</tt>: A probabilistic encapsulation algorithm, which takes as input a public key <tt>pk</tt> and outputs a ciphertext <tt>ct</tt> and shared secret <tt>ss</tt>.</t>
+        </li>
+        <li>
+          <t><tt>Decaps(sk, ct) -&gt; ss</tt>: A decapsulation algorithm, which takes as input a secret key <tt>sk</tt> and ciphertext <tt>ct</tt> and outputs a shared secret <tt>ss</tt> or, in some cases, a distinguished error value.</t>
+        </li>
+      </ul>
+
+<t>The main security property for KEMs is indistinguishability under adaptive chosen ciphertext attack (IND-CCA2), which means that shared secret values should be indistinguishable from random strings even given the ability to have other arbitrary ciphertexts decapsulated.  IND-CCA2 corresponds to security against an active attacker, and the public key and secret key pair can be treated as a long-term key or reused. A common design pattern for obtaining security under key reuse is to apply the Fujisaki-Okamoto (FO) transform <xref target="FO"/> or a variant thereof <xref target="HHK"/>.</t>
+      <t>A weaker security notion is indistinguishability under chosen
+      plaintext attack (IND-CPA), which means that the shared secret values should be indistinguishable from random strings given a copy of the public key.  IND-CPA roughly corresponds to security against a passive attacker and sometimes corresponds to one-time key exchange.</t>
+      <t>See <xref target="KATZ"/> or <xref target="HHK"/> for definitions of IND-CCA2 and IND-CPA security.</t>
+      <t>Key exchange in TLS 1.3 is phrased in terms of Diffie-Hellman key exchange in a group.  DH key exchange can be modeled as a KEM, with (1) <tt>KeyGen</tt> corresponding to selecting an exponent <tt>x</tt> as the secret key and computing the public key <tt>g^x</tt>, (2) encapsulation corresponding to selecting an exponent <tt>y</tt> and computing the ciphertext <tt>g^y</tt> and the shared secret <tt>g^(xy)</tt>, and (3) decapsulation corresponding to computing the shared secret <tt>g^(xy)</tt>. See <xref target="RFC9180"/> for more details of such Diffie-Hellman-based key encapsulation mechanisms. Diffie-Hellman key exchange, when viewed as a KEM, does not formally satisfy IND-CCA2 security but is still safe to use for ephemeral key exchange in TLS 1.3; see, for example, <xref target="DOWLING"/>.</t>
+      <t>TLS 1.3 does not require that ephemeral public keys be used only in a single key exchange session; some implementations may reuse them, at the cost of limited forward secrecy.  As a result, any KEM used in the manner described in this document <bcp14>MUST</bcp14> explicitly be designed to be secure in the event that the public key is reused.  Finite field and elliptic curve Diffie-Hellman key exchange methods used in TLS 1.3 satisfy this criteria.  For generic KEMs, this means satisfying IND-CCA2 security or having a transform like the Fujisaki-Okamoto transform <xref target="FO"/> <xref target="HHK"/> applied.  While it is recommended that implementations avoid reuse of KEM public keys, implementations that do reuse KEM public keys <bcp14>MUST</bcp14> ensure that the number of reuses of a KEM public key abides by any bounds in the specification of the KEM or subsequent security analyses.  Implementations <bcp14>MUST NOT</bcp14> reuse randomness in the generation of KEM ciphertexts.</t>
+    </section>
+    <section anchor="construction">
+      <name>Construction for Hybrid Key Exchange</name>
+      <section anchor="construction-negotiation">
+        <name>Negotiation</name>
+        <t>Each particular combination of algorithms in a hybrid key exchange will be represented as a <tt>NamedGroup</tt> and sent in the <tt>supported_groups</tt> extension.  No internal structure or grammar is implied or required in the value of the identifier; they are simply opaque identifiers.</t>
+        <t>Each value representing a hybrid key exchange will correspond to an ordered pair of two or more algorithms.  (Note that this is independent from future documents standardizing solely post-quantum key exchange methods, which would have to be assigned their own identifier.)</t>
+      </section>
+      <section anchor="construction-transmitting">
+        <name>Transmitting Public Keys and Ciphertexts</name>
+        <t>This document takes the relatively simple "concatenation approach": The messages from the two or more algorithms being hybridized will be concatenated together and transmitted as a single value to avoid having to change existing data structures.  The values are directly concatenated, without any additional encoding or length fields; the representation and length of elements <bcp14>MUST</bcp14> be fixed once the algorithm is fixed.</t>
+        <t>Recall that, in TLS 1.3 (<xref target="RFC9846" sectionFormat="comma" section="4.2.8"/>), a KEM public key or KEM ciphertext is represented as a <tt>KeyShareEntry</tt>:</t>
+        <sourcecode type="tls-presentation"><![CDATA[
+    struct {
+        NamedGroup group;
+        opaque key_exchange<1..2^16-1>;
+    } KeyShareEntry;]]></sourcecode>
+
+        <t>These are transmitted in the <tt>extension_data</tt> fields of <tt>KeyShareClientHello</tt> and <tt>KeyShareServerHello</tt> extensions:</t>
+        <sourcecode type="tls-presentation"><![CDATA[
+    struct {
+        KeyShareEntry client_shares<0..2^16-1>;
+    } KeyShareClientHello;
+
+    struct {
+        KeyShareEntry server_share;
+    } KeyShareServerHello;]]></sourcecode>
+
+        <t>The client's shares are listed in descending order of client preference; the server selects one algorithm and sends its corresponding share.</t>
+        <t>For a hybrid key exchange, the <tt>key_exchange</tt> field of a <tt>KeyShareEntry</tt> is the concatenation of the <tt>key_exchange</tt> field for each of the constituent algorithms.  The order of shares in the concatenation <bcp14>MUST</bcp14> be the same as the order of algorithms indicated in the definition of the <tt>NamedGroup</tt>.</t>
+        <t>For the client's share, the <tt>key_exchange</tt> value contains the concatenation of the <tt>pk</tt> outputs of the corresponding KEMs' <tt>KeyGen</tt> algorithms if that algorithm corresponds to a KEM or the (EC)DH ephemeral key share if that algorithm corresponds to an (EC)DH group.  For the server's share, the <tt>key_exchange</tt> value contains the concatenation of the <tt>ct</tt> outputs of the corresponding KEMs' <tt>Encaps</tt> algorithms if that algorithm corresponds to a KEM or the (EC)DH ephemeral key share if that algorithm corresponds to an (EC)DH group.</t>
+
+        <t><xref target="RFC9846" section="4.2.8"/> requires that "The key_exchange values for each KeyShareEntry <bcp14>MUST</bcp14> be generated independently."  In the context of this document, the same algorithm may appear in multiple named groups; thus, this document relaxes the above requirement to allow the same key_exchange value for the same algorithm to be reused in multiple KeyShareEntry records sent within the same <tt>ClientHello</tt>.  However, key_exchange values for different algorithms <bcp14>MUST</bcp14> be generated independently. Explicitly, if the <tt>NamedGroup</tt> is the hybrid key exchange <tt>MyECDHMyPQKEM</tt>, the <tt>KeyShareEntry.key_exchange</tt> values <bcp14>MUST</bcp14> be generated in one of the following two ways:</t>
+        <t>Fully independently:</t>
+        <sourcecode type="pseudocode"><![CDATA[
+MyECDHMyPQKEM.KeyGen() = (MyECDH.KeyGen(), MyPQKEM.KeyGen())
+
+KeyShareClientHello {
+    KeyShareEntry {
+        NamedGroup: 'MyECDH',
+        key_exchange: MyECDH.KeyGen()
+    },
+    KeyShareEntry {
+        NamedGroup: 'MyPQKEM',
+        key_exchange: MyPQKEM.KeyGen()
+    },
+    KeyShareEntry {
+        NamedGroup: 'MyECDHMyPQKEM',
+        key_exchange: MyECDHMyPQKEM.KeyGen()
+    },
+}]]></sourcecode>
+
+        <t>Reusing key_exchange values of the same component algorithm within the same <tt>ClientHello</tt>:</t>
+        <sourcecode type="pseudocode"><![CDATA[
+myecdh_key_share = MyECDH.KeyGen()
+mypqkem_key_share = MyPQKEM.KeyGen()
+myecdh_mypqkem_key_share = (myecdh_key_share, mypqkem_key_share)
+
+KeyShareClientHello {
+    KeyShareEntry {
+        NamedGroup: 'MyECDH',
+        key_exchange: myecdh_key_share
+    },
+    KeyShareEntry {
+        NamedGroup: 'MyPQKEM',
+        key_exchange: mypqkem_key_share
+    },
+    KeyShareEntry {
+        NamedGroup: 'MyECDHMyPQKEM',
+        key_exchange: myecdh_mypqkem_key_share
+    },
+}]]></sourcecode>
+      </section>
+      <section anchor="construction-shared-secret">
+        <name>Shared Secret Calculation</name>
+        <t>This document also takes a simple "concatenation approach" for the calculation of shared secrets: The two shared secrets are concatenated together and used as the shared secret in the existing TLS 1.3 key schedule.  Again, this document does not add any additional structure (length fields) in the concatenation procedure; for both the traditional groups and post-quantum KEMs, the shared secret output length is fixed for a specific elliptic curve or parameter set.</t>
+        <t>In other words, if the <tt>NamedGroup</tt> is <tt>MyECDHMyPQKEM</tt>, the shared secret is calculated as:</t>
+        <artwork><![CDATA[
+concatenated_shared_secret = MyECDH.shared_secret
+                             || MyPQKEM.shared_secret
+]]></artwork>
+
+        <t>and inserted into the TLS 1.3 key schedule in place of the (EC)DHE shared secret, as shown in <xref target="fig-key-schedule"/>.</t>
+        <figure anchor="fig-key-schedule">
+          <name>Key Schedule for Hybrid Key Exchange</name>
+          <artwork><![CDATA[
+                                    0
+                                    |
+                                    v
+                      PSK ->  HKDF-Extract = Early Secret
+                                    |
+                                    +-----> Derive-Secret(...)
+                                    +-----> Derive-Secret(...)
+                                    +-----> Derive-Secret(...)
+                                    |
+                                    v
+                              Derive-Secret(., "derived", "")
+                                    |
+                                    v
+concatenated_shared_secret -> HKDF-Extract = Handshake Secret
+^^^^^^^^^^^^^^^^^^^^^^^^^^          |
+                                    +-----> Derive-Secret(...)
+                                    +-----> Derive-Secret(...)
+                                    |
+                                    v
+                              Derive-Secret(., "derived", "")
+                                    |
+                                    v
+                         0 -> HKDF-Extract = Main Secret
+                                    |
+                                    +-----> Derive-Secret(...)
+                                    +-----> Derive-Secret(...)
+                                    +-----> Derive-Secret(...)
+                                    +-----> Derive-Secret(...)]]></artwork>
+        </figure>
+        <t>In regard to FIPS compliance,
+the US National Institute of Standards and Technology (NIST) documents <xref target="NIST-SP-800-56C"/> and <xref target="NIST-SP-800-135"/> give recommendations for key derivation methods in key exchange protocols.  Some hybrid combinations may combine the shared secret from a NIST-approved algorithm (e.g., ECDH using the nistp256/secp256r1 curve) with a shared secret from an unapproved algorithm (e.g., post-quantum).  <xref target="NIST-SP-800-56C"/> lists simple concatenation as an approved method for generation of a hybrid shared secret in which one of the constituent shared secrets is from an approved method.</t>
+      </section>
+    </section>
+    <section anchor="discussion">
+      <name>Discussion</name>
+      <dl newline="true">
+  <dt>Larger public keys and/or ciphertexts:</dt>   
+<dd>The <tt>key_exchange</tt> field in the <tt>KeyShareEntry</tt> struct in <xref target="construction-transmitting"/> limits public keys and ciphertexts to 2<sup>16</sup>-1 bytes.  Some post-quantum KEMs have larger public keys and/or ciphertexts; for example, Classic McEliece's smallest parameter set has a public key size of 261,120 bytes <xref target="I-D.josefsson-mceliece"/>.  However, all defined parameter sets for the Module-Lattice-Based Key
+Encapsulation Mechanism (ML-KEM) <xref target="NIST-FIPS-203"/> have public keys and ciphertexts that fall within the TLS constraints (although this may result in ClientHello messages larger than a single packet).</dd>
+      <dt>Duplication of key shares:</dt>
+      <dd>Concatenation of public keys in the <tt>key_exchange</tt> field in the <tt>KeyShareEntry</tt> struct as described in <xref target="construction-transmitting"/> can result in sending duplicate key shares.  For example, if a client wants to offer support for two combinations, say "SecP256r1MLKEM768" and "X25519MLKEM768" <xref target="I-D.ietf-tls-ecdhe-mlkem"/>, it would end up sending two ML-KEM-768 public keys, since the <tt>KeyShareEntry</tt> for each combination contains its own copy of an ML-KEM-768 key.  This duplication may be more problematic for post-quantum algorithms that have larger public keys.  On the other hand, if the client wants to offer, for example, "SecP256r1MLKEM768" and "secp256r1" (for backwards compatibility), there is relatively little duplicated data (as the secp256r1 keys are comparatively small).</dd>
+      </dl>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>      
+<t>IANA has added this document as a reference for the "TLS Supported Groups" registry <xref target="IANA-TLS"/>.</t>
+<t>For hybrid combinations defined per this document, IANA will
+assign identifiers in a range that is distinct from the Finite Field Groups
+range.  In addition, the "Recommended" column
+<bcp14>SHOULD</bcp14> be "N", and the "DTLS-OK" column <bcp14>SHOULD</bcp14>
+be "Y".</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The shared secrets computed in the hybrid key exchange should be computed in a way that achieves the "hybrid" property: The resulting secret is secure as long as at least one of the component key exchange algorithms is unbroken.  See <xref target="GIACON"/> and <xref target="BINDEL"/> for an investigation of these issues.  Under the assumption that shared secrets are fixed length once the combination is fixed, the construction in <xref target="construction-shared-secret"/> corresponds to the dual-PRF combiner of <xref target="BINDEL"/>, which is shown to preserve security under the assumption that the hash function is a dual-PRF.</t>
+      <t>As noted in <xref target="kems"/>, KEMs used in the manner described in this document <bcp14>MUST</bcp14> explicitly be designed to be secure in the event that the public key is reused, such as achieving IND-CCA2 security or having a transform like the Fujisaki-Okamoto transform applied.  ML-KEM has such security properties.  However, some other post-quantum KEMs designed to be IND-CPA-secure (i.e., without countermeasures such as the FO transform) are completely insecure under public key reuse; for example, some lattice-based IND-CPA-secure KEMs are vulnerable to attacks that recover the private key after just a few thousand samples <xref target="FLUHRER"/>.</t>
+      <t><strong>Public keys, ciphertexts, and secrets should be constant length.</strong>
+This document assumes that the length of each public key, ciphertext, and shared secret is fixed once the algorithm is fixed.  This is the case for ML-KEM.</t>
+      <t>Note that variable-length secrets are, generally speaking, dangerous.  In particular, when using key material of variable length and processing it using hash functions, a timing side channel may arise.  In broad terms, when the secret is longer, the hash function may need to process more blocks internally.  In some unfortunate circumstances, this has led to timing attacks, e.g., the Lucky Thirteen <xref target="LUCKY13"/> and Raccoon <xref target="RACCOON"/> attacks.</t>
+      <t>Furthermore, <xref target="AVIRAM"/> identifies a risk of using variable-length secrets when the hash function used in the key derivation function is no longer collision-resistant.</t>
+      <t>If concatenation were to be used with values that are not fixed-length, a length prefix or other unambiguous encoding would need to be used to ensure that the composition of the two values is injective and requires a mechanism different from that specified in this document.</t>
+      <t>Therefore, this specification <bcp14>MUST</bcp14> only be used with algorithms that have fixed-length shared secrets (after the variant has been fixed by the algorithm identifier in the <tt>NamedGroup</tt> negotiation in <xref target="construction-negotiation"/>).</t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="RFC9794" to="PQUIP-TERM"/>
+    <displayreference target="I-D.campagna-tls-bike-sike-hybrid" to="CAMPAGNA"/>
+    <displayreference target="RFC8784" to="IKE-PSK"/>
+    <displayreference target="I-D.schanck-tls-additional-keyshare" to="SCHANCK"/>
+    <displayreference target="I-D.whyte-qsh-tls13" to="WHYTE13"/>
+    <displayreference target="I-D.ietf-tls-ecdhe-mlkem" to="ECDHE-MLKEM"/>
+    <displayreference target="I-D.kiefer-tls-ecdhe-sidh" to="KIEFER"/>
+    <displayreference target="I-D.whyte-qsh-tls12" to="WHYTE12"/>
+    <displayreference target="RFC8773" to="EXTERN-PSK"/>
+    <displayreference target="RFC9180" to="HPKE"/>
+    <displayreference target="RFC8391" to="XMSS"/>
+    <displayreference target="RFC9846" to="TLS13"/>
+    <displayreference target="I-D.josefsson-mceliece" to="Classic-McEliece"/>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <reference anchor="FO">
+          <front>
+            <title>Secure Integration of Asymmetric and Symmetric Encryption Schemes</title>
+            <author fullname="Eiichiro Fujisaki" initials="E." surname="Fujisaki">
+              <organization/>
+            </author>
+            <author fullname="Tatsuaki Okamoto" initials="T." surname="Okamoto">
+              <organization/>
+            </author>
+            <date month="December" year="2011"/>
+          </front>
+          <refcontent>Journal of Cryptology, vol. 26, no. 1, pp. 80-101</refcontent>
+          <seriesInfo name="DOI" value="10.1007/s00145-011-9114-1"/>
+        </reference>
+        <reference anchor="HHK">
+          <front>
+            <title>A Modular Analysis of the Fujisaki-Okamoto Transformation</title>
+            <author fullname="Dennis Hofheinz" initials="D." surname="Hofheinz">
+              <organization/>
+            </author>
+            <author fullname="Kathrin Hövelmanns" initials="K." surname="Hövelmanns">
+              <organization/>
+            </author>
+            <author fullname="Eike Kiltz" initials="E." surname="Kiltz">
+              <organization/>
+            </author>
+            <date year="2017"/>
+          </front>
+          <refcontent>Theory of Cryptography (TCC 2017), Lecture Notes in Computer Science, vol. 10677, pp. 341-371</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-3-319-70500-2_12"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+
+  <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9846.xml"/>
+
+	
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+      </references>
+<references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="AVIRAM" target="https://mailarchive.ietf.org/arch/msg/tls/F4SVeL2xbGPaPB2GW_GkBbD_a5M/">
+          <front>
+            <title>[TLS] Combining Secrets in Hybrid Key Exchange in TLS 1.3</title>
+            <author initials="" surname="Nimrod Aviram">
+              <organization/>
+            </author>
+            <author initials="" surname="Benjamin Dowling">
+              <organization/>
+            </author>
+            <author initials="" surname="Ilan Komargodski">
+              <organization/>
+            </author>
+            <author initials="" surname="Kenny Paterson">
+              <organization/>
+            </author>
+            <author initials="" surname="Eyal Ronen">
+              <organization/>
+            </author>
+            <author initials="" surname="Eylon Yogev">
+              <organization/>
+            </author>
+            <date year="2021" month="September" day="01"/>
+          </front>
+        </reference>
+        <reference anchor="BCNS15">
+          <front>
+            <title>Post-Quantum Key Exchange for the TLS Protocol from the Ring Learning with Errors Problem</title>
+            <author fullname="Joppe W. Bos" initials="J." surname="Bos">
+              <organization/>
+            </author>
+            <author fullname="Craig Costello" initials="C." surname="Costello">
+              <organization/>
+            </author>
+            <author fullname="Michael Naehrig" initials="M." surname="Naehrig">
+              <organization/>
+            </author>
+            <author fullname="Douglas Stebila" initials="D." surname="Stebila">
+              <organization/>
+            </author>
+            <date month="May" year="2015"/>
+          </front>
+          <refcontent>2015 IEEE Symposium on Security and Privacy, pp. 553-570</refcontent>
+          <seriesInfo name="DOI" value="10.1109/sp.2015.40"/>
+        </reference>
+        <reference anchor="BERNSTEIN">
+          <front>
+            <title>Post-Quantum Cryptography</title>
+            <author fullname="Daniel J. Bernstein" role="editor"/>
+            <author fullname="Johannes Buchmann" role="editor"/>
+            <author fullname="Erik Dahmen" role="editor"/>
+            <date year="2009"/>
+          </front>
+          <seriesInfo name="DOI" value="10.1007/978-3-540-88702-7"/>
+          <refcontent>Springer Berlin</refcontent>
+        </reference>
+        <reference anchor="BINDEL">
+          <front>
+            <title>Hybrid Key Encapsulation Mechanisms and Authenticated Key Exchange</title>
+            <author fullname="Nina Bindel" initials="N." surname="Bindel">
+              <organization/>
+            </author>
+            <author fullname="Jacqueline Brendel" initials="J." surname="Brendel">
+              <organization/>
+            </author>
+            <author fullname="Marc Fischlin" initials="M." surname="Fischlin">
+              <organization/>
+            </author>
+            <author fullname="Brian Goncalves" initials="B." surname="Goncalves">
+              <organization/>
+            </author>
+            <author fullname="Douglas Stebila" initials="D." surname="Stebila">
+              <organization/>
+            </author>
+            <date year="2019"/>
+          </front>
+          <refcontent>Post-Quantum Cryptography (PQCrypto 2019), Lecture Notes in Computer Science, vol. 11505, pp. 206-226</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-3-030-25510-7_12"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.campagna-tls-bike-sike-hybrid.xml"/>
+        <reference anchor="CECPQ1" target="https://security.googleblog.com/2016/07/experimenting-with-post-quantum.html">
+          <front>
+            <title>Experimenting with Post-Quantum Cryptography</title>
+            <author initials="M." surname="Braithwaite">
+              <organization/>
+            </author>
+            <date year="2016" month="July" day="07"/>
+          </front>
+          <refcontent>Google Security Blog</refcontent>
+        </reference>
+        <reference anchor="CECPQ2" target="https://www.imperialviolet.org/2018/12/12/cecpq2.html">
+          <front>
+            <title>CECPQ2</title>
+            <author initials="A." surname="Langley">
+              <organization/>
+            </author>
+            <date year="2018" month="December" day="12"/>
+          </front>
+        </reference>
+        <reference anchor="DODIS">
+          <front>
+            <title>Chosen-Ciphertext Security of Multiple Encryption</title>
+            <author fullname="Yevgeniy Dodis" initials="Y." surname="Dodis">
+              <organization/>
+            </author>
+            <author fullname="Jonathan Katz" initials="J." surname="Katz">
+              <organization/>
+            </author>
+            <date year="2005"/>
+          </front>
+          <refcontent>Theory of Cryptography (TCC 2005), Lecture Notes in Computer Science, vol. 3378, pp. 188-209</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-3-540-30576-7_11"/>
+        </reference>
+        <reference anchor="DOWLING">
+          <front>
+            <title>A Cryptographic Analysis of the TLS 1.3 Handshake Protocol</title>
+            <author fullname="Benjamin Dowling" initials="B." surname="Dowling">
+              <organization/>
+            </author>
+            <author fullname="Marc Fischlin" initials="M." surname="Fischlin">
+              <organization/>
+            </author>
+            <author fullname="Felix Günther" initials="F." surname="Günther">
+              <organization/>
+            </author>
+            <author fullname="Douglas Stebila" initials="D." surname="Stebila">
+              <organization/>
+            </author>
+            <date month="July" year="2021"/>
+          </front>
+          <refcontent>Journal of Cryptology, vol. 34, article 37</refcontent>
+          <seriesInfo name="DOI" value="10.1007/s00145-021-09384-1"/>
+        </reference>
+        <reference anchor="ETSI" target="https://www.etsi.org/images/files/ETSIWhitePapers/QuantumSafeWhitepaper.pdf">
+          <front>
+            <title>Quantum Safe Cryptography and Security: An introduction, benefits, enablers and challenges</title>
+            <author>
+              <organization>Campagna, M., Ed., et al.</organization>
+            </author>
+            <date year="2015" month="June"/>
+          </front>
+          <refcontent>ETSI White Paper No. 8</refcontent>
+        </reference>
+        <reference anchor="EVEN">
+          <front>
+            <title>On the Power of Cascade Ciphers</title>
+            <author fullname="S. Even" initials="S." surname="Even">
+              <organization/>
+            </author>
+            <author fullname="O. Goldreich" initials="O." surname="Goldreich">
+              <organization/>
+            </author>
+            <date year="1984"/>
+          </front>
+          <refcontent>Advances in Cryptology, pp. 43-50</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-1-4684-4730-9_4"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8773.xml"/>
+        <reference anchor="FLUHRER" target="https://eprint.iacr.org/2016/085">
+          <front>
+            <title>Cryptanalysis of ring-LWE based key exchange with key share reuse</title>
+            <author initials="S." surname="Fluhrer">
+              <organization/>
+            </author>
+            <date year="2016"/>
+          </front>
+          <refcontent>Cryptology ePrint Archive, Paper 2016/085</refcontent>
+        </reference>
+        <reference anchor="FRODO">
+          <front>
+            <title>Frodo: Take off the Ring! Practical, Quantum-Secure Key Exchange from LWE</title>
+            <author fullname="Joppe Bos" initials="J." surname="Bos">
+              <organization>NXP Semiconductors, Eindhoven, Netherlands</organization>
+            </author>
+            <author fullname="Craig Costello" initials="C." surname="Costello">
+              <organization>Microsoft Research, Redmond, WA, USA</organization>
+            </author>
+            <author fullname="Leo Ducas" initials="L." surname="Ducas">
+              <organization>CWI, Amsterdam, Netherlands</organization>
+            </author>
+            <author fullname="Ilya Mironov" initials="I." surname="Mironov">
+              <organization>Google, Mountain View, CA, USA</organization>
+            </author>
+            <author fullname="Michael Naehrig" initials="M." surname="Naehrig">
+              <organization>Microsoft Research, Redmond, WA, USA</organization>
+            </author>
+            <author fullname="Valeria Nikolaenko" initials="V." surname="Nikolaenko">
+              <organization>Stanford University, Stanford, CA, USA</organization>
+            </author>
+            <author fullname="Ananth Raghunathan" initials="A." surname="Raghunathan">
+              <organization>Google, Mountain View, CA, USA</organization>
+            </author>
+            <author fullname="Douglas Stebila" initials="D." surname="Stebila">
+              <organization>McMaster University, Hamilton, ON, Canada</organization>
+            </author>
+            <date month="October" year="2016"/>
+          </front>
+          <refcontent>Proceedings of the 2016 ACM SIGSAC Conference on Computer and Communications Security, pp. 1006-1018</refcontent>
+          <seriesInfo name="DOI" value="10.1145/2976749.2978425"/>
+        </reference>
+        <reference anchor="GIACON">
+          <front>
+            <title>KEM Combiners</title>
+            <author fullname="Federico Giacon" initials="F." surname="Giacon">
+              <organization/>
+            </author>
+            <author fullname="Felix Heuer" initials="F." surname="Heuer">
+              <organization/>
+            </author>
+            <author fullname="Bertram Poettering" initials="B." surname="Poettering">
+              <organization/>
+            </author>
+            <date year="2018"/>
+          </front>
+          <refcontent>Public-Key Cryptography (PKC 2018), Lecture Notes in Computer Science, vol. 10769, pp. 190-218</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-3-319-76578-5_7"/>
+        </reference>
+        <reference anchor="HARNIK">
+          <front>
+            <title>On Robust Combiners for Oblivious Transfer and Other Primitives</title>
+            <author fullname="Danny Harnik" initials="D." surname="Harnik">
+              <organization/>
+            </author>
+            <author fullname="Joe Kilian" initials="J." surname="Kilian">
+              <organization/>
+            </author>
+            <author fullname="Moni Naor" initials="M." surname="Naor">
+              <organization/>
+            </author>
+            <author fullname="Omer Reingold" initials="O." surname="Reingold">
+              <organization/>
+            </author>
+            <author fullname="Alon Rosen" initials="A." surname="Rosen">
+              <organization/>
+            </author>
+            <date year="2005"/>
+          </front>
+          <refcontent>Advances in Cryptology (EUROCRYPT 2005), Lecture Notes in Computer Science, vol. 3494, pp. 96-113</refcontent>
+          <seriesInfo name="DOI" value="10.1007/11426639_6"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9180.xml"/>
+        <reference anchor="IANA-TLS" target="https://www.iana.org/assignments/tls-parameters">
+          <front>
+            <title>TLS Supported Groups</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9370.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8784.xml"/>
+        <reference anchor="KATZ">
+          <front>
+            <title>Introduction to Modern Cryptography</title>
+            <author initials="J." surname="Katz">
+              <organization/>
+            </author>
+            <author initials="Y." surname="Lindell">
+              <organization/>
+            </author>
+            <date year="2021"/>
+          </front>
+          <refcontent>Third Edition</refcontent>
+          <refcontent>CRC Press</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.kiefer-tls-ecdhe-sidh.xml"/>
+        <reference anchor="LANGLEY" target="https://www.imperialviolet.org/2018/04/11/pqconftls.html">
+          <front>
+            <title>Post-quantum confidentiality for TLS</title>
+            <author initials="A." surname="Langley">
+              <organization/>
+            </author>
+            <date year="2018" month="April" day="11"/>
+          </front>
+        </reference>
+        <reference anchor="LUCKY13">
+          <front>
+            <title>Lucky Thirteen: Breaking the TLS and DTLS Record Protocols</title>
+            <author fullname="N. J. Al Fardan" initials="N." surname="Al Fardan">
+              <organization/>
+            </author>
+            <author fullname="K. G. Paterson" initials="K." surname="Paterson">
+              <organization/>
+            </author>
+            <date month="May" year="2013"/>
+          </front>
+          <refcontent>2013 IEEE Symposium on Security and Privacy, pp. 526-540</refcontent>
+          <seriesInfo name="DOI" value="10.1109/sp.2013.42"/>
+        </reference>
+        <reference anchor="NIELSEN">
+          <front>
+            <title>Quantum Computation and Quantum Information</title>
+            <author initials="M. A." surname="Nielsen">
+              <organization/>
+            </author>
+            <author initials="I. L." surname="Chuang">
+              <organization/>
+            </author>
+            <date year="2000"/>
+          </front>
+          <refcontent>Cambridge University Press</refcontent>
+        </reference>
+        <reference anchor="NIST" target="https://www.nist.gov/pqcrypto">
+          <front>
+            <title>Post-Quantum Cryptography</title>
+            <author>
+              <organization>NIST</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="NIST-FIPS-203" target="https://nvlpubs.nist.gov/nistpubs/FIPS/NIST.FIPS.203.pdf">
+          <front>
+            <title>Module-Lattice-Based Key-Encapsulation Mechanism Standard</title>
+            <author>
+              <organization abbrev="NIST">National Institute of Standards and Technology</organization>
+            </author>
+            <date month="August" year="2024"/>
+          </front>
+          <seriesInfo name="NIST FIPS" value="203"/>
+          <seriesInfo name="DOI" value="10.6028/NIST.FIPS.203"/>
+        </reference>
+        <reference anchor="NIST-SP-800-56C">
+          <front>
+            <title>Recommendation for Key-Derivation Methods in Key-Establishment Schemes</title>
+            <author fullname="Elaine Barker" initials="E." surname="Barker">
+              <organization/>
+            </author>
+            <author fullname="Lily Chen" initials="L." surname="Chen">
+              <organization/>
+            </author>
+            <author fullname="Richard Davis" initials="R." surname="Davis">
+              <organization/>
+            </author>
+            <date month="August" year="2020"/>
+          </front>
+          <seriesInfo name="NIST SP" value="800-56Cr2"/>
+          <seriesInfo name="DOI" value="10.6028/nist.sp.800-56cr2"/>
+        </reference>
+        <reference anchor="NIST-SP-800-135">
+          <front>
+            <title>Recommendation for Existing Application-Specific Key Derivation Functions</title>
+            <author fullname="Quynh Dang" initials="Q." surname="Dang">
+              <organization/>
+            </author>
+            <date month="December" year="2011"/>
+          </front>
+          <seriesInfo name="NIST SP" value="800-135r1"/>
+          <seriesInfo name="DOI" value="10.6028/nist.sp.800-135r1"/>
+        </reference>
+ 
+        <reference anchor="OQS-102" target="https://github.com/open-quantum-safe/openssl/tree/OQS-OpenSSL_1_0_2-stable">
+          <front>
+            <title>OQS-OpenSSL-1-0-2_stable</title>
+            <author/>
+            <date day="31" year="2020" month="January"/>
+          </front>
+          <refcontent>commit 537b2f9</refcontent>
+        </reference>
+        <reference anchor="OQS-111" target="https://github.com/open-quantum-safe/openssl/tree/OQS-OpenSSL_1_1_1-stable">
+          <front>
+            <title>OQS-OpenSSL-1-1-1_stable</title>
+            <author/>
+            <date day="8" year="2025" month="January"/>
+          </front>
+          <refcontent>commit 5f49b7a</refcontent>
+        </reference>
+        <reference anchor="OQS-PROV" target="https://github.com/open-quantum-safe/oqs-provider/">
+          <front>
+            <title>OQS Provider for OpenSSL 3</title>
+            <author/>
+            <date day="8" year="2026" month="January"/>
+          </front>
+          <refcontent>commit 573fb25</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9794.xml"/>
+        <reference anchor="PST">
+          <front>
+            <title>Benchmarking Post-quantum Cryptography in TLS</title>
+            <author fullname="Christian Paquin" initials="C." surname="Paquin">
+              <organization/>
+            </author>
+            <author fullname="Douglas Stebila" initials="D." surname="Stebila">
+              <organization/>
+            </author>
+            <author fullname="Goutam Tamvada" initials="G." surname="Tamvada">
+              <organization/>
+            </author>
+            <date year="2020"/>
+          </front>
+          <refcontent>Post-Quantum Cryptography (PQCrypto 2020), Lecture Notes in Computer Science, vol. 12100, pp. 72-91</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-3-030-44223-1_5"/>
+        </reference>
+        <reference anchor="RACCOON" target="https://raccoon-attack.com/">
+          <front>
+            <title>Raccoon Attack: Finding and Exploiting Most-Significant-Bit-Oracles in TLS-DH(E)</title>
+            <author initials="R." surname="Merget">
+              <organization/>
+            </author>
+            <author initials="M." surname="Brinkmann">
+              <organization/>
+            </author>
+            <author initials="N." surname="Aviram">
+              <organization/>
+            </author>
+            <author initials="J." surname="Somorovsky">
+              <organization/>
+            </author>
+            <author initials="J." surname="Mittmann">
+              <organization/>
+            </author>
+            <author initials="J." surname="Schwenk">
+              <organization/>
+            </author>
+            <date year="2020" month="September"/>
+          </front>
+        </reference>
+        <reference anchor="S2N" target="https://aws.amazon.com/blogs/security/post-quantum-tls-now-supported-in-aws-kms/">
+          <front>
+            <title>Post-quantum TLS now supported in AWS KMS</title>
+            <author fullname="Andrew Hopkins"/>
+            <author fullname="Matthew Campagna"/>
+            <date year="2019" month="November" day="04"/>
+          </front>
+          <refcontent>AWS Security Blog</refcontent>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.schanck-tls-additional-keyshare.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.whyte-qsh-tls12.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.whyte-qsh-tls13.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8391.xml"/>
+        <reference anchor="ZHANG">
+          <front>
+            <title>On the Security of Multiple Encryption or CCA-security+CCA-security=CCA-security?</title>
+            <author fullname="Rui Zhang" initials="R." surname="Zhang">
+              <organization/>
+            </author>
+            <author fullname="Goichiro Hanaoka" initials="G." surname="Hanaoka">
+              <organization/>
+            </author>
+            <author fullname="Junji Shikata" initials="J." surname="Shikata">
+              <organization/>
+            </author>
+            <author fullname="Hideki Imai" initials="H." surname="Imai">
+              <organization/>
+            </author>
+            <date year="2004"/>
+          </front>
+          <refcontent>Public Key Cryptography (PKC 2004), Lecture Notes in Computer Science, vol. 2947, pp. 360-374</refcontent>
+          <seriesInfo name="DOI" value="10.1007/978-3-540-24632-9_26"/>
+        </reference>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-tls-ecdhe-mlkem.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.josefsson-mceliece.xml"/>
+	
+      </references>
+    </references>
+    
+<section anchor="related-work">
+  <name>Related Work</name>
+
+      <t>Quantum computing and post-quantum cryptography in general are outside the scope of this document.  For a general introduction to quantum computing, see a standard textbook such as <xref target="NIELSEN"/>.  For an overview of post-quantum cryptography as of 2009, see <xref target="BERNSTEIN"/>; while not containing more recent advances, it still provides a helpful introduction.  For the current status of the NIST Post-Quantum Cryptography Standardization Project, see <xref target="NIST"/>.  For additional perspectives on the general transition from traditional to post-quantum cryptography, see for example <xref target="ETSI"/>, among others.</t>
+      <t>There have been several Internet-Drafts describing mechanisms for embedding post-quantum and/or hybrid key exchange in TLS:</t>
+      <ul spacing="normal">
+        <li>
+          <t>TLS 1.2: <xref target="I-D.whyte-qsh-tls12"/>, <xref target="I-D.campagna-tls-bike-sike-hybrid"/></t>
+        </li>
+        <li>
+          <t>TLS 1.3: <xref target="I-D.kiefer-tls-ecdhe-sidh"/>, <xref target="I-D.schanck-tls-additional-keyshare"/>, <xref target="I-D.whyte-qsh-tls13"/></t>
+        </li>
+      </ul>
+      <t>There have been several prototype implementations for post-quantum and/or hybrid key exchange in TLS:</t>
+      <ul spacing="normal">
+        <li>
+          <t>TLS 1.2: <xref target="BCNS15"/>, <xref target="CECPQ1"/>, <xref target="FRODO"/>, <xref target="OQS-102"/>, <xref target="S2N"/></t>
+        </li>
+        <li>
+          <t>TLS 1.3: <xref target="CECPQ2"/>, <xref target="OQS-111"/>, <xref target="OQS-PROV"/>, <xref target="PST"/></t>
+        </li>
+      </ul>
+      <t>These experimental implementations have taken an ad hoc approach and not attempted to implement one of the Internet-Drafts listed above.</t>
+      <t>Unrelated to post-quantum but still related to the issue of combining multiple types of keying material in TLS is the use of pre-shared keys, especially the recent TLS Working Group document on including an external pre-shared key <xref target="RFC8773"/>.</t>
+      <t><xref target="RFC9370"/> on the multiple key exchanges in the Internet Key Exchange Protocol Version 2 (IKEv2) has been published as a Proposed Standard, and other IETF work includes post-quantum preshared keys in IKEv2 <xref target="RFC8784"/>.  The eXtended Merkle Signature Scheme (XMSS) hash-based signature scheme has been published as an Informational RFC by the IRTF <xref target="RFC8391"/>.</t>
+      <t>In the academic literature, <xref target="EVEN"/> initiated the study of combining multiple symmetric encryption schemes; <xref target="ZHANG"/>, <xref target="DODIS"/>, and <xref target="HARNIK"/> examined combining multiple public key encryption schemes; and <xref target="HARNIK"/> coined the term "robust combiner" to refer to a compiler that constructs a hybrid scheme from individual schemes while preserving security properties.  <xref target="GIACON"/> and <xref target="BINDEL"/> examined combining multiple key encapsulation mechanisms.</t>
+    </section>
+
+
+    <section anchor="acknowledgements" numbered="false">
+      <name>Acknowledgements</name>
+      <t>The ideas in this document have grown from discussions with many colleagues, including <contact fullname="Christopher Wood"/>, <contact fullname="Matt Campagna"/>, <contact fullname="Eric Crockett"/>, <contact fullname="Deirdre Connolly"/>, authors of the various hybrid documents and implementations cited in this document, and members of the TLS Working Group.  The immediate impetus for this document came from discussions with attendees at the Workshop on Post-Quantum Software in Mountain View, California in January 2019.  <contact fullname="Daniel J. Bernstein"/> and <contact fullname="Tanja Lange"/> commented on the risks of reuse of ephemeral public keys.  <contact fullname="Matt Campagna"/> and the team at Amazon Web Services provided additional suggestions.  <contact fullname="Nimrod Aviram"/> proposed restricting to fixed-length secrets.</t>
+    </section>
+
+  </back>
+
+
+</rfc>
