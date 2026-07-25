@@ -1,0 +1,650 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-dnsop-ds-automation-09" number="10026" updates="" obsoletes="" category="bcp" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="DS Automation">Operational Recommendations for DNSSEC Delegation Signer (DS) Automation</title>
+    <seriesInfo name="RFC" value="10026"/>
+    <seriesInfo name="BCP" value="246"/>
+    <author initials="S." surname="Sheng" fullname="Steve Sheng">
+      <organization/>
+      <address>
+        <email>steve.sheng@gmail.com</email>
+      </address>
+    </author>
+    <author initials="P." surname="Thomassen" fullname="Peter Thomassen">
+      <organization>deSEC</organization>
+      <address>
+        <email>peter@desec.io</email>
+      </address>
+    </author>
+    <date month="July" year="2026"/>
+
+    <area>OPS</area>
+    <workgroup>dnsop</workgroup>
+    <keyword>DNS</keyword>
+    <keyword>DS</keyword>
+    
+    <abstract>
+<t>Enabling support for automatic acceptance of DNSSEC Delegation Signer (DS) parameters from the Child DNS operator (via RFCs 7344, 8078, and 9615) requires the Parental Agent, often a registry or registrar, to make a number of technical decisions around acceptance checks, error and success reporting, and multi-party issues such as concurrent updates. This document describes recommendations about how these points are best addressed in practice.</t>
+    </abstract>
+  </front>
+  <middle>
+
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t><xref target="RFC7344"/>, <xref target="RFC8078"/>, and <xref target="RFC9615"/> automate DNSSEC <xref target="RFC9364"/> delegation trust maintenance by having the child publish Child DS (CDS) and/or Child DNSKEY (CDNSKEY) records, which indicate the delegation's desired DNSSEC parameters ("DS automation").</t>
+      <t>Parental Agents using these protocols have to make a number of technical decisions relating to issues of acceptance checks, timing, error reporting, locks, etc. Additionally, when using the registrant-registrar-registry (RRR) model (as is common amongst top-level domains (TLDs)), both the registrar and the registry can effect parent-side changes to the delegation. In such a situation, additional opportunities for implementation differences arise.</t>
+      <t>Not all existing DS automation deployments have made the same choices with respect to these questions, leading to somewhat inconsistent behavior. From the perspective of a domain holder with domain names under various TLDs, this may be unexpected and confusing.</t>
+      <t>In the following sections, operational questions are first raised and answered with the corresponding recommendations. Each section is concluded with an analysis of its recommendations and related considerations. A combined view of the recommendations from all sections is given in <xref target="recommendations_overview"/>.</t>
+      <t>Readers are expected to be familiar with DNSSEC <xref target="RFC9364"/> <xref target="RFC9615"/> <xref target="RFC9859"/> <xref target="RFC9975"/>.</t>
+      <t>The core issues addressed in the document are derived from Section 4.4 of <xref target="SAC126"/>. Readers are referred to this report for additional background.</t>
+    </section>
+    <section anchor="terminology">
+      <name>Terminology</name>
+      <t>The term "Parental Agent" is used as defined in <xref section="1.1" sectionFormat="of" target="RFC7344"/>. The document also uses terms defined in <xref target="RFC9499"/>, in particular:</t>
+      <ul spacing="normal">
+        <li>
+          <t>DNS operator</t>
+        </li>
+        <li>
+          <t>Registry</t>
+        </li>
+        <li>
+          <t>Registrant</t>
+        </li>
+        <li>
+          <t>Registrar</t>
+        </li>
+      </ul>
+      <t>In addition, the document makes use of the following terms:</t>
+      <dl>
+        <dt>Child zone:</dt>
+        <dd>
+          <t>DNS zone whose delegation is in the Parent zone.</t>
+        </dd>
+        <dt>Child (DNS operator):</dt>
+        <dd>
+          <t>DNS operator responsible for a Child zone.</t>
+        </dd>
+        <dt>Parent zone:</dt>
+        <dd>
+          <t>DNS zone that holds a delegation for a Child zone.</t>
+        </dd>
+        <dt>Parent:</dt>
+        <dd>
+          <t>The operator responsible for a Parent zone and thus involved with the maintenance of the delegation's DNSSEC parameters (in particular, the acceptance of these parameters and the publication of corresponding DS records).</t>
+        </dd>
+        <dt>RRR Model:</dt>
+        <dd>
+          <t>The registrant-registrar-registry (RRR) interaction framework, where registrants interact with a registrar to register and manage domain names and registrars interact with the domain's registry for the provision and management of domain names on the registrant's behalf. This model is common amongst TLDs.</t>
+        </dd>
+      </dl>
+      <section anchor="requirements-notation">
+        <name>Requirements Notation</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>      
+    </section>
+    <section anchor="recommendations-for-deployments-of-ds-automation">
+      <name>Recommendations for Deployments of DS Automation</name>
+      <t>The guidelines for deploying DS automation set out in this document are meant to achieve more uniform treatment across suffixes -- minimizing user surprise and providing baseline safety and uniformity of behavior.
+They are also intended to prevent disruption of DNS and DNSSEC functionality.
+At a minimum, compliance with this RFC requires support for both DNSSEC bootstrapping <xref target="RFC9615"/> and subsequent updates <xref target="RFC7344"/> <xref target="RFC8078"/> under the implementation guidance below.</t>
+      <t>The recommendations optimize interoperability and safety. In certain cases, local policy may take precedence, such as when a registry is subjected to national cryptographic policy requirements.
+However, not following any requirements designated with the "<bcp14>SHOULD</bcp14>" key word will generally lead to undesirable effects of ambiguity and interoperability issues.
+When implementing these recommendations, operators <bcp14>MUST</bcp14> mitigate issues arising from any particular deviation.</t>
+      <t>Registries with additional requirements on DS update checks <bcp14>MAY</bcp14> implement any additional checks in line with local policy.</t>
+    </section>
+    <section anchor="acceptance">
+      <name>Acceptance Checks and Safety Measures</name>
+      <t>This section provides recommendations to address the following operational questions:</t>
+      <ul spacing="normal">
+        <li>
+          <t>What kind of acceptance checks should be performed on DS parameters?</t>
+        </li>
+        <li>
+          <t>Should these checks be performed upon acceptance or also continually when in place?</t>
+        </li>
+        <li>
+          <t>How do TTLs and caching impact DS provisioning? How important is timing in a child key change?</t>
+        </li>
+        <li>
+          <t>Are parameters for DS automation best conveyed as CDNSKEY or CDS records or both?</t>
+        </li>
+      </ul>
+      <section anchor="recommendations">
+        <name>Recommendations</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>Entities performing automated DS maintenance <bcp14>MUST</bcp14> verify:  </t>
+            <ol spacing="normal" type="a">
+	      <li anchor="acceptance-rec1a">
+                <t>the unambiguous intent of each DS bootstrapping or update request as per <xref target="RFC9975"/>, by checking its consistency both      </t>
+                <ul spacing="normal">
+                  <li>
+                    <t>between any published CDS and CDNSKEY records and</t>
+                  </li>
+                  <li>
+                    <t>across all authoritative nameservers in the delegation,</t>
+                  </li>
+                </ul>
+                <t>
+and</t>
+              </li>
+              <li>
+                <t>that the resulting DS record set would allow continued DNSSEC validation if deployed</t>
+              </li>
+            </ol>
+            <t>
+and cancel the update if the verifications do not succeed.</t>
+          </li>
+          <li>
+            <t>Parent-side entities (such as registries) <bcp14>SHOULD</bcp14> allow for effective rollback by reducing a DS record set's TTL to a value between 5-15 minutes when a new set of records is published, and restore the previous (or, if unavailable, default) TTL value at a later occasion (but not before the previous DS RRset's TTL has expired).</t>
+	    <t>Besides a prudent choice of TTL, prompt DS changes also require
+      timely discovery of update requests.  For recommended methods,
+      see <xref target="ttls-and-caching"/>.</t>
+          </li>
+          <li>
+            <t>DNS operators <bcp14>MUST</bcp14> publish both CDNSKEY and CDS records (unless the parent's preference is known) and follow best practice for the choice of hash digest type <xref target="DS-IANA"/>.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="analysis_acceptance">
+        <name>Analysis</name>
+        <section anchor="continuity-of-resolution">
+          <name>Continuity of Resolution</name>
+          <t>To maintain the basic resolution function, it is critical to avoid deployment of flawed DS record sets in the Parent zone. It is therefore necessary for the Parent to verify that the DS record set resulting from an automated (or even manual) update does not break DNSSEC validation if deployed and otherwise cancel the update.</t>
+          <t>This is best achieved by:</t>
+          <ol spacing="normal" type="1">
+	    <li>
+              <t>verifying that consistent CDS/CDNSKEY responses are served by all of the delegation's nameservers <xref target="RFC9975"/>;</t>
+            </li>
+            <li>
+              <t>verifying that the resulting DS Resource Record set (RRset) does not break the delegation if applied (<xref section="4.1" sectionFormat="comma" target="RFC7344"/>), i.e., it provides at least one valid path for validators to use (<xref section="5.11" sectionFormat="comma" target="RFC6840"/>). This is the case if the child's DNSKEY RRset has a valid RRSIG signature from a key that is referenced by at least one DS record, with the digest type and signing algorithm values designated as "<bcp14>RECOMMENDED</bcp14>" or "<bcp14>MUST</bcp14>" in the "Use for DNSSEC Validation" columns of the relevant IANA registries (<xref target="DS-IANA"/> and <xref target="DNSKEY-IANA"/>). Note that these checks need not be enforced when provisioning DS records manually in order to enable the use of other digest types or algorithms for potentially non-interoperable purposes.</t>
+            </li>
+          </ol>
+          <t>Even without an update being requested, Parents may occasionally check whether the current DS contents would still be acceptable if they were newly submitted in CDS/CDNSKEY form (see <xref target="acceptance"/>).
+Any failures -- such as a missing DNSKEY due to improper rollover timing (<xref section="4.1" sectionFormat="comma" target="RFC6781"/>) or changed algorithm requirements -- can then be communicated in line with <xref target="recommendations-1"/>, without altering or removing the existing DS RRset.</t>
+        </section>
+        <section anchor="ttls-and-caching">
+          <name>Timing, TTLs, and Caching</name>
+	  <t>For timely execution of DS provisioning requests, it is important to
+  discover them reasonably quickly.  The best way to do so is for the
+  Child DNS operator to send an <xref target="RFC9859"/> notification to the parent
+  (Sections <xref target="RFC9859" section="4.1" sectionFormat="bare"/> and <xref target="RFC9859" section="4.2" sectionFormat="bare"/> of <xref target="RFC9859"/>).  In addition to publication of the
+  relevant notification targets, this requires the advertised endpoint
+  to actually listen (Sections <xref target="RFC9859" section="3" sectionFormat="bare"/> and <xref target="RFC9859" section="4.3" sectionFormat="bare"/> of <xref target="RFC9859"/>).  By explicitly
+  naming a responsible endpoint, this method also resolves potential
+  contention between registry and registrar when the RRR model is used
+  (see <xref target="concurrent-automatic-updates"/>).  Note that periodic scanning is a suboptimal
+  alternative as it introduces policy-dependent delays and does not
+  scale well for large zones.</t>
+          <t>To further reduce the impact of any misconfigured DS record set -- be it from automated or from manual provisioning -- the option to quickly roll back the delegation's DNSSEC parameters is of great importance. This is achieved by setting a comparatively low TTL on the DS record set in the parent domain, at the cost of reduced resiliency against nameserver unreachability due to the earlier expiration of cached records. The availability risk can be mitigated by limiting such TTLs to a brief time period after a change to the DS configuration, during which rollbacks are most likely to occur.</t>
+          <t>Registries therefore should significantly lower the DS RRset's TTL for some time following bootstrapping or an update. Pragmatic values for the reduced TTL value range between 5-15 minutes.
+Using values below 5 minutes risks excessive queries, and using values greater than 15 minutes may impact recovery from operational mistakes.</t>
+          <t>Note that recent measurements have demonstrated low TTLs like the above to have negligible impact on the overall load of a registry's authoritative nameserver infrastructure <xref target="LowTTL"/>.</t>
+          <t>The reduction should be in effect at least for a couple of days and until the previous DS record set has expired from caches, i.e., the period during which the low-TTL is applied typically will significantly exceed the normal TTL value. When using the Extensible Provisioning Protocol (EPP) <xref target="RFC5730"/>, the domain <tt>&lt;info&gt;</tt> command described in <xref section="2.1.1.2" sectionFormat="of" target="RFC9803"/> can be used by the registrar to obtain the registry's TTL policy.</t>
+          <t>While this approach enables quick rollbacks, timing of the desired DS update process itself is largely governed by the previous DS RRset's TTL and therefore does not generally benefit from an overall speed-up. Note also that nothing is gained from first lowering the TTL of the old DS RRset: Such an additional step would, in fact, require another wait period while resolver caches adjust. For the sake of completeness, there likewise is no point to increasing any DS TTL values beyond their normal value.</t>
+        </section>
+        <section anchor="cds-vs-cdnskey">
+          <name>CDS vs. CDNSKEY</name>
+          <t>DS records can be generated from information provided either in DS format (CDS) or in DNSKEY format (CDNSKEY). While the format of CDS records is identical to that of DS records (so the record data can be taken verbatim), generation of a DS record from CDNSKEY information involves computing a hash.</t>
+          <t>Whether a Parent processes CDS or CDNSKEY records depends on their preference:</t>
+          <ul spacing="normal">
+            <li>
+              <t>Processing (and storing) CDNSKEY information allows the Parent to control the choice of hash algorithms. The Parent may then unilaterally regenerate DS records with a different choice of hash algorithm(s) whenever deemed appropriate.</t>
+            </li>
+            <li>
+              <t>Processing CDS information allows the Child DNS operator to control the hash digest type used in DS records, enabling the Child DNS operator to deploy (for example) experimental hash digests and removing the need for registry-side changes when additional digest types become available.</t>
+            </li>
+          </ul>
+          <t>The need to make a choice in the face of this dichotomy is not specific to DS automation: Even when DNSSEC parameters are relayed to the Parent through conventional channels, the Parent has to make some choice about which format(s) to accept.</t>
+          <t>As there exists no protocol for Child DNS operators to discover a Parent's input format preference, interoperability requires publication of both CDNSKEY as well as CDS records, in line with <xref section="5" sectionFormat="of" target="RFC7344"/>. The choice of hash digest type should follow current best practice <xref target="DS-IANA"/>.</t>
+          <t>Publishing the same information in two different formats is not ideal. Still, it is much less complex and costly than burdening the Child DNS operator with discovering each Parent's current policy. Also, it is very easily automated. Operators should ensure that published RRsets are consistent with each other.</t>
+          <t>If both RRsets are published, Parents are expected to verify consistency between them by verifying that they refer to the same set of keys <xref target="RFC9975"/>. By not second-guessing inconsistencies (such as by RRset recency) and instead rejecting them, responsibility to clearly express each update request is placed on the Child DNS operator.</t>
+          <t>CDS records need only be considered for CDNSKEY consistency when their digest type field is designated as "<bcp14>MUST</bcp14>" in the "Implement for DNSSEC Delegation" column of the "Digest Algorithms" registry <xref target="DS-IANA"/>.
+Consistency of records with other digest types need not be verified, especially when the digest type is unsupported; such records can be ignored.
+Note that this does not imply a restriction on the DS hash digest types: If no inconsistencies are found, the parent can publish DS records with whatever digest type(s) it prefers.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="reporting">
+      <name>Reporting and Transparency</name>
+      <t>This section provides recommendations to address the following operational question:</t>
+      <ul spacing="normal">
+        <li>
+          <t>Should a failed (or even successful) DS update trigger a notification to anyone?</t>
+        </li>
+      </ul>
+      <section anchor="recommendations-1">
+        <name>Recommendations</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>For certain DS updates (see <xref target="analysis_reporting">analysis</xref>) and for DS deactivation, relevant points of contact known to the parent-side entity (registry or registrar) <bcp14>SHOULD</bcp14> be notified.</t>
+          </li>
+          <li>
+            <t>For error conditions, the child DNS operator and the domain's technical contact (if applicable) <bcp14>SHOULD</bcp14> be notified first. The registrant <bcp14>SHOULD NOT</bcp14> be notified unless the problem persists for a prolonged amount of time (e.g., three days).</t>
+          </li>
+          <li>
+            <t>Child DNS operators <bcp14>SHOULD</bcp14> be notified of errors using a report query <xref target="RFC9567"/> to the agent domain as described in <xref section="4" sectionFormat="of" target="RFC9859"/>. Note that this requires listening to notifications and that appropriate notification targets are in place (<xref target="RFC9859" sectionFormat="of" section="3"/>).</t>
+	    <t>Notifications to humans (domain holder) will be performed in accordance with the communication preferences established with the parent-side entity. The same condition <bcp14>SHOULD NOT</bcp14> be reported unnecessarily frequently to the same recipient.</t>
+          </li>
+          <li>
+            <t>In the RRR model, registries performing DS automation <bcp14>SHOULD</bcp14> inform the registrar of any DS record changes via the EPP Change Poll Extension <xref target="RFC8590"/> or a similar channel.</t>
+          </li>
+          <li>
+            <t>The currently active DS configuration <bcp14>SHOULD</bcp14> be made accessible to the registrant (or their designated party) through the customer portal available for domain management. The DS update history <bcp14>MAY</bcp14> be made available in the same way.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="analysis_reporting">
+        <name>Analysis</name>
+        <t>When accepting or rejecting a DS update, it cannot be assumed that relevant parties are aware of what's happening. For example, a registrar may not know when an automatic DS update is performed by the registry. Similarly, a Child DNS operator may not be aware when their CDS/CDNSKEY RRsets are out of sync across nameservers, causing them to be ignored.</t>
+        <t>To help involved parties act appropriately and in a timely manner, entities performing automated DS maintenance should report on conditions they encounter. The following success situations may be of particular interest:</t>
+        <ol spacing="normal" type="1">
+	  <li anchor="reporting-1">
+            <t>A DS RRset has been provisioned:</t>
+            <ol spacing="normal" type="a">
+	      <li anchor="reporting-1a">
+                <t>manually;</t>
+              </li>
+              <li anchor="reporting-1b">
+                <t>due to commencing DS automation (either via DNSSEC bootstrapping or for the first time after a manual change; see <xref target="multiple"/>);</t>
+              </li>
+              <li anchor="reporting-1c">
+                <t>automatically, as an update to an existing DS RRset that had itself been automatically provisioned.</t>
+              </li>
+            </ol>
+          </li>
+          <li anchor="reporting-2">
+            <t>The DS RRset has been removed:</t>
+            <ol spacing="normal" type="a">
+	      <li>
+                <t>manually;</t>
+              </li>
+              <li>
+                <t>automatically, using a delete signal (<xref section="4" sectionFormat="comma" target="RFC8078"/>).</t>
+              </li>
+            </ol>
+          </li>
+        </ol>
+        <t>In addition, there are error conditions worthy of being reported:</t>
+        <ol spacing="normal" type="1" start="3">
+	  <li anchor="reporting-3">
+            <t>A pending DS update cannot be applied due to an error condition. There are various scenarios where an automated DS update might have been requested but can't be fulfilled. These include:</t>
+            <ol spacing="normal" type="a">
+	      <li>
+                <t>The new DS record set would break validation/resolution or is not acceptable to the Parent for some other reason (see <xref target="acceptance"/>).</t>
+              </li>
+              <li>
+                <t>A lock prevents DS automation (see <xref target="locks"/>).</t>
+              </li>
+            </ol>
+          </li>
+          <li anchor="reporting-4">
+            <t>No DS update is due, but it was determined that the Child zone is no longer compatible with the existing DS record set (e.g., DS RRset only references non-existing keys).</t>
+          </li>
+        </ol>
+        <t>In these latter two cases, the entity performing DS automation would be justified to attempt communicating the situation. Potential recipients are:</t>
+        <ul spacing="normal">
+          <li>
+            <t>Child DNS operator, preferably by making a report query <xref target="RFC9567"/> to the agent domain listed in the EDNS0 Report-Channel option of the DS update notification that triggered the DS update (<xref section="4" sectionFormat="comma" target="RFC9859"/>) or else via email to the address contained in the Child zone's SOA RNAME field (see Sections <xref target="RFC1035" section="3.3.13" sectionFormat="bare"/> and <xref target="RFC1035" section="8" sectionFormat="bare"/> of <xref target="RFC1035"/>);</t>
+          </li>
+          <li>
+            <t>Registrar (if DS automation is performed by the registry);</t>
+          </li>
+          <li>
+            <t>Registrant (domain holder; in non-technical language, such as "DNSSEC security for your domain has been enabled and will be maintained automatically"), or technical contact, in accordance with the communication preferences established with the parent-side entity.</t>
+          </li>
+        </ul>
+        <t>For manual updates (<xref target="reporting-1a" format="none">case 1a</xref>), commencing DS automation (<xref target="reporting-1b" format="none">case 1b</xref>), and deactivating DNSSEC (<xref target="reporting-2" format="none">case 2</xref>), it seems worthwhile to notify both the domain's technical contact (if applicable) and the registrant. This will typically lead to one notification during normal operation of a domain. (<xref target="reporting-1c" format="none">Case 1c</xref>, the regular operation of automation, is not an interesting condition to report to a human.)</t>
+        <t>For error conditions (cases <xref target="reporting-3" format="none">3</xref> and <xref target="reporting-4" format="none">4</xref>), the registrant need not always be involved. It seems advisable to first notify the domain's technical contact and the DNS operator serving the affected Child zone, and only if the problem persists for a prolonged amount of time (e.g., three days), notify the registrant.</t>
+        <t>When the RRR model is used and the registry performs DS automation, the registrar should always stay informed of any DS record changes, e.g., via the EPP Change Poll Extension <xref target="RFC8590"/>.</t>
+        <t>Overly frequent reporting of the same condition to the same recipient is discouraged (e.g., no more than twice in a row). For example, when CDS and CDNSKEY records are inconsistent and prevent DS initialization, the registrant may be notified twice. Additional notifications may be sent with some back-off mechanism (in increasing intervals).</t>
+        <t>The registrant (or their designated party) should be able to retrieve the current DS configuration through the customer portal available for domain management.
+Failure to provide the registrant a means to inspect the current configuration after it has been changed may hinder recovery from operational incidents because the registrant may have out-of-date information.</t>
+        <t>Ideally, the history of DS updates would also be available. However, due to the associated state requirements and the lack of direct operational impact, implementation of this is optional.
+If supported by the registry, the DS TTL currently in effect can be obtained using the RDAP TTL extension <xref target="I-D.ietf-regext-rdap-ttl-extension"/>.</t>
+        <t>For troubleshooting, dispute resolution, and post-incident analysis, it is instrumental for the Parental Agent to retain structured records of each DS automation decision, including timestamp, triggering CDS/CDNSKEY RRsets, notification channel, authoritative nameservers consulted, verification results, decision outcome, and the applied DS RRset or cancellation reason.</t>
+      </section>
+    </section>
+    <section anchor="locks">
+      <name>Registration Locks</name>
+      <t>This section provides recommendations to address the following operational question:</t>
+      <ul spacing="normal">
+        <li>
+          <t>How does DS automation interact with other registration state parameters, such as registration locks?</t>
+        </li>
+      </ul>
+      <section anchor="recommendations-2">
+        <name>Recommendations</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>To secure ongoing operations, automated DS maintenance <bcp14>MUST NOT</bcp14> be suspended based on a registrar update lock alone (such as EPP status clientUpdateProhibited <xref target="RFC5731"/>).</t>
+          </li>
+          <li>
+            <t>When performed by the registry, automated DS maintenance <bcp14>MUST NOT</bcp14> be suspended based on a registry update lock alone (such as EPP status serverUpdateProhibited <xref target="RFC5731"/>).</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="analysis_locks">
+        <name>Analysis</name>
+        <t>Registries and registrars can set various types of locks for domain registrations, usually upon the registrant's request. An overview of standardized locks using EPP, for example, is given in <xref section="2.3" sectionFormat="of" target="RFC5731"/>. Some registries may offer additional (or other) types of locks whose meaning and set/unset mechanisms are defined according to a proprietary policy.</t>
+        <t>While some locks clearly should have no impact on DS automation (such as transfer or deletion locks), other types of locks, in particular "update locks", deserve a closer analysis.</t>
+        <section anchor="registrar-vs-registry-lock">
+          <name>Registrar vs. Registry Lock</name>
+          <t>A registrar-side update lock (such as clientUpdateProhibited in EPP) protects against various types of accidental or malicious change (like unintended changes through the registrar's customer portal). Its security model does not prevent the registrar's (nor the registry's) actions. This is because a registrar-side lock can be removed by the registrar without an out-of-band interaction.</t>
+          <t>Under such a security model, no tangible security benefit is gained by preventing automated DS maintenance based on a registrar lock alone, while preventing it would make maintenance needlessly difficult. It is therefore not justified to suspend automation when such a lock is present.</t>
+          <t>When a registry-side update lock is in place, the registrar cannot apply any changes (for security or delinquency or other reasons). However, it does not protect against changes made by the registry itself. This is exemplified by the serverUpdateProhibited EPP status, which demands only that the registrar's "[r]equests to update the object [...] <bcp14>MUST</bcp14> be rejected" (<xref section="2.3" sectionFormat="of" target="RFC5731"/>). This type of lock therefore precludes DS automation by the registrar, while registry-side automation remains unaffected.</t>
+          <t>DS automation by the registry is consistent with <xref section="2.3" sectionFormat="of" target="RFC5731"/>, which explicitly notes that an EPP server (registry) may override status values set by an EPP client (registrar), subject to local server policies. The risk that DS changes from registry-side DS automation might go unnoticed by the registrar is mitigated by sending change notifications to the registrar; see Recommendation 4 of <xref target="reporting"/>.</t>
+        </section>
+        <section anchor="detailed-rationale">
+          <name>Detailed Rationale</name>
+          <t>Pre-DNSSEC, it was possible for a registration to be set up once, then locked and left alone (no maintenance required). With DNSSEC comes a change to this operational model: The configuration may have to be maintained in order to remain secure and operational. For example, the Child DNS operator may switch to another signing algorithm if the previous one is no longer deemed appropriate or roll its Secure Entry Point (SEP) key for other reasons. Such changes entail updating the delegation's DS records.</t>
+          <t>If authenticated, these operations do not qualify as accidental or malicious changes but as legitimate and normal activity for securing ongoing operation. The CDS/CDNSKEY method provides an automatic, authenticated means to convey DS bootstrapping and update requests <xref target="RFC9615"/> <xref target="RFC7344"/>. The resulting operation is subject to the parent's acceptance checks; in particular, it is not applied when it would break the delegation (see <xref target="acceptance"/>).</t>
+          <t>Given that registrar locks protect against unintended changes (such as through the customer portal) while not preventing actions done by the registrar (or the registry) itself, such a lock is not suitable for defending against actions performed illegitimately by the registrar or registry (e.g., due to compromise). Any attack on the registration data that is feasible in the presence of a registrar lock is also feasible regardless of whether DS maintenance is done automatically; in other words, DS automation is orthogonal to the attack vector that a registrar lock protects against.</t>
+          <t>Considering that automated DS bootstrapping and update requests are required to be authenticated and validated for correctness, honoring such requests -- while in the registrant's interest -- comes with no additional associated risk when compared to other authenticated update methods. Suspending automated DS maintenance therefore is not justified.</t>
+          <t>Following this line of thought, at the time of document writing, some registries (e.g., .ch/.cz/.li) perform automated DS maintenance even when an "update lock" is in place. Registries offering proprietary locks should carefully consider for each lock whether its scope warrants suspension.</t>
+          <t>In case of a domain not yet secured with DNSSEC, automatic DS initialization is not required to maintain ongoing operation; however, authenticated DNSSEC bootstrapping <xref target="RFC9615"/> might be requested. Besides being in the interest of security, the fact that a Child is requesting DS initialization through an authenticated method expresses the registrant's intent to have the delegation secured.</t>
+          <t>Further, some domains are equipped with an update lock by default. Not honoring DNSSEC bootstrapping requests then imposes an additional burden on the registrant, who has to unlock and relock the domain in order to facilitate DS provisioning after registration. This is a needless cost especially for large domain portfolios. It is also unexpected, as the registrant already has arranged for the necessary CDS/CDNSKEY records to be published. DS initialization and rollovers therefore should be treated the same way with respect to locks.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="multiple">
+      <name>Multiple Submitting Parties and Suspension of Automation</name>
+      <t>This section provides recommendations to address the following operational questions:</t>
+      <ul spacing="normal">
+        <li>
+          <t>How are conflicts resolved when DS parameters are accepted through multiple channels (e.g., via a conventional channel and via automation)?</t>
+        </li>
+        <li>
+          <t>In case both the registry and the registrar are automating DS provisioning, how are potential collisions resolved?</t>
+        </li>
+      </ul>
+      <section anchor="recommendations-3">
+        <name>Recommendations</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>Registries and registrars <bcp14>MUST</bcp14> provide another (e.g., manual) channel for DS maintenance in order to enable recovery when the Child has lost access to its signing key(s). This out-of-band channel is also needed when a DNS operator does not support DS automation or refuses to cooperate.</t>
+          </li>
+          <li>
+            <t>DS bootstrapping and update requests <bcp14>MUST</bcp14> be executed at the next publication opportunity after verification of their authenticity, regardless of whether they are received in-band or via an out-of-band channel.</t>
+          </li>
+          <li anchor="multiple-rec3">
+            <t>When processing a CDS/CDNSKEY "delete" signal to remove the entire DS record set (<xref section="4" sectionFormat="comma" target="RFC8078"/>), DS automation <bcp14>MUST NOT</bcp14> be suspended. For all other removal requests (such as when received via EPP or a web form), DS automation <bcp14>SHOULD</bcp14> be suspended until a new DS record set has been provisioned, in order to prevent accidental re-initialization when the registrant intended to disable DNSSEC.</t>
+          </li>
+          <li>
+            <t>Whenever a non-empty DS record set is provisioned, through whichever channel, DS automation <bcp14>SHOULD NOT</bcp14> (or no longer) be suspended (including after an earlier removal).</t>
+          </li>
+          <li>
+            <t>In the RRR model, a registry <bcp14>MUST NOT</bcp14> automatically initialize DS records when it is known that the registrar does not provide a way for the domain holder to later disable DNSSEC. If the registrar has declared that it performs automated DS maintenance, the registry <bcp14>SHOULD</bcp14> publish the registrar's notification endpoint <xref target="RFC9859"/> (if applicable) instead of their own and refrain from registry-side DS automation.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="analysis_multiple">
+        <name>Analysis</name>
+        <t>In the RRR model, there are multiple channels through which DS parameters can be accepted:</t>
+        <ul spacing="normal">
+          <li>
+            <t>The registry can retrieve information about an intended DS provisioning request automatically from the Child DNS operator and apply the it directly;</t>
+          </li>
+          <li>
+            <t>The registrar can retrieve the same and relay it to the registry;</t>
+          </li>
+          <li>
+            <t>The registrar can obtain the information from the registrant through another channel (such as a non-automated "manual update" via web form submission) and relay it to the registry.</t>
+          </li>
+        </ul>
+        <t>There are several considerations in this context, as discussed in the following subsections.</t>
+        <section anchor="necessity-of-non-automatic-updates">
+          <name>Necessity of Non-Automatic Updates</name>
+          <t>Under special circumstances, it may be necessary to perform a non-automatic DS update. One important example is when the key used for authentication of DS updates is destroyed: In this case, an automatic key rollover is impossible as the Child DNS operator can no longer authenticate the associated information. Another example is when several providers are involved, but one no longer cooperates (e.g., when removing a provider from a multi-provider setup). Disabling all other DS management interfaces therefore poses significant operational risk.</t>
+          <t>Similarly, when the registrar is known to not support DNSSEC (especially to not provide a means to remove a DS RRset), registries are cautioned against automatically initializing DS records, in order to prevent situations in which a misconfigured or undesired DS RRset cannot be repaired by the registrant.</t>
+        </section>
+        <section anchor="impact-of-non-automatic-updates-when-to-suspend-automation">
+          <name>Impact of Non-Automatic Updates: When to Suspend Automation</name>
+          <t>When an out-of-band (e.g., manual) DS update is performed while CDS/CDNSKEY records referencing the previous DS RRset's keys are present, the delegation's DS records may be reset to their previous state at the next run of the automation process. This section discusses in which situations it is appropriate to suspend DS automation after such a non-automatic update.</t>
+          <t>One option is to suspend DS automation after a manual DS update but only until a resumption signal is observed. In the past, it was proposed that seeing an updated SOA serial in the Child zone may serve as a resumption signal. However, as any arbitrary modification of zone contents -- including the regular updating of DNSSEC signature validity timestamps -- typically causes an SOA serial change, resumption of DS automation after a serial change comes with a high risk of surprise. Additional issues arise if nameservers have different serial offsets (e.g., in a multi-provider setup). This practice therefore is <bcp14>NOT RECOMMENDED</bcp14>.</t>
+          <t>Note also that "automatic rollback" due to old CDS/CDNSKEY RRsets can only occur if they are signed with a key authorized by one of the new DS records. Acceptance checks described in <xref target="acceptance"/> further ensure that updates do not break validation.</t>
+          <t>Removal of a DS record set is triggered either through a CDS/CDNSKEY "delete" signal observed by the party performing the automation (<xref section="4" sectionFormat="comma" target="RFC8078"/>) or by receiving a removal request out-of-band (e.g., via EPP or a web form). In the first case, the registrant can expect automation to be kept active for the delegation to facilitate later DS bootstrapping. In the second case, it is likely that the registrant intends to disable DNSSEC for the domain, and DS automation is best suspended (until a new DS record is provisioned somehow).</t>
+          <t>One may ask how a registry can know whether a removal request received via EPP was the result of the registrar observing a CDS/CDNSKEY "delete" signal. It turns out that the registry does not need to know that; in fact, the advice works out nicely regardless of who does the automation:</t>
+          <ol spacing="normal" type="a">
+	    <li>
+              <t>Only registry: If the registry performs automation, then the registry will consider any request received from the registrar as out-of-band (in the context of this automation). When such requests demand removal of the entire DS record set, the registry therefore should suspend automation.</t>
+            </li>
+            <li>
+              <t>Only registrar: The registrar can always distinguish between removal requests obtained from a CDS/CDNSKEY "delete" signal and other registrant requests and suspend automation as appropriate.</t>
+            </li>
+            <li>
+              <t>In the (undesirable) case that both parties automate, there are two cases:  </t>
+              <ul spacing="normal">
+                <li>
+                  <t>If the registrant submits a manual removal request to the registrar, it is out-of-band from the registrar perspective (e.g., web form) and also for the registry (e.g., EPP). As a consequence, both will suspend automation (which is the correct result).</t>
+                </li>
+                <li>
+                  <t>If a CDS/CDNSKEY "delete" signal causes the registrar to request DS removal from the registry, then the registry will suspend automation (because the removal request is received out-of-band, such as via EPP). This is independent of whether the registry's automation has already seen the signal. The registrar, however, will be aware of the in-band nature of the request and not suspend automation (which is also the correct result).</t>
+                </li>
+              </ul>
+              <t>
+As a side effect, this works towards avoiding redundant automation at the registry.</t>
+            </li>
+          </ol>
+          <t>All in all:</t>
+          <ul spacing="normal">
+            <li>
+              <t>It is advisable to generally not suspend in-band DS automation when an out-of-band DS update has occurred.</t>
+            </li>
+            <li>
+              <t>An exception to this rule is when the entire DS record set was removed through an out-of-band request, in which case the registrant likely wants to disable DNSSEC for the domain. DS automation should then be suspended so that automatic re-initialization (bootstrapping) does not occur.</t>
+            </li>
+            <li>
+              <t>In all other cases, any properly authenticated DS updates received, including through an automated method, are to be considered as the current intent of the domain holder.</t>
+            </li>
+          </ul>
+        </section>
+        <section anchor="concurrent-automatic-updates">
+          <name>Concurrent Automatic Updates</name>
+          <t>When the RRR model is used, there is a potential for collision if both the registry and the registrar are automating DS provisioning by scanning the child for CDS/CDNSKEY records. No disruptive consequences are expected if both parties perform DS automation. An exception is when, during a key rollover, the registry and registrar see different versions of the Child's DS update requests, such as when CDS/CDNSKEY records are retrieved from different vantage points. Although unlikely due to Recommendation 1a of <xref target="acceptance"/>, this may lead to flapping of DS updates. However, it is not expected to be harmful as either DS RRset will allow for the validation function to continue to work, as ensured by Recommendation 1b of <xref target="acceptance"/>. The effect subsides as the Child's state eventually becomes consistent (roughly within the child's replication delay); any flapping until then will be a minor nuisance only.</t>
+          <t>The issue disappears entirely when scanning is replaced by notifications that trigger DS maintenance through one party's designated endpoint <xref target="RFC9859"/> and can otherwise be mitigated if the registry and registrar agree that only one of them will perform scanning.</t>
+          <t>As a standard aspect of key rollovers <xref target="RFC6781"/>, the Child DNS operator is expected to monitor propagation of Child zone updates to all authoritative nameserver instances and only proceed to the next step once replication has succeeded everywhere and the DS record set was subsequently updated (and in no case before the DS RRset's TTL has passed). Any breakage resulting from improper timing on the Child side is outside of the Parent's sphere of influence and thus cannot be handled with only parent-side changes.</t>
+        </section>
+      </section>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+      <t>This document has no IANA actions.</t>
+    </section>
+    <section anchor="operational-considerations">
+      <name>Operational Considerations</name>
+      <t>The document provides operational recommendations for DNSSEC DS automation. There are no additional operational considerations beyond those listed in <xref target="recommendations_overview"/>.</t>
+    </section>
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>The recommendations in this document are designed to improve the safety and interoperability of DNSSEC delegation maintenance. Relevant security implications and various trade-offs are explained in the analysis subsections above. This section notes additional aspects worth considering.</t>
+      <t>When inconsistencies between CDS/CDNSKEY RRsets are ignored (contrary to <xref target="acceptance-rec1a" format="none">Recommendation 4.1.1.a</xref>), a number of security risks result. For example, when a nameserver domain expires and is re-registered maliciously, the adversary may be able to initialize a DS RRset and subsequently redelegate the domain using CSYNC synchronization <xref target="RFC7477"/>, resulting in a full hijack of the domain. For details, refer to <xref section="A" sectionFormat="of" target="RFC9975"/>.</t>
+      <t>Similar risks of total adversarial control exist when the child's SEP key is compromised, as this key can authorize DS update or removal requests if consistently published on all nameservers. This reinforces that loss of key control poses severe risks; utmost care must be taken when managing SEP keys.</t>
+      <t>When a domain is stripped of its DNSSEC protection by removing the DS RRset -- either manually or using an automatic delete signal (<xref target="multiple-rec3" format="none">Recommendation 7.1.3</xref>) -- DNSSEC security guarantees and associated benefits are no longer in effect. For example, an email operator may enforce DNS-Based Authentication of Named Entities (DANE) <xref target="RFC7672"/> for domains previously observed to support it and, as a result, experience a service disruption in email delivery. Both child and parent DNS operators <bcp14>MUST</bcp14> take such service disruptions into account when considering removal of the DS RRset for their zone.</t>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="I-D.ietf-regext-rdap-ttl-extension" to="RDAP-TTL"/>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <reference anchor="DNSKEY-IANA" target="https://www.iana.org/assignments/dns-sec-alg-numbers">
+          <front>
+            <title>DNS Security Algorithm Numbers</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="DS-IANA" target="https://www.iana.org/assignments/ds-rr-types">
+          <front>
+            <title>DNSSEC Delegation Signer (DS) Resource Record (RR) Type Digest Algorithms</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7344.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8078.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9615.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9364.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9859.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9499.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9975.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9567.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8590.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.1035.xml"/>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <reference anchor="LowTTL" target="https://indico.dns-oarc.net/event/47/contributions/1010/attachments/958/1811/DS%20and%20DNSKEY%20TTL%20experiment.pdf">
+          <front>
+            <title>DS and DNSKEY low TTL experiments</title>
+            <author initials="P." surname="Špaček" fullname="Petr Špaček">
+              <organization>ISC</organization>
+            </author>
+            <date year="2023" month="September" day="06"/>
+          </front>
+          <refcontent>DNS OARC 41</refcontent>
+        </reference>
+        <reference anchor="SAC126" target="https://itp.cdn.icann.org/en/files/security-and-stability-advisory-committee-ssac-reports/sac-126-16-08-2024-en.pdf">
+          <front>
+            <title>SAC126: DNSSEC Delegation Signer (DS) Record Automation</title>
+            <author>
+              <organization>ICANN Security and Stability Advisory Committee (SSAC)</organization>
+            </author>
+            <date year="2024" month="August" day="12"/>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6840.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6781.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5730.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9803.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-regext-rdap-ttl-extension.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5731.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7477.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7672.xml"/>
+      </references>
+    </references>
+    
+    <section anchor="recommendations_overview">
+      <name>Recommendations Overview</name>
+      <t>For ease of review and referencing, the recommendations from this document are reproduced here without further comment. For background and analysis, refer to Sections <xref format="counter" target="acceptance"/>-<xref format="counter" target="multiple"/>.</t>
+      <section anchor="acceptance-checks-and-safety-measures">
+        <name>Acceptance Checks and Safety Measures</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>Entities performing automated DS maintenance <bcp14>MUST</bcp14> verify:  </t>
+            <ol spacing="normal" type="a">
+	      <li>
+                <t>the unambiguous intent of each DS bootstrapping or update request as per <xref target="RFC9975"/>, by checking its consistency both      </t>
+                <ul spacing="normal">
+                  <li>
+                    <t>between any published CDS and CDNSKEY records and</t>
+                  </li>
+                  <li>
+                    <t>across all authoritative nameservers in the delegation,</t>
+                  </li>
+                </ul>
+                <t>
+and</t>
+              </li>
+              <li>
+                <t>that the resulting DS record set would allow continued DNSSEC validation if deployed</t>
+              </li>
+            </ol>
+            <t>
+and cancel the update if the verifications do not succeed.</t>
+          </li>
+          <li>
+            <t>Parent-side entities (such as registries) <bcp14>SHOULD</bcp14> allow for effective rollback by reducing a DS record set's TTL to a value between 5-15 minutes when a new set of records is published, and restore the previous (or, if unavailable, default) TTL value at a later occasion (but not before the previous DS RRset's TTL has expired).</t>
+	    <t>Besides a prudent choice of TTL, prompt DS changes also require
+      timely discovery of update requests.  For recommended methods,
+      see <xref target="ttls-and-caching"/>.</t>
+          </li>
+          <li>
+            <t>DNS operators <bcp14>MUST</bcp14> publish both CDNSKEY and CDS records (unless the parent's preference is known) and follow best practice for the choice of hash digest type <xref target="DS-IANA"/>.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="reporting-and-transparency">
+        <name>Reporting and Transparency</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>For certain DS updates (see <xref target="analysis_reporting">analysis</xref>) and for DS deactivation, relevant points of contact known to the parent-side entity (registry or registrar) <bcp14>SHOULD</bcp14> be notified.</t>
+          </li>
+          <li>
+            <t>For error conditions, the child DNS operator and the domain's technical contact (if applicable) <bcp14>SHOULD</bcp14> be notified first. The registrant <bcp14>SHOULD NOT</bcp14> be notified unless the problem persists for a prolonged amount of time (e.g., three days).</t>
+          </li>
+          <li>
+            <t>Child DNS operators <bcp14>SHOULD</bcp14> be notified of errors using a report query <xref target="RFC9567"/> to the agent domain as described in <xref section="4" sectionFormat="of" target="RFC9859"/>. Note that this requires listening to notifications and that appropriate notification targets are in place (<xref target="RFC9859" sectionFormat="of" section="3"/>).</t>
+	    <t>Notifications to humans (domain holder) will be performed in accordance with the communication preferences established with the parent-side entity. The same condition <bcp14>SHOULD NOT</bcp14> be reported unnecessarily frequently to the same recipient.</t>	    
+          </li>
+          <li>
+            <t>In the RRR model, registries performing DS automation <bcp14>SHOULD</bcp14> inform the registrar of any DS record changes via the EPP Change Poll Extension <xref target="RFC8590"/> or a similar channel.</t>
+          </li>
+          <li>
+            <t>The currently active DS configuration <bcp14>SHOULD</bcp14> be made accessible to the registrant (or their designated party) through the customer portal available for domain management. The DS update history <bcp14>MAY</bcp14> be made available in the same way.</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="registration-locks">
+        <name>Registration Locks</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>To secure ongoing operations, automated DS maintenance <bcp14>MUST NOT</bcp14> be suspended based on a registrar update lock alone (such as EPP status clientUpdateProhibited <xref target="RFC5731"/>).</t>
+          </li>
+          <li>
+            <t>When performed by the registry, automated DS maintenance <bcp14>MUST NOT</bcp14> be suspended based on a registry update lock alone (such as EPP status serverUpdateProhibited <xref target="RFC5731"/>).</t>
+          </li>
+        </ol>
+      </section>
+      <section anchor="multiple-submitting-parties-and-suspension-of-automation">
+        <name>Multiple Submitting Parties and Suspension of Automation</name>
+        <ol spacing="normal" type="1">
+	  <li>
+            <t>Registries and registrars <bcp14>MUST</bcp14> provide another (e.g., manual) channel for DS maintenance in order to enable recovery when the Child has lost access to its signing key(s). This out-of-band channel is also needed when a DNS operator does not support DS automation or refuses to cooperate.</t>
+          </li>
+          <li>
+            <t>DS bootstrapping and update requests <bcp14>MUST</bcp14> be executed at the next publication opportunity after verification of their authenticity, regardless of whether they are received in-band or via an out-of-band channel.</t>
+          </li>
+          <li>
+            <t>When processing a CDS/CDNSKEY "delete" signal to remove the entire DS record set (<xref section="4" sectionFormat="comma" target="RFC8078"/>), DS automation <bcp14>MUST NOT</bcp14> be suspended. For all other removal requests (such as when received via EPP or a web form), DS automation <bcp14>SHOULD</bcp14> be suspended until a new DS record set has been provisioned, in order to prevent accidental re-initialization when the registrant intended to disable DNSSEC.</t>
+          </li>
+          <li>
+            <t>Whenever a non-empty DS record set is provisioned, through whichever channel, DS automation <bcp14>SHOULD NOT</bcp14> (or no longer) be suspended (including after an earlier removal).</t>
+          </li>
+          <li>
+            <t>In the RRR model, a registry <bcp14>MUST NOT</bcp14> automatically initialize DS records when it is known that the registrar does not provide a way for the domain holder to later disable DNSSEC. If the registrar has declared that it performs automated DS maintenance, the registry <bcp14>SHOULD</bcp14> publish the registrar's notification endpoint <xref target="RFC9859"/> (if applicable) instead of their own and refrain from registry-side DS automation.</t>
+          </li>
+        </ol>
+      </section>
+    </section>
+
+    <section anchor="acknowledgments" numbered="false">
+      <name>Acknowledgments</name>
+      <t>The authors would like to thank the members of ICANN's Security and Stability Advisory Committee (SSAC) who wrote the <xref target="SAC126"/> report on which this document is based.</t>
+      <t>Additional thanks are extended to the following individuals (in the order of their first contribution or review): <contact fullname="Barbara Jantzen"/>, <contact fullname="Matt Pounsett"/>, <contact fullname="Matthijs Mekking"/>, <contact fullname="Ondřej Caletka"/>, <contact fullname="Oli Schacher"/>, <contact fullname="Kim Davies"/>, <contact fullname="Jim Reid"/>, <contact fullname="Q Misell"/>, <contact fullname="Scott Hollenbeck"/>, <contact fullname="Tamás Csillag"/>, <contact fullname="Philip Homburg"/>, <contact fullname="Shumon Huque"/> (Document Shepherd), <contact fullname="Libor Peltan"/>, <contact fullname="Josh Simpson"/>, <contact fullname="Johan Stenstam"/>, <contact fullname="Stefan Ubbink"/>, <contact fullname="Viktor Dukhovni"/>, <contact fullname="Hugo Salgado"/>, <contact fullname="Wes Hardaker"/>, <contact fullname="Mohamed Boucadair"/> (responsible Area Director), <contact fullname="Meir Goldman"/>, <contact fullname="Thomas Fossati"/>, <contact fullname="Peter van Dijk"/>, <contact fullname="Jiankang Yao"/>, <contact fullname="Donald Eastlake"/>, <contact fullname="James Gannon"/>, <contact fullname="Roman Danyliw"/>, <contact fullname="Andy Newton"/>, <contact fullname="Éric Vyncke"/>, <contact fullname="Mike Bishop"/>, <contact fullname="Mahesh Jethanandani"/>, <contact fullname="Deb Cooley"/>, <contact fullname="Charles Eckel"/>, <contact fullname="Christopher Inacio"/>, and <contact fullname="Ketan Talaulikar"/>.</t>
+    </section>
+
+  </back>
+</rfc>
