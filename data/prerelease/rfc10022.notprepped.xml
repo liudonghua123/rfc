@@ -1,0 +1,359 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE rfc [
+ <!ENTITY nbsp    "&#160;">
+ <!ENTITY zwsp   "&#8203;">
+ <!ENTITY nbhy   "&#8209;">
+ <!ENTITY wj     "&#8288;">
+]> 
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-mailmaint-imap-uidbatches-22" number="10022" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" version="3" sortRefs="true" symRefs="true" consensus="true"  tocInclude="true">
+  <front>
+    <title>IMAP UIDBATCHES Extension</title>
+    <seriesInfo name="RFC" value="10022"/>
+    <author fullname="Daniel Eggert" initials="D." role="editor" surname="Eggert">
+      <organization>Apple Inc</organization>
+      <address>
+        <postal>
+          <street>One Apple Park Way</street>
+          <city>Cupertino</city>
+          <region>CA</region>
+          <code>95014</code>
+          <country>United States of America</country>
+        </postal>
+        <email>deggert@apple.com</email>
+      </address>
+    </author>
+    <date year="2026" month="July"/>
+    <area>ART</area>
+    <workgroup>mailmaint</workgroup>
+    <keyword>IMAP</keyword>
+    <abstract>
+      <t>The <tt>UIDBATCHES</tt> extension of the Internet Message Access Protocol (IMAP) allows clients to retrieve Unique Identifier (UID) ranges that partition a mailbox's messages into equally sized batches. This enables clients to perform operations such as FETCH, SEARCH, and STORE on specific message batches, providing better control over resource usage and response sizes. The extension is particularly useful with the UIDONLY mode where sequence numbers are unavailable.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section>
+      <name>Introduction</name>
+      <t>This document defines an extension to the Internet Message Access Protocol (IMAP) <xref target="RFC9051"/> that enables clients to retrieve UID ranges that partition a mailbox's messages into evenly sized batches. This extension is compatible with both IMAP4rev1 <xref target="RFC3501"/> and IMAP4rev2 <xref target="RFC9051"/>.</t>
+      <t>The primary purpose of this extension is to allow clients to predetermine UID ranges that limit the number of messages each command operates on. This capability is especially beneficial when used with the UIDONLY mode <xref target="RFC9586"/>, where sequence numbers are unavailable to the client, making it difficult to create message batches using conventional methods.</t>
+    </section>
+    <section>
+      <name>Document Conventions</name>
+      <t>In protocol examples, "C:" indicates lines sent by a client that is connected to a server and "S:" indicates lines sent by the server to the client. These prefixes are not part of the protocol. Long lines in examples are wrapped using "The Single Backslash Strategy" described in <xref target="RFC8792" />.</t>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      <t>Other capitalized words are IMAP keywords <xref target="RFC9051"/> or keywords from this document.</t>
+    </section>
+    <section anchor="uidbatches-extension">
+      <name>The UIDBATCHES Extension</name>
+      <t>An IMAP server advertises support for the <tt>UIDBATCHES</tt> extension by including the <tt>UIDBATCHES</tt> capability in the CAPABILITY response / response code.</t>
+      <section anchor="command">
+        <name>UIDBATCHES Command</name>
+        <dl newline="true">
+          <dt>Arguments:</dt>
+          <dd><t>Message count per batch.</t><t><bcp14>OPTIONAL</bcp14> batch range.</t></dd>
+          <dt>Responses:</dt>
+          <dd><bcp14>REQUIRED</bcp14> untagged response: <tt>UIDBATCHES</tt></dd>
+          <dt>Result:</dt>
+          <dd><t>OK uidbatches completed</t><t><tt>NO</tt> command exceeds limits</t><t>BAD command unknown or arguments invalid</t></dd>
+        </dl>
+        <t>The <tt>UIDBATCHES</tt> command requests UID ranges that partition the messages in the currently selected mailbox into equally sized batches. The server returns these ranges in descending UID order, with batch 1 containing the highest UIDs (most recent messages), batch 2 containing the next highest set of UIDs, and so on.</t>
+        <t>For a mailbox with M messages, requesting batches of size N returns UID ranges corresponding to the following sequence number ranges (where sequence numbers are ordered from 1 to M, with M being the most recent message):</t>
+        <sourcecode><![CDATA[
+Batch 1: M:(M-N+1)     // Most recent N messages
+Batch 2: (M-N):(M-2*N+1)  // Next N messages
+Batch 3: (M-2*N):(M-3*N+1) // Next N messages
+...and so on]]></sourcecode>
+
+        <section anchor="example-usage">
+          <name>Example Usage</name>
+          <t>The following example demonstrates how a client uses <tt>UIDBATCHES</tt> to partition a mailbox into manageable batches:</t>
+          <sourcecode><![CDATA[
+========== NOTE: '\' line wrapping per RFC 8792 ===========
+
+C: A142 SELECT INBOX
+S: * 6823 EXISTS
+S: * 1 RECENT
+S: * OK [UNSEEN 12] Message 12 is first unseen
+S: * OK [UIDVALIDITY 3857529045] UIDs valid
+S: * OK [UIDNEXT 215296] Predicted next UID
+S: * FLAGS (\Answered \Flagged \Deleted \Seen \Draft)
+S: * OK [PERMANENTFLAGS (\Deleted \Seen \*)] Limited
+S: A142 OK [READ-WRITE] SELECT completed
+C: A143 UIDBATCHES 2000
+S: * UIDBATCHES (TAG "A143") \
+       215295:99696,99695:20351,20350:7830,7829:1
+S: A143 OK UIDBATCHES Completed]]></sourcecode>
+
+          <t>The server's response provides four UID ranges:</t>
+          <ol type="1" group="reqs">
+            <li>215295:99696</li>
+            <li>99695:20351</li>
+            <li>20350:7830</li>
+            <li>7829:1</li>
+          </ol>
+          <t>Each range contains up to 2,000 messages, except the last range, which contains the remaining 823 messages.</t>
+          <t>As new messages cannot appear within these UID ranges, the number of messages in each range will not increase. However, it may decrease as messages are deleted.</t>
+          <t>It is only appropriate to resend <tt>UIDBATCHES</tt> if one of the following conditions is met:</t>
+          <ol type="1" group="conditions">
+            <li>A different mailbox has been selected</li>
+            <li>More than N/2 messages have been expunged from the mailbox (where N is the batch size)</li>
+            <li>More than N/2 new messages have been received into the mailbox</li>
+          </ol>
+          <t>To prevent server overload, the client <bcp14>MUST NOT</bcp14> resend <tt>UIDBATCHES</tt> otherwise.</t>
+          <t>Computing message batches may be resource-intensive for servers.</t>
+          <t>The client can keep track of the number of <tt>EXPUNGE</tt> or <tt>VANISHED</tt> messages and re-run <tt>UIDBATCHES</tt> if many messages are deleted.</t>
+          <t>As new messages arrive into the mailbox, the client should add these to a new message batch (starting at UID 215296 in the above example). Once N/2 or more new messages have been added to the mailbox, the client <bcp14>MAY</bcp14> ask for updated batches by re-running the <tt>UIDBATCHES</tt> command.</t>
+          <t>The server <bcp14>SHOULD</bcp14> reject <tt>UIDBATCHES</tt> commands with a <tt>NO</tt> response with the <tt>LIMIT</tt> response code if the client exceeds this limit. Servers <bcp14>MAY</bcp14> choose to track client requests and mailbox state changes to enforce these restrictions and prevent resource abuse.</t>
+        </section>
+        <section anchor="response-format">
+          <name>Response Format</name>
+          <t>The server <bcp14>MUST</bcp14> reply with a <tt>UIDBATCHES</tt> response, even if no ranges are returned (see <xref target="empty-responses"/>). The <tt>UIDBATCHES</tt> response <bcp14>MUST</bcp14> include the tag of the command it relates to (similar to an <tt>ESEARCH</tt> response defined in <xref target="RFC4731"/>).</t>
+          <t>The UID ranges in the response <bcp14>MUST</bcp14> be ordered in descending sequence, from the highest to the lowest UIDs.</t>
+        </section>
+        <section anchor="batch-sizes">
+          <name>Batch Sizes</name>
+          <t>To ensure efficient server operation and prevent abuse, this extension enforces constraints on batch sizes. The design balances server efficiency requirements with the primary use case of working effectively with the UIDONLY mode <xref target="RFC9586"/>, without creating a mechanism that circumvents the sequence number restrictions of that mode.</t>
+          <section anchor="batch-size-overview">
+              <name>Batch Size Summary</name>
+              <t>The following table provides a quick reference for batch size constraints:</t>
+              <table anchor="batch-size-constraints-table" align="center">
+                  <name>Batch Size Constraints</name>
+                  <thead>
+                      <tr><th>Constraint</th><th>Client Request</th><th>Server Response</th></tr>
+                  </thead>
+                  <tbody>
+                      <tr><td align="left">Minimum</td><td align="left">500 messages</td><td align="left">Aim for &gt;= 90% of requested size</td></tr>
+                      <tr><td align="left">Maximum</td><td align="left">No limit</td><td align="left">Never exceed requested size</td></tr>
+                      <tr><td align="left">Exception</td><td align="left">-</td><td align="left">May be smaller during mailbox changes</td></tr>
+                  </tbody>
+              </table>
+              <t>Key principles:</t>
+              <ul>
+                  <li>Clients <bcp14>MUST</bcp14> request at least 500 messages per batch (see Sections <xref target="batch-size-rationale" format="counter"/> and <xref target="interaction-uidonly" format="counter"/>)</li>
+                  <li>Servers <bcp14>MUST NOT</bcp14> return more messages than requested</li>
+                  <li>Servers <bcp14>SHOULD</bcp14> return batches close to the requested size (&gt;= 90% when possible)</li>
+                  <li>Exact batch sizes may vary due to implementation efficiency or mailbox changes</li>
+              </ul>
+          </section>
+          <section anchor="batch-size-requirements">
+              <name>Minimum Batch Size</name>
+              <t>The server <bcp14>MUST</bcp14> support batch sizes of 500 messages or larger. This minimum size prevents clients from misusing the extension to effectively reconstruct sequence numbers while still allowing reasonable batch operations.</t>
+              <t>Note that clients <bcp14>MUST</bcp14> be prepared to handle batches smaller than requested, as detailed in <xref target="batch-size-flexibility"/>.</t>
+              <t>The server <bcp14>MUST</bcp14> respond with <tt>NO</tt> and a response code <tt>TOOFEW</tt> if the client uses a batch size smaller than the minimum allowed by the server:</t>
+              <sourcecode><![CDATA[
+S: A302 NO [TOOFEW] Minimum batch size is 500]]></sourcecode>
+
+          </section>
+          <section anchor="batch-size-flexibility">
+              <name>Server Response Flexibility</name>
+              <t>While servers <bcp14>SHOULD</bcp14> return batches that correspond exactly to the requested size, they have flexibility in specific circumstances to enable efficient implementations.</t>
+              <section anchor="batch-size-hard-constraints">
+                  <name>Hard Constraints</name>
+                  <t>The server <bcp14>MUST NOT</bcp14> return ranges that contain more than the number of messages per batch requested by the client. This is a strict upper bound that cannot be exceeded.</t>
+                  <t>If the requested batch size equals or exceeds the total number of messages in the mailbox, the server <bcp14>MUST</bcp14> return a single UID range spanning all messages.</t>
+              </section>
+              <section anchor="batch-size-permitted-variations">
+                  <name>Permitted Variations</name>
+                  <t>Servers <bcp14>MAY</bcp14> return fewer messages per range in two specific circumstances:</t>
+                  <ol>
+                      <li>When doing so makes the implementation substantially simpler and/or more efficient</li>
+                      <li>When there are changes in mailbox state during the execution of the <tt>UIDBATCHES</tt> command, particularly when messages are expunged</li>
+                  </ol>
+                  <t>However, servers <bcp14>SHOULD NOT</bcp14> return batches that are substantially smaller than requested and <bcp14>SHOULD</bcp14> aim to stay within 90% of the requested size. This guideline reflects the fact that clients typically choose batch sizes based on their intended use, such as displaying a specific number of messages to users.</t>
+              </section>
+              <section anchor="batch-size-dynamic-changes">
+                  <name>Dynamic Changes</name>
+                  <t>Mailbox state changes during <tt>UIDBATCHES</tt> execution can result in servers returning substantially fewer messages in each batch, particularly when message expungement reduces the overall mailbox size. Clients can detect these situations through the <tt>EXPUNGE</tt>, <tt>VANISHED</tt>, or <tt>EXISTS</tt> responses they receive.</t>
+              </section>
+              <section anchor="batch-size-practical-implications">
+                  <name>Practical Implications</name>
+                  <t>Due to these flexibility provisions, servers may return batches of varying sizes. For instance, when returning 3 batches of a requested size of 1,000, one might contain 990 messages, another 977, and the third 1,000 messages. Clients <bcp14>MUST</bcp14> be prepared to handle such variations.</t>
+                  <t>When the total number of messages is not evenly divisible by the requested batch size, the final batch will contain the remainder. Therefore, the last batch in the mailbox (containing the lowest UIDs) will typically have fewer messages than requested.</t>
+              </section>
+          </section>
+          <section anchor="batch-size-rationale">
+              <name>Design Rationale</name>
+              <t>These restrictions provide servers with implementation flexibility while preventing clients from misusing the extension to effectively reconstruct sequence numbers. <xref target="similarity-to-uid-search"/> also outlines some reasoning for these limitations.</t>
+              <t>The flexibility regarding batch sizes is designed to enable efficient server implementations while maintaining predictable behavior for clients. This leeway is not intended as a general permission to return arbitrarily sized batches but rather to accommodate implementation constraints and dynamic mailbox changes.</t>
+          </section>
+        </section>
+        <section anchor="uids">
+          <name>UIDs</name>
+          <t>The server <bcp14>MAY</bcp14> return UID ranges with UIDs that do not exist on the server. As a result, the client <bcp14>MUST NOT</bcp14> make assumptions about the existence of messages. If the server returns the response:</t>
+          <sourcecode><![CDATA[
+========== NOTE: '\' line wrapping per RFC 8792 ===========
+
+S: * UIDBATCHES (TAG "A302") \
+       163886:99703,99696:20358,20351:7841,7830:1
+S: A302 OK UIDBATCHES Completed]]></sourcecode>
+
+          <t>there may not be any messages on the server with the UIDs such as 163886, 99703, 99696, etc.</t>
+          <t>The range <tt>163886:99703</tt> will span approximately the requested number of messages (may be less, see <xref target="batch-sizes"/>), but its start and end UIDs may not correspond to messages on the server.</t>
+          <t>This gives the server implementation some flexibility as to which UID ranges to return. They might, e.g., return <tt>163886:99697</tt> and <tt>99696:20358</tt> instead of <tt>163886:99703</tt> and <tt>99696:20358</tt> -- assuming that there are no messages in the range <tt>99702:99697</tt>.</t>
+          <t>If there are fewer messages in the mailbox than the requested batch size, the server would return a single batch that contains all messages in the mailbox.</t>
+          <t>When applying the flexibility described above to the last batch in the mailbox, ending that batch with UID 1 makes it unambiguous to the client that this range is in fact the last range. For example, if the message with the lowest UID is 302, the server can return <tt>7829:1</tt> instead of <tt>7829:302</tt>.</t>
+        </section>
+        <section anchor="batch-ranges">
+          <name>Batch Ranges</name>
+          <t>A client can optionally provide a batch range. The server limits its response to UID ranges corresponding to the specified batch indices. For example, if the client sends:</t>
+          <sourcecode><![CDATA[
+C: A302 UIDBATCHES 2000 10:20]]></sourcecode>
+
+          <t>for a mailbox with 100,000 messages, the server would return the 10th to 20th batches. The 10th batch would correspond to message sequence numbers `82000:80001` and the 20th batch would correspond to message sequence numbers `62000:60001`.</t>
+          <t>Batches start at the highest UIDs, i.e., batch 1 is the batch with the highest UIDs.</t>
+          <t>The UID ranges that the server returns would still split the mailbox's messages into batches of the requested size (2,000 in the example).</t>
+          <t>If the client requests more batches than exist on the server, the server would return those that do exist. For example, if the client sends:</t>
+          <sourcecode><![CDATA[
+C: A302 UIDBATCHES 2000 1:5]]></sourcecode>
+
+          <t>and the selected mailbox has 7,000 messages, the server would then return a <tt>UIDBATCHES</tt> response with only 4 UID ranges.</t>
+          <t>Batch ranges such as <tt>1:4</tt> in the above example <bcp14>MUST</bcp14> be ordered lowest to highest, i.e., be sent as <tt>1:4</tt> and not as <tt>4:1</tt>. Servers <bcp14>MUST</bcp14> reject batch ranges that are in the wrong order with <tt>BAD</tt> and a response code <tt>CLIENTBUG</tt>:</t>
+          <sourcecode><![CDATA[
+C: A302 UIDBATCHES 2000 4:1
+S: A302 BAD [CLIENTBUG] Invalid batch range]]></sourcecode>
+
+          <t>If the client requests a range of batches that do not exist on the server, the server <bcp14>MUST</bcp14> still return an empty response. See <xref target="empty-responses"/>.</t>
+          <t>The number of messages per batch returned by the server may be approximate, as detailed in <xref target="batch-sizes"/>. As a result, if the client needs to request consecutive batch ranges such as 1:100, 101:200, 201:300, and so on, the client may want to make these batch ranges overlap by, e.g., requesting 1:100, 100:200, and 200:300. While the UIDs returned may not correspond to existing messages (as described in <xref target="uids"/>) and mailbox state can change between requests, checking whether the returned UID ranges overlap can help clients detect potential inconsistencies, though how to handle such situations depends on the specific client implementation requirements.</t>
+          <t>Clients <bcp14>MUST NOT</bcp14> request batch ranges that span more than 100,000 messages, i.e., the number of batches multiplied by the batch size <bcp14>MUST NOT</bcp14> be larger than 100,000. This restriction applies only when a batch range is specified; when no batch range is provided, the client is requesting all batches but the server may limit its response as described in <xref target="large-mailboxes"/>. The server <bcp14>MAY</bcp14> reject <tt>UIDBATCHES</tt> commands with a <tt>NO</tt> response with the <tt>TOOMANY</tt> response code if the client exceeds this limit.</t>
+          <sourcecode><![CDATA[
+C: A302 UIDBATCHES 2000 1:100
+S: A302 NO [TOOMANY] Too many messages]]></sourcecode>
+        </section>
+        <section anchor="empty-responses">
+          <name>Empty Responses</name>
+          <t>When the client issues any valid <tt>UIDBATCHES</tt> command and the mailbox is empty, the server <bcp14>MUST</bcp14> reply with a <tt>UIDBATCHES</tt> response, for example:</t>
+          <sourcecode><![CDATA[
+S: * UIDBATCHES (TAG "A302")
+S: A302 OK UIDBATCHES Completed]]></sourcecode>
+          <t>If the client requests a range of batches that do not exist, the server <bcp14>MUST</bcp14> reply with an empty <tt>UIDBATCHES</tt> response. If the mailbox has 7,000 messages, and the client sends:</t>
+          <sourcecode><![CDATA[
+C: A302 UIDBATCHES 2000 6:8]]></sourcecode>
+          <t>the server would respond with:</t>
+          <sourcecode><![CDATA[
+S: * UIDBATCHES (TAG "A302")
+S: A302 OK UIDBATCHES Completed]]></sourcecode>
+        </section>
+        <section anchor="large-mailboxes">
+          <name>Large Mailboxes</name>
+          <t>The server may not be able to return all UID ranges if the mailbox contains an extremely large number of messages.</t>
+          <t>The server <bcp14>MUST</bcp14> at least support returning UID ranges spanning 100,000 messages. See <xref target="batch-ranges"/> for details on this limit.</t>
+          <t>If the server cannot return all of the requested UID ranges, it <bcp14>MUST</bcp14> respond with a <tt>NO</tt> response with the <tt>TOOMANY</tt> response code. Notably, when the client requests all UID ranges and the mailbox has more than 100,000 messages, the server <bcp14>MAY</bcp14> reply with a <tt>NO</tt> response. For example:</t>
+          <sourcecode><![CDATA[
+C: A302 UIDBATCHES 2000
+S: A302 NO [TOOMANY] Too many messages in mailbox]]></sourcecode>
+          <t>The client should know what the message count in the mailbox is, and if the message count exceeds 100,000, it may choose to always request batch ranges as discussed in <xref target="batch-ranges"/> instead of requesting all batches.</t>
+        </section>
+      </section>
+      <section anchor="message-limit">
+        <name>Interaction with MESSAGELIMIT Extension</name>
+        <t>When the server supports both the MESSAGELIMIT <xref target="RFC9738"/> and <tt>UIDBATCHES</tt> extension, the client <bcp14>SHOULD</bcp14> request batches no larger than the specified maximum number of messages that can be processed in a single command. The client <bcp14>MAY</bcp14> choose to use a smaller batch size.</t>
+        <t>Additionally, since servers <bcp14>MAY</bcp14> limit the number of UIDs returned in response to <tt>UIDBATCHES</tt>, it is reasonable to assume that they would at most return N UIDs, where N is the limit the server announced as its MESSAGELIMIT.</t>
+      </section>
+      <section anchor="interaction-uidonly">
+        <name>Interaction with UIDONLY Extension</name>
+        <t>The <tt>UIDBATCHES</tt> extension allows clients to create UID ranges for message batches even when the connection operates in UIDONLY mode, which otherwise doesn't allow for using message sequence numbers.</t>
+        <t>This interaction is particularly important because the UIDONLY extension disallows the use of sequence numbers. While the PARTIAL extension <xref target="RFC9394"/> provides paged SEARCH and FETCH operations, some clients need to predetermine UID ranges for batches upfront. <tt>UIDBATCHES</tt> enables such clients to use the same overall batching strategy, regardless of whether the server supports UIDONLY, PARTIAL, or neither, making client implementations simpler and more consistent.</t>
+        <t>When operating in UIDONLY mode, clients <bcp14>SHOULD</bcp14> use <tt>UIDBATCHES</tt> to determine appropriate UID ranges for batch operations rather than attempting to construct batches using sequence-number-based approaches that would violate UIDONLY restrictions.</t>
+        <t>The batch size constraints defined in <xref target="batch-sizes"/> serve dual purposes: ensuring server efficiency and preventing <tt>UIDBATCHES</tt> from becoming a mechanism to effectively reconstruct sequence numbers. Without these constraints, clients could request very small batch sizes to obtain fine-grained positional information about messages, which would circumvent the sequence number restrictions of UIDONLY mode. The extension is designed specifically to support the legitimate need of predetermining message batches upfront while maintaining the architectural intent of UIDONLY mode.</t>
+      </section>
+      <section anchor="interaction-searchres">
+        <name>Interaction with SEARCHRES Extension</name>
+        <t><tt>UIDBATCHES</tt> is not a SEARCH nor UID SEARCH command. Servers that support SEARCHRES <xref target="RFC5182"/> <bcp14>MUST NOT</bcp14> store the result of <tt>UIDBATCHES</tt> in the <tt>$</tt> variable.</t>
+      </section>
+    </section>
+    <section anchor="formal-syntax">
+      <name>Formal Syntax</name>
+      <t>The following syntax specification uses the Augmented Backus-Naur Form (ABNF) notation as specified in <xref target="RFC5234"/>.</t>
+      <t>Non-terminals referenced but not defined below are as defined by
+        IMAP4 <xref target="RFC9051"/>.</t>
+      <t>Except as noted otherwise, all alphabetic characters are case-insensitive.  The use of upper or lower case characters to define token strings is for editorial clarity only.  Implementations <bcp14>MUST</bcp14> accept these strings in a case-insensitive fashion.</t>
+      <sourcecode type="abnf"><![CDATA[
+capability          =/ "UIDBATCHES"
+                       ;; <capability> from [RFC9051]
+
+command-select      =/ message-batches
+
+message-batches     = "UIDBATCHES" SP nz-number
+                      [SP nz-number ":" nz-number]
+
+uidbatches-response = "UIDBATCHES" search-correlator
+                      [SP uid-range *("," uid-range) ]
+
+mailbox-data        =/ uidbatches-response
+
+resp-text-code      =/ "TOOFEW" / "TOOMANY"]]></sourcecode>
+    </section>
+    <section anchor="operational-considerations">
+      <name>Operational Considerations</name>
+      <t>This document defines an optimization that can reduce both the amount of work performed by the server and the amount of data returned to the client.  Use of this extension is likely to cause the server and the client to use less memory than when the extension is not used.  However, as this is going to be new code in both the client and the server, rigorous testing of such code is required in order to avoid the introduction of new implementation bugs.</t>
+    </section>
+
+    <section anchor="security-considerations">
+      <name>Security Considerations</name>
+      <t>This document defines an additional IMAP4 capability.  As such, it does not change the underlying security considerations of IMAP4rev1 <xref target="RFC3501"/> and IMAP4rev2 <xref target="RFC9051"/>. The author and reviewers believe that no new security issues are introduced with this additional IMAP4 capability.</t>
+      <t>One consideration during the design of this extension was the potential for clients to cause servers to perform excessive computational work by repeatedly requesting batch calculations. The restrictions on when clients may re-run <tt>UIDBATCHES</tt> (<xref target="command"/>) and the batch size constraints (<xref target="batch-sizes"/>) are designed to mitigate this concern. Server implementations are strongly advised to implement enforcement of these rate-limiting restrictions rather than relying solely on client compliance. Servers <bcp14>SHOULD</bcp14> track <tt>UIDBATCHES</tt> requests per mailbox and reject requests that violate the conditions in <xref target="command"/>, as failure to do so may allow malicious or buggy clients to cause resource exhaustion through repeated batch calculations. Servers may reject requests that exceed these limits with the <tt>LIMIT</tt>, <tt>TOOFEW</tt>, or <tt>TOOMANY</tt> response codes.</t>
+      <t>As this extension involves new code in both clients and servers, rigorous testing of such code is required in order to avoid introducing new implementation bugs.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+
+        <t>IANA has added the <tt>UIDBATCHES</tt> capability to the <eref target="https://www.iana.org/assignments/imap4-capabilities">"Internet Message Access Protocol (IMAP) Capabilities Registry"</eref>, with a reference to this document.</t>
+
+        <t>IANA has added <tt>TOOMANY</tt> and <tt>TOOFEW</tt> to the <eref target="https://www.iana.org/assignments/imap-response-codes">"IMAP Response Codes" registry</eref>, with a reference to this document.</t>
+      </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3501.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5234.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9051.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9738.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4731.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5182.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8792.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9394.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9586.xml"/>
+      </references>
+    </references>
+    <section anchor="design-comparison" numbered="true" toc="include">
+      <name>Comparison with Existing Commands and Extensions</name>
+      <section anchor="similarity-to-uid-search">
+        <name>Similarity to UID SEARCH Command</name>
+        <t><tt>UIDBATCHES</tt> is in effect nothing more than shorthand for a UID SEARCH command of the form</t>
+        <sourcecode><![CDATA[
+C: A145 UID SEARCH RETURN () <M>,<M-N>,<M-2*N>,<M-3*N>,...]]></sourcecode>
+
+        <t>where M is the number of messages in the mailbox and N is the
+        requested batch count.</t>
+        <t>However, the special purpose <tt>UIDBATCHES</tt> command tries to
+        address two problems:</t>
+        <ol type="1">
+          <li>For many servers, UID SEARCH commands specifying sequence numbers are costly, especially for mailboxes with many messages.</li>
+          <li>The UIDONLY extension disallows the use of sequence numbers and thus makes it difficult for the client to split its commands into batches of a size that works well for the client and server.</li>
+        </ol>
+        <t>By providing a special purpose command, servers can implement a different, optimized code path for determining message batches. And servers using the UIDONLY extension can provide a facility to let the client determine message batches without using sequence numbers in a UID SEARCH command.</t>
+        <t><xref target="batch-sizes"/> describes some implementation restrictions to ensure this.</t>
+      </section>
+      <section anchor="partial-comparison">
+        <name>Similarity to PARTIAL Extension</name>
+        <t>The PARTIAL extension in <xref target="RFC9394"/> provides a different way for the client to split its commands into batches by using paged SEARCH and FETCH.</t>
+        <t>The intention of the <tt>UIDBATCHES</tt> command is to let the client predetermine message batches of a desired size.</t>
+        <t>This makes it easier for the client to share implementation between servers, regardless of their support of PARTIAL. And additionally, because the client can issue a corresponding UID SEARCH command to servers that do not implement <tt>UIDBATCHES</tt>, the client can use similar batching implementations for servers that support <tt>UIDBATCHES</tt> and those that do not.</t>
+      </section>
+    </section>
+  </back>
+</rfc>

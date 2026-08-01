@@ -1,0 +1,831 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" ipr="trust200902" docName="draft-ietf-rats-eat-measured-component-12" number="10013" category="std" updates="" obsoletes="" consensus="true" submissionType="IETF" tocInclude="true" sortRefs="true" symRefs="true" version="3" xml:lang="en">
+
+  <front>
+    <title abbrev="EAT Measured Component">Entity Attestation Token (EAT) Measured Component</title>
+    <seriesInfo name="RFC" value="10013"/>
+    <author initials="S." surname="Frost" fullname="Simon Frost">
+      <organization>Arm</organization>
+      <address>
+        <email>Simon.Frost@arm.com</email>
+      </address>
+    </author>
+    <author initials="T." surname="Fossati" fullname="Thomas Fossati">
+      <organization>Linaro</organization>
+      <address>
+        <email>Thomas.Fossati@linaro.org</email>
+      </address>
+    </author>
+    <author initials="H." surname="Tschofenig" fullname="Hannes Tschofenig">
+      <organization abbrev="UniBw M.">University of the Bundeswehr Munich</organization>
+      <address>
+        <postal>
+          <street>Werner-Heisenberg-Weg 39</street>
+          <extaddr>Institute of Distributed Intelligent Systems</extaddr>
+          <city>Neubiberg</city>
+          <code>85577</code>
+          <country>Germany</country>
+        </postal>
+        <email>Hannes.Tschofenig@gmx.net</email>
+      </address>
+    </author>
+    <author initials="H." surname="Birkholz" fullname="Henk Birkholz">
+      <organization>Fraunhofer SIT</organization>
+      <address>
+        <email>henk.birkholz@ietf.contact</email>
+      </address>
+    </author>
+    <date year="2026" month="July"/>
+    <area>SEC</area>
+    <workgroup>rats</workgroup>
+
+    <keyword>EAT</keyword>
+    <keyword>measurements</keyword>
+    <keyword>claim</keyword>
+    <keyword>measured</keyword>
+    <keyword>component</keyword>
+
+    <abstract>
+<t>The term "measured component" refers to an object within the attester's target environment whose state can be sampled and typically digested using a cryptographic hash function.
+Examples of measured components include firmware stored in flash memory, software loaded into memory at start time, data stored in a file system, or values in a CPU register.
+This document provides the information model for the measured component and two associated data models.
+This separation is intentional: The JSON and Concise Binary Object Representation (CBOR) serializations, coupled with the media types and associated Constrained Application Protocol (CoAP) Content-Formats, enable the immediate use of the semantics within the Entity Attestation Token (EAT) framework.
+Meanwhile, the information model can be reused in future specifications to provide additional serializations, for example, using ASN.1.</t>
+    </abstract>
+  </front>
+  <middle>
+
+    <section anchor="introduction">
+      <name>Introduction</name>
+      <t><xref section="4.2.16" sectionFormat="of" target="RFC9711"/> defines a Measurement claim that:</t>
+      <blockquote>
+        <t>[c]ontains descriptions, lists, evidence, or measurements of the software that exists on the entity or on any other measurable subsystem of the entity</t>
+      </blockquote>
+      <t>This claim allows for different measurement formats, each identified by a different CoAP Content-Format (<xref section="12.3" sectionFormat="of" target="RFC7252"/>).
+Currently, the only specified format is Concise Software Identification (CoSWID) Tags of type "evidence", as per <xref section="2.9.4" sectionFormat="of" target="RFC9393"/>.
+However, CoSWID is not suitable for measurements that cannot be anchored to a file system, such as those in early boot environments.
+To address this gap, this document introduces a measured component format that can be used with the EAT Measurement claim alongside or instead of CoSWID.</t>
+      <t>The term "measured component" refers to an object within the attester's target environment whose state can be sampled and typically digested using a cryptographic hash function.
+For example, this includes the invariant part of a firmware component that is loaded in memory at startup time, a Run-Time Integrity Check (RTIC), a file system object, or a CPU register.</t>
+      <t>This document provides the information model for the measured component and two associated data models <xref target="RFC3444"/>.
+This separation is intentional: The JSON and CBOR serializations, coupled with the media types and associated CoAP Content-Formats, enable the immediate use of the semantics within the EAT framework.
+Meanwhile, the information model can be reused in future specifications to provide additional serializations, for example, using ASN.1. This approach is consistent with the guidance in <xref section="5.2" sectionFormat="of" target="I-D.ietf-opsawg-rfc5706bis"/>.</t>
+    </section>
+    <section anchor="conventions-and-definitions">
+      <name>Conventions and Definitions</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP 14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+<t>In this document, Concise Data Definition Language (CDDL) <xref target="RFC8610"/> <xref target="RFC9165"/> <xref target="RFC9741"/> is used to describe the data formats.
+This specification uses the following CDDL control operators: <tt>.b64u</tt> defined in <xref section="2.1" sectionFormat="of" target="RFC9741"/>, <tt>.json</tt> defined in <xref section="2.4" sectionFormat="of" target="RFC9741"/>, and <tt>.cbor</tt> defined in <xref section="3.8.4" sectionFormat="of" target="RFC8610"/>.</t>
+      <t>Examples are folded following the conventions in <xref target="RFC8792"/>.</t>
+    </section>
+    <section anchor="measured-component">
+      <name>Information Model</name>
+      <t>This section presents the information model of a measured component.</t>
+      <t>A measured component Information Element (IE) includes the component's sampled state (in digested or raw form) along with metadata that helps in identifying the component.
+Optionally, any entities responsible for signing the installed component can also be specified.</t>
+      <t>The IEs that constitute a measured component are described in <xref target="tab-mc-info-elems"/>.</t>
+      <table anchor="tab-mc-info-elems">
+        <name>Measured Component Information Elements</name>
+        <thead>
+          <tr>
+            <th align="left">IE</th>
+            <th align="left">Description</th>
+            <th align="left">Requirement Level</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td align="left">Component Name</td>
+            <td align="left">The name given to the measured component. It is important that this name remains consistent across different releases to allow for better tracking of the same measured item across updates. When combined with a consistent versioning scheme, it enables better signaling from the appraisal procedure to the relying parties.</td>
+            <td align="left">
+              <bcp14>REQUIRED</bcp14></td>
+          </tr>
+          <tr>
+            <td align="left">Component Version</td>
+            <td align="left">A value representing the specific release or development version of the measured component.  Using Semantic Versioning <xref target="SEMVER"/> is <bcp14>RECOMMENDED</bcp14>.</td>
+            <td align="left">
+              <bcp14>OPTIONAL</bcp14></td>
+          </tr>
+          <tr>
+            <td align="left">Digested or Raw Value</td>
+            <td align="left">Either the raw value or the digested value of the measured component.</td>
+            <td align="left">
+              <bcp14>REQUIRED</bcp14></td>
+          </tr>
+          <tr>
+            <td align="left">Digest Algorithm</td>
+            <td align="left">Hash algorithm used to compute the Digest Value.</td>
+            <td align="left">
+              <bcp14>REQUIRED</bcp14> only if the value is in the digested form</td>
+          </tr>
+          <tr>
+            <td align="left">Authorities</td>
+            <td align="left">One or more entities that can authoritatively identify the component being measured.</td>
+            <td align="left">
+              <bcp14>OPTIONAL</bcp14></td>
+          </tr>
+        </tbody>
+      </table>
+      <t>A data model implementing this information model <bcp14>SHOULD</bcp14> allow a limited amount of extensibility to accommodate profile-specific semantics.</t>
+    </section>
+    <section anchor="data-models">
+      <name>Data Models</name>
+      <t>This section presents coordinated JSON and CBOR data models, each of which implements the information model outlined in <xref target="measured-component"/>.</t>
+      <t>The data model is inspired by the "PSA software component" claim (<xref section="4.4.1" sectionFormat="of" target="RFC9783"/>), which has been refactored to take into account the recommendations about the design of new EAT claims described in <xref section="E" sectionFormat="of" target="RFC9711"/>.</t>
+      <t>CDDL is used to express rules and constraints of the data model for both JSON and CBOR.
+These rules must be strictly followed when creating or validating measured component data items.
+When there is variation between CBOR and JSON, the CDDL generic <tt>JC&lt;&gt;</tt>, defined in <xref section="D" sectionFormat="of" target="RFC9711"/>, is used.</t>
+      <section anchor="common-types">
+        <name>Common Types</name>
+        <t>The following three basic types are used at various places within the measured component data model:</t>
+        <sourcecode type="cddl"><![CDATA[
+bytes-b64u = text .b64u bytes
+bytes8 = bytes .size 8
+bytes8-b64u = text .b64u bytes8]]></sourcecode>
+      </section>
+      <section anchor="digest">
+        <name>The <tt>digest</tt> Type</name>
+        <t>A digest represents the result of a hashing operation together with the hash algorithm used.
+	The type of the digest algorithm identifier can be either <tt>int</tt> or <tt>text</tt> and is interpreted according to the "Named Information Hash Algorithm Registry" IANA registry <xref target="IANA.named-information"/>.
+Specifically, <tt>int</tt> values are matched against "ID" entries and <tt>text</tt> values are matched against "Hash Name String" entries.
+Whenever possible, using the <tt>int</tt> encoding is <bcp14>RECOMMENDED</bcp14>.</t>
+        <sourcecode type="cddl"><![CDATA[
+digest = [
+  alg: (int / text)
+  val: digest-value-type
+]
+
+digest-value-type = eat.JC<bytes-b64u, bytes>]]></sourcecode>
+      </section>
+      <section anchor="the-measured-component-data-item">
+        <name>The <tt>measured-component</tt> Data Item</name>
+        <t>The <tt>measured-component</tt> data item is as follows:</t>
+        <sourcecode type="cddl"><![CDATA[
+measured-component = {
+  component-id-label => component-id
+  measurement
+  ? authorities-label => [ + authority-id-type ]
+  ? flags-label => flags-type
+}
+
+measurement //= ( digested-measurement-label => digest )
+measurement //= ( raw-measurement-label => bytes )
+
+authority-id-type = eat.JC<bytes-b64u, bytes>
+flags-type = eat.JC<bytes8-b64u, bytes8>
+
+component-id-label = eat.JC<"id", 1>
+digested-measurement-label = eat.JC<"digested-measurement", 2>
+raw-measurement-label = eat.JC<"raw-measurement", 5>
+authorities-label = eat.JC<"authorities", 3>
+flags-label = eat.JC<"flags", 4>]]></sourcecode>
+        <t>The members of the <tt>measured-component</tt> CBOR map / JSON object are:</t>
+        <dl newline="true">
+          <dt><tt>id</tt> (index 1):</dt>
+          <dd>
+            <t>The measured component identifier encoded according to the format described in <xref target="component-id"/>.</t>
+          </dd>
+          <dt><tt>measurements</tt>:</dt>
+          <dd>
+            <t>Either a digest value and digest algorithm (index 2), encoded using the digest format (<xref target="digest"/>), or the "raw" measurement (index 5), encoded as a byte string.
+Note that, while the size of the digested form is constrained by the digest function, the size of the raw form can vary greatly depending on what is being measured (it could be a CPU register or an entire configuration blob, for example).
+Therefore, a decoder implementation may decide to limit the amount of memory it allocates to this specific field.</t>
+          </dd>
+          <dt><tt>authorities</tt> (index 3):</dt>
+          <dd>
+            <t>One or more authorities, see <xref target="authority"/>.</t>
+          </dd>
+          <dt><tt>flags</tt> (index 4):</dt>
+          <dd>
+            <t>A 64-bit field with profile-defined semantics, see <xref target="profile-flags"/>.</t>
+          </dd>
+        </dl>
+        <section anchor="component-id">
+          <name>Component Identifier</name>
+          <t>The <tt>component-id</tt> data item is as follows:</t>
+          <sourcecode type="cddl"><![CDATA[
+component-id = [
+  name:      text
+  ? version: version
+]
+
+;# import coswid.$version-scheme from rfc9393 as coswid
+
+version = [
+  val:      text
+  ? scheme: coswid.$version-scheme
+]]]></sourcecode>
+          <dl newline="true">
+            <dt><tt>name:</tt></dt>
+            <dd>
+              <t>A string that provides a human-readable identifier for the component in question.  Format and adopted conventions depend on the component type.</t>
+            </dd>
+            <dt><tt>version:</tt></dt>
+            <dd>
+          <t>A compound <tt>version</tt> data item that reuses the encoding and semantics of <tt>sw-version-type</tt> from <xref target="RFC9711"/>, extending it to non-software components.</t></dd></dl>
+	      <aside><t>
+Note that the complete definition of <tt>sw-version-type</tt> depends on the <tt>$version-scheme</tt> CDDL socket defined in <xref section="2.2" sectionFormat="of" target="RFC9393"/>.</t></aside>
+            
+        </section>
+        <section anchor="authority">
+          <name>Authority Identifier</name>
+          <t>An authority is an entity that can authoritatively identify a given component by digitally signing it.
+This signature is typically verified during installation (<xref section="7" sectionFormat="of" target="RFC9019"/>) or when the measured component is executed by the boot firmware, operating system, or application launcher, as in the case of Unified Extensible Firmware Interface (UEFI) Secure Boot <xref target="UEFI2"/> and Arm Trusted Board Boot <xref target="TBBR-CLIENT"/>.
+Another example may be the controlling entity in an app store.
+Note that this signature is in no way related to the attester's signature on the EAT-formatted evidence.
+By extension, an authority identifier does not, by itself, indicate the signer of the enclosing EAT-formatted evidence.</t>
+          <t>An authority is identified by its signing public key.
+It could be an X.509 certificate, a raw public key, a public key thumbprint, or some other identifier that can be uniquely associated with the signing entity.
+In some cases, multiple parties may need to sign a component to indicate their endorsement or approval.
+This could include roles such as a firmware update system, fleet owner, or third-party auditor.
+The specific purpose of each signature may depend on the deployment, and the order of authorities within the array could indicate meaning.</t>
+          <t>If an EAT profile (<xref section="6" sectionFormat="of" target="RFC9711"/>) uses measured components, it <bcp14>MUST</bcp14> specify whether the <tt>authorities</tt> field is used.
+If it is used, the profile <bcp14>MUST</bcp14> also specify what each of the entries in the <tt>authorities</tt> array represents and how to interpret the corresponding <tt>authority-id-type</tt>.</t>
+          <t>The <tt>authority-id-type</tt> is defined as follows:</t>
+          <sourcecode type="cddl"><![CDATA[
+authority-id-type = eat.JC<bytes-b64u, bytes>]]></sourcecode>
+        </section>
+        <section anchor="profile-flags">
+          <name>Profile-Specific Flags</name>
+          <t>This optional field can contain up to 64 bits of profile-defined semantics, enabling a profile of this specification to encode additional information and extend the base type.
+It can be used to carry information in fixed-size chunks, such as a bit mask or a single value within a predetermined set of codepoints.
+Regardless of its internal structure, the size of this field is exactly 8 bytes.</t>
+          <t>The <tt>flags-type</tt> is defined as follows:</t>
+          <sourcecode type="cddl"><![CDATA[
+flags-type = eat.JC<bytes8-b64u, bytes8>]]></sourcecode>
+          <t>If an EAT profile (<xref section="6" sectionFormat="of" target="RFC9711"/>) uses measured components, it <bcp14>MUST</bcp14> specify whether the <tt>flags</tt> field is used.
+If it is used, the profile <bcp14>MUST</bcp14> also specify how to interpret the 64 bits.</t>
+        </section>
+      </section>
+      <section anchor="eat-measurements-format-extensions">
+        <name>EAT <tt>measurements-format</tt> Extensions</name>
+        <t>The CDDL in <xref target="fig-eat-plug"/> extends the <tt>$measurements-body-cbor</tt> and <tt>$measurements-body-json</tt> EAT sockets to add support for <tt>measured-component</tt>s to the Measurement claim.</t>
+        <figure anchor="fig-eat-plug">
+          <name>EAT <tt>measurements-format</tt> Extensions</name>
+          <sourcecode type="cddl"><![CDATA[
+mc-cbor = bytes .cbor measured-component
+mc-json = text .json measured-component
+
+; EAT CBOR (`.feature "cbor"`)
+$measurements-body-cbor /= mc-cbor ; homogeneous
+$measurements-body-cbor /= mc-json ; tunnel
+
+; EAT JSON (`.feature "json"`)
+$measurements-body-json /= mc-json            ; homogeneous
+$measurements-body-json /= text .b64u mc-cbor ; tunnel]]></sourcecode>
+        </figure>
+        <t>Each socket is extended with two new types: a "homogeneous" representation that is used when <tt>measured-component</tt> and the EAT have the same serialization (e.g., they are both CBOR) and a "tunnel" representation that is used when the serializations differ.</t>
+
+      <section anchor="measurements-format-for-cbor-eat">
+        <name><tt>measurements-format</tt> for CBOR EAT</name>
+        <t>The entries in <xref target="tab-mf-cbor"/> are the allowed <tt>content-type</tt>/<tt>content-format</tt> pairs when the <tt>measured-component</tt> is carried in a CBOR EAT.</t>
+        <t>Note the use of the "homogeneous" and "tunnel" formats from <xref target="fig-eat-plug"/> and how the associated CoAP Content-Format is used to describe the original serialization.</t>
+        <table anchor="tab-mf-cbor">
+          <name><tt>measurements-format</tt> for EAT CBOR Web Token (CWT)</name>
+          <thead>
+            <tr>
+              <th align="left">content-type (CoAP C-F equivalent)</th>
+              <th align="left">content-format</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>application/measured-component+cbor</tt></td>
+              <td align="left">
+                <tt>mc-cbor</tt></td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>application/measured-component+json</tt></td>
+              <td align="left">
+                <tt>mc-json</tt></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+      <section anchor="measurements-format-for-json-eat">
+        <name><tt>measurements-format</tt> for JSON EAT</name>
+        <t><xref target="tab-mf-json"/> is the equivalent of <xref target="tab-mf-cbor"/> for JSON-serialized EAT.</t>
+        <table anchor="tab-mf-json">
+          <name><tt>measurements-format</tt> for EAT JSON Web Token (JWT)</name>
+          <thead>
+            <tr>
+              <th align="left">content-type (CoAP C-F equivalent)</th>
+              <th align="left">content-format</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>application/measured-component+json</tt></td>
+              <td align="left">
+                <tt>mc-json</tt></td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>application/measured-component+cbor</tt></td>
+              <td align="left">
+                <tt>tstr .b64u mc-cbor</tt></td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+	  </section>
+      <section anchor="eat-profiles-and-measured-components">
+        <name>EAT Profiles and Measured Components</name>
+        <t>The semantics of the <tt>authorities</tt> and profile <tt>flags</tt> fields are defined by the applicable EAT profile, i.e., the profile of the wrapping EAT.</t>
+        <t>If the profile of the EAT is not known to the consumer and one or more measured components within that EAT include <tt>authorities</tt> and/or profile <tt>flags</tt>, the consumer <bcp14>MUST</bcp14> reject the EAT.</t>
+      </section>
+      <section anchor="examples">
+        <name>Examples</name>
+        <t>The example in <xref target="ex-1"/> is a digested measured component with all the fields populated.</t>
+        <figure anchor="ex-1">
+          <name>Complete Measured Component</name>
+          <sourcecode type="cbor-diag"><![CDATA[
+{
+  / id / 1: [
+    / name / "boot loader X",
+    / version / [
+      "1.2.3rc2",
+      16384 / semver /
+    ]
+  ],
+  / measurement / 2: [
+    / alg / "sha-256",
+    / val / h'3996003d486fb91ffb056f7d03f2b2992b215b31dbe7af4b37
+              3431fc7d319da3'
+  ],
+  / authorities / 3: [
+    h'492e9b676c21f6012b1ceeb9032feb4141a880797355f6675015ec59c5
+      1ca1ec',
+    h'4277bb97ba7b51577a0d38151d3e08b40bdf946753f5b5bdeb814d6ff5
+      7a8a5e'
+  ],
+  / flags / 4: h'0000000000000101'
+}]]></sourcecode>
+        </figure>
+        <t>The example depicted in <xref target="ex-eat-1"/> is the same measured component as above but used as the format of a Measurement claim in an EAT claims-set.</t>
+        <t>This example uses 295 as the <tt>content-type</tt> value of the <tt>measurements-format</tt> entry.</t>
+        <t>Note that the array contains only one measured component, but additional entries could be added if the measured Trusted Computing Base (TCB) is made of multiple individually measured components.</t>
+        <figure anchor="ex-eat-1">
+          <name>EAT Measurements Claim Using a Measured Component (CBOR)</name>
+          <sourcecode type="cbor-diag"><![CDATA[
+{
+  273: [
+    [
+      295, / measured-component+cbor /
+      <<
+        {
+          / id / 1: [
+            / name / "boot loader X",
+            / version / [
+              "1.2.3rc2",
+              16384 / semver /
+            ]
+          ],
+          / measurement / 2: [
+            / alg / "sha-256",
+            / val / h'3996003d486fb91ffb056f7d03f2b2992b215b31db
+                      e7af4b373431fc7d319da3'
+          ],
+          / authorities / 3: [
+            h'492e9b676c21f6012b1ceeb9032feb4141a880797355f66750
+              15ec59c51ca1ec',
+            h'4277bb97ba7b51577a0d38151d3e08b40bdf946753f5b5bdeb
+              814d6ff57a8a5e'
+          ]
+        }
+      >>
+    ]
+  ]
+}]]></sourcecode>
+        </figure>
+        <t>The example in <xref target="ex-eat-2"/> illustrates the inclusion of a JSON measured component inside a JSON EAT.</t>
+        <t>This example uses 296 as the <tt>content-type</tt> value of the <tt>measurements-format</tt> entry.</t>
+        <figure anchor="ex-eat-2">
+          <name>EAT Measurements Claim Using a Measured Component (JSON)</name>
+          <sourcecode type="json"><![CDATA[
+=============== NOTE: '\' line wrapping per RFC 8792 ================
+
+{
+  "measurements": [
+    [
+      296,
+      "{ \"id\": [ \"boot loader X\", [ \"1.2.3rc2\", 16384 ] ], \"\
+digested-measurement\": [ \"sha-256\", \"\
+OZYAPUhvuR_7BW99A_KymSshWzHb569LNzQx_H0xnaM\" ], \"authorities\": [ \
+\"SS6bZ2wh9gErHO65Ay_rQUGogHlzVfZnUBXsWcUcoew\", \"\
+                   Qne7l7p7UVd6DTgVHT4ItAvflGdT9bW964FNb_V6il4\" ] }"
+    ]
+  ]
+}]]></sourcecode>
+        </figure>
+        <t>The example shown in <xref target="ex-2"/> is a measured component representing a boot loader identified by its path name:</t>
+        <figure anchor="ex-2">
+          <name>Digested Measured Component Using a File Path as an Identifier</name>
+          <sourcecode type="cbor-diag"><![CDATA[
+{
+  / id / 1: [
+    / name / "/boot/loader.bin"
+  ],
+  / measurement / 2: [
+    / alg / "sha-384",
+    / val / h'66ec2fb4e02d8c8b3eee320e750d9389d66c52c51db11cc6
+              9cc5e410816283ed60ba573795f5fcc85e513af57b3f6def'
+  ],
+  / flags / 4: h'0000000000000101'
+}]]></sourcecode>
+        </figure>
+        <t>The example in <xref target="ex-3"/> is a raw measured component.</t>
+        <figure anchor="ex-3">
+          <name>Raw Measured Component</name>
+          <sourcecode type="cbor-diag"><![CDATA[
+{
+  / id / 1: [
+    / name / "hardware-config"
+  ],
+  / measurement / 5: h'4f6d616861'
+}]]></sourcecode>
+        </figure>
+      </section>
+    </section>
+    <section anchor="seccons">
+      <name>Security Considerations</name>
+      <t>The considerations discussed in Sections <xref target="RFC9711" section="9.1" sectionFormat="bare">Claim Trustworthiness</xref>, <xref target="RFC9711" section="9.4" sectionFormat="bare">Multiple EAT Consumers</xref>, and <xref target="RFC9711" section="9.5" sectionFormat="bare">Detached EAT Bundle Digest Security Considerations</xref> of <xref target="RFC9711"/> apply to this document as well.
+Note that similar security considerations may apply when the measured component information model is serialized using different data models than the ones specified in this document.</t>
+      <t>The Component Name and Component Version can give an attacker detailed information about the software running on a device and its configuration settings.
+This information could offer an attacker valuable insight.</t>
+      <t>Any textual fields (e.g., Component Name and Component Version) that are stored in a file, inserted into a database, or displayed to humans must be properly sanitized to prevent attacks and undesirable behavior.
+Further discussion and references on this topic can be found in <xref section="7" sectionFormat="of" target="RFC9839"/>.</t>
+      <t>If the component measurement is digested, the digest must be computed using a strong cryptographic hash function.</t>
+    </section>
+    <section anchor="privcons">
+      <name>Privacy Considerations</name>
+      <t>The differential encryption considerations discussed in Section <xref target="RFC9711" section="9.4" sectionFormat="bare">Multiple EAT Consumers</xref> of <xref target="RFC9711"/> also apply to this document.</t>
+      <t>The Component Name and Component Version may reveal private information about a device and its owner.</t>
+      <t>Additionally, the stability requirement of the Component Name may enable tracking.</t>
+    </section>
+    <section anchor="iana-considerations">
+      <name>IANA Considerations</name>
+
+      <section anchor="media-types-registrations">
+        <name>Media Type Registrations</name>
+        <t>IANA has added the following media types to the "Media Types" registry <xref target="IANA.media-types"/>.</t>
+        <table anchor="tab-mc-regs">
+          <name>Measured Component Media Types</name>
+          <thead>
+            <tr>
+              <th align="left">Name</th>
+              <th align="left">Template</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">
+                <tt>measured-component+cbor</tt></td>
+              <td align="left">
+                <tt>application/measured-component+cbor</tt></td>
+              <td align="left">RFC 10013</td>
+            </tr>
+            <tr>
+              <td align="left">
+                <tt>measured-component+json</tt></td>
+              <td align="left">
+                <tt>application/measured-component+json</tt></td>
+              <td align="left">RFC 10013</td>
+            </tr>
+          </tbody>
+        </table>
+        <section anchor="applicationmeasured-componentcbor">
+          <name><tt>application/measured-component+cbor</tt></name>
+          <dl>
+            <dt>Type name:</dt>
+            <dd>
+              <t>application</t>
+            </dd>
+            <dt>Subtype name:</dt>
+            <dd>
+              <t>measured-component+cbor</t>
+            </dd>
+            <dt>Required parameters:</dt>
+            <dd>
+              <t>N/A</t>
+            </dd>
+            <dt>Optional parameters:</dt>
+            <dd>
+              <t>N/A</t>
+            </dd>
+            <dt>Encoding considerations:</dt>
+            <dd>
+              <t>binary (CBOR)</t>
+            </dd>
+            <dt>Security considerations:</dt>
+            <dd>
+              <t><xref target="seccons"/> of RFC 10013</t>
+            </dd>
+            <dt>Interoperability considerations:</dt>
+            <dd>
+              <t>N/A</t>
+            </dd>
+            <dt>Published specification:</dt>
+            <dd>
+              <t>RFC 10013</t>
+            </dd>
+            <dt>Applications that use this media type:</dt>
+            <dd>
+              <t>Attesters, Verifiers, and Relying Parties</t>
+            </dd>
+            <dt>Fragment identifier considerations:</dt>
+            <dd>
+              <t>The syntax and semantics of fragment identifiers are as specified for "application/cbor". (No fragment identification syntax is currently defined for "application/cbor".)</t>
+            </dd>
+            <dt>Person &amp; email address to contact for further information:</dt>
+            <dd>
+              <t>RATS WG mailing list (rats@ietf.org)</t>
+            </dd>
+            <dt>Intended usage:</dt>
+            <dd>
+              <t>COMMON</t>
+            </dd>
+            <dt>Restrictions on usage:</dt>
+            <dd>
+              <t>none</t>
+            </dd>
+            <dt>Author/Change controller:</dt>
+            <dd>
+              <t>IETF</t>
+            </dd>
+
+          </dl>
+        </section>
+        <section anchor="applicationmeasured-componentjson">
+          <name><tt>application/measured-component+json</tt></name>
+          <dl>
+            <dt>Type name:</dt>
+            <dd>
+              <t>application</t>
+            </dd>
+            <dt>Subtype name:</dt>
+            <dd>
+              <t>measured-component+json</t>
+            </dd>
+            <dt>Required parameters:</dt>
+            <dd>
+              <t>N/A</t>
+            </dd>
+            <dt>Optional parameters:</dt>
+            <dd>
+              <t>N/A</t>
+            </dd>
+            <dt>Encoding considerations:</dt>
+            <dd>
+              <t>binary (JSON is UTF-8-encoded text)</t>
+            </dd>
+            <dt>Security considerations:</dt>
+            <dd>
+              <t><xref target="seccons"/> of RFC 10013</t>
+            </dd>
+            <dt>Interoperability considerations:</dt>
+            <dd>
+              <t>N/A</t>
+            </dd>
+            <dt>Published specification:</dt>
+            <dd>
+              <t>RFC 10013</t>
+            </dd>
+            <dt>Applications that use this media type:</dt>
+            <dd>
+              <t>Attesters, Verifiers, and Relying Parties</t>
+            </dd>
+            <dt>Fragment identifier considerations:</dt>
+            <dd>
+              <t>The syntax and semantics of fragment identifiers are as specified for "application/json". (No fragment identification syntax is currently defined for "application/json".)</t>
+            </dd>
+            <dt>Person &amp; email address to contact for further information:</dt>
+            <dd>
+              <t>RATS WG mailing list (rats@ietf.org)</t>
+            </dd>
+            <dt>Intended usage:</dt>
+            <dd>
+              <t>COMMON</t>
+            </dd>
+            <dt>Restrictions on usage:</dt>
+            <dd>
+              <t>none</t>
+            </dd>
+            <dt>Author/Change controller:</dt>
+            <dd>
+              <t>IETF</t>
+            </dd>
+
+          </dl>
+        </section>
+      </section>
+      <section anchor="measured-component-content-format-registrations">
+        <name>Measured Component Content-Format Registrations</name>
+        <t>IANA has registered these two Content-Format numbers in the "CoAP Content-Formats" registry within the "Constrained RESTful Environments (CoRE) Parameters" registry group <xref target="IANA.core-parameters"/> as follows:</t>
+<table>
+     <name>Content-Format Number Registrations</name>
+          <thead>
+            <tr>
+              <th align="left">Content Type</th>
+              <th align="left">Content Coding</th>
+              <th align="left">ID</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">application/measured-component+cbor</td>
+              <td align="left">-</td>
+              <td align="left">295</td>
+              <td align="left">RFC 10013</td>
+            </tr>
+            <tr>
+              <td align="left">application/measured-component+json</td>
+              <td align="left">-</td>
+              <td align="left">296</td>
+              <td align="left">RFC 10013</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="I-D.ietf-opsawg-rfc5706bis" to ="OPS-MGMT"/>
+    <references anchor="sec-combined-references">
+      <name>References</name>
+      <references anchor="sec-normative-references">
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7252.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8610.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8792.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9165.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9393.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9741.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9711.xml"/>
+        <reference anchor="SEMVER" target="https://semver.org/spec/v2.0.0.html">
+          <front>
+            <title>Semantic Versioning 2.0.0</title>
+            <author>
+              <organization/>
+            </author>
+          </front>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <reference anchor="IANA.named-information" target="https://www.iana.org/assignments/named-information">
+          <front>
+            <title>Named Information Hash Algorithm Registry</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+      </references>
+      <references anchor="sec-informative-references">
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3444.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9783.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9839.xml"/>
+        <reference anchor="UEFI2" target="https://uefi.org/sites/default/files/resources/UEFI_Spec_2_10_Aug29.pdf">
+          <front>
+            <title>Unified Extensible Firmware Interface (UEFI) Specification</title>
+            <author>
+              <organization>UEFI Forum, Inc.</organization>
+            </author>
+            <date year="2022" month="August"/>
+          </front>
+          <refcontent>Release 2.10</refcontent>
+        </reference>
+        <reference anchor="TBBR-CLIENT" target="https://developer.arm.com/documentation/den0006">
+          <front>
+            <title>Trusted Board Boot Requirements Client (TBBR-CLIENT) Armv8-A</title>
+            <author>
+              <organization>Arm Ltd</organization>
+            </author>
+            <date year="2018" month="September"/>
+          </front>
+          <seriesInfo name="ARM" value="DEN0006D"/>
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9019.xml"/>
+
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml3/reference.I-D.ietf-opsawg-rfc5706bis.xml"/>
+        <reference anchor="IANA.media-types" target="https://www.iana.org/assignments/media-types">
+          <front>
+            <title>Media Types</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+        <reference anchor="IANA.core-parameters" target="https://www.iana.org/assignments/core-parameters">
+          <front>
+            <title>Constrained RESTful Environments (CoRE) Parameters</title>
+            <author>
+              <organization>IANA</organization>
+            </author>
+          </front>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="collated-cddl">
+      <name>Collated CDDL</name>
+      <t>This appendix contains all the CDDL definitions included in this specification.</t>
+      <sourcecode type="cddl"><![CDATA[
+=============== NOTE: '\' line wrapping per RFC 8792 ================
+
+measured-component = {
+  component-id-label => component-id,
+  measurement,
+  ? authorities-label => [+ authority-id-type],
+  ? flags-label => flags-type,
+}
+measurement //= (digested-measurement-label => digest // raw-\
+                                          measurement-label => bytes)
+authority-id-type = eat.JC<bytes-b64u, bytes>
+flags-type = eat.JC<bytes8-b64u, bytes8>
+component-id = [
+  name: text,
+  ? version: version,
+]
+version = [
+  val: text,
+  ? scheme: coswid.$version-scheme,
+]
+digest = [
+  alg: int / text,
+  val: digest-value-type,
+]
+digest-value-type = eat.JC<bytes-b64u, bytes>
+bytes-b64u = text .b64u bytes
+bytes8 = bytes .size 8
+bytes8-b64u = text .b64u bytes8
+component-id-label = eat.JC<"id", 1>
+digested-measurement-label = eat.JC<"digested-measurement", 2>
+raw-measurement-label = eat.JC<"raw-measurement", 5>
+authorities-label = eat.JC<"authorities", 3>
+flags-label = eat.JC<"flags", 4>
+mc-cbor = bytes .cbor measured-component
+mc-json = text .json measured-component
+$measurements-body-cbor /= mc-cbor / mc-json
+$measurements-body-json /= mc-json / text .b64u mc-cbor
+eat.JSON-ONLY<J> = J .feature "json"
+eat.CBOR-ONLY<C> = C .feature "cbor"
+eat.JC<J, C> = eat.JSON-ONLY<J> / eat.CBOR-ONLY<C>
+coswid.$version-scheme /= coswid.multipartnumeric / coswid.\
+multipartnumeric-suffix / coswid.alphanumeric / coswid.decimal / \
+                                           coswid.semver / int / text
+coswid.multipartnumeric = 1
+coswid.multipartnumeric-suffix = 2
+coswid.alphanumeric = 3
+coswid.decimal = 4
+coswid.semver = 16384]]></sourcecode>
+    </section>
+
+    <section numbered="false" anchor="acknowledgments">
+      <name>Acknowledgments</name>
+      <t>The authors would like to thank
+<contact fullname="Carl Wallace"/>,
+<contact fullname="Carsten Bormann"/>,
+<contact fullname="Charles Nicas"/>,
+<contact fullname="Deb Cooley"/>,
+<contact fullname="Dionna Glaze"/>,
+<contact fullname="Esko Dijk"/>,
+<contact fullname="Giridhar Mandyam"/>,
+<contact fullname="Gorry Fairhurst"/>,
+<contact fullname="Henry Thompson"/>,
+<contact fullname="Houda Labiod"/>,
+<contact fullname="Ionuț Mihalcea"/>,
+<contact fullname="Joe Salowey"/>,
+<contact fullname="Jun Zhang"/>,
+<contact fullname="Laurence Lundblade"/>,
+<contact fullname="Mahesh Jethanandani"/>,
+<contact fullname="Michael Richardson"/>,
+<contact fullname="Mohamed Boucadair"/>,
+<contact fullname="Muhammad Usama Sardar"/>,
+and
+<contact fullname="Yogesh Deshpande"/>
+for providing comments, reviews, and suggestions that greatly improved this document.</t>
+      <t>The authors would also like to thank <contact fullname="Ken Takayama"/> for providing an implementation of this specification in the veraison/eat package.</t>
+    </section>
+  </back>
+</rfc>
