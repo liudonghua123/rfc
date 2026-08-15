@@ -1,0 +1,565 @@
+<?xml version='1.0' encoding='UTF-8'?>
+
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-ntp-over-ptp-08" number="10030" consensus="true" ipr="trust200902" obsoletes="" updates="" submissionType="IETF" xml:lang="en" tocInclude="true" tocDepth="3" symRefs="true" sortRefs="true" version="3">
+  <front>
+    <title abbrev="NTP over PTP">Network Time Protocol (NTP) over the Precision Time Protocol (PTP)</title>
+    <seriesInfo name="RFC" value="10030"/>
+    <author fullname="Miroslav Lichvar" initials="M." surname="Lichvar">
+      <organization>Red Hat</organization>
+      <address>
+        <email>mlichvar@redhat.com</email>
+      </address>
+    </author>
+    <date year="2026" month="August"/>
+
+    <area>INT</area>
+    <workgroup>ntp</workgroup>
+    <abstract>
+      <t>This document specifies a transport for the client-server and
+        symmetric modes of the Network Time Protocol (NTP) that encapsulates
+        NTP messages in messages of the Precision Time Protocol (PTP). This
+        transport enables hardware timestamping in network interface
+        controllers (NICs) that can timestamp only PTP messages and delay
+        corrections in PTP transparent clocks.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>The Precision Time Protocol (PTP) <xref target="IEEE1588-2019" format="default"/>
+        was designed for highly accurate synchronization of clocks in local
+        networks. It relies on hardware timestamping support in all network
+        devices involved in the synchronization (e.g., network interface
+        controllers (NICs), switches, and routers) to eliminate the impact of
+        software, processing, and queueing delays on the accuracy of offset and
+        delay measurements.</t>
+      <t>PTP was originally designed for multicast communication. Later,
+        support for unicast messaging was added, which is useful in larger
+        networks with partial on-path PTP support (e.g., telecom profiles
+        <xref target="G8265-1" format="default">G.8265.1</xref> and <xref target="G8275-2" format="default">G.8275.2</xref>).</t>
+      <t>The Network Time Protocol (NTP) <xref target="RFC5905" format="default"/> does not rely
+        on hardware timestamping support, but implementations can use it if it
+        is available to avoid the impact of software, processing, and queueing
+        delays, similarly to PTP. When comparing PTP with the timing modes of
+        NTP, PTP is functionally closest to the NTP broadcast mode.</t>
+      <t>An issue for NTP is hardware that can specifically timestamp only PTP
+        packets. This limitation comes from a hardware design that can provide
+        receive timestamps only at a limited rate instead of the maximum rate
+        possible at the network link speed. To avoid missing receive timestamps
+        when the interface is receiving other traffic at a high rate, a filter
+        is implemented in the hardware to inspect each received packet and
+        capture a timestamp only for packets that need it.</t>
+      <t>The hardware filter can be usually configured for specific PTP
+        transports (e.g., UDP over IPv4, UDP over IPv6, and 802.3) and sometimes even
+        the PTP message type (e.g., sync message or delay request) to further
+        reduce the timestamping rate on the server or client side in the case
+        of multicast messaging, but it typically cannot be configured to
+        timestamp NTP messages sent to the UDP port 123.</t>
+      <t>Another issue for NTP is missing hardware support in network switches
+        and routers. With PTP, the devices operate as either boundary clocks or
+        transparent clocks. Boundary clocks are analogous to NTP clients that
+        work also as servers for other clients. Transparent clocks are much
+        simpler. They only measure the delay in the forwarding of PTP packets
+        and write this delay to the correction field of either the packet
+        itself (one-step mode) or a later packet in the PTP exchange (two-step
+        mode). Transparent clocks are specific to the PTP delay mechanism used
+        in the network, either end to end (E2E) or peer to peer (P2P).</t>
+      <t>This document specifies a new transport for NTP to enable hardware
+        timestamping on NICs that can timestamp only PTP messages and to
+        take advantage of one-step E2E PTP unicast transparent clocks. It adds
+        a new type-length-value (TLV) for PTP to contain NTP messages and
+        a new extension field for NTP to provide clients and peers with the
+        correction of their NTP requests from transparent clocks. The NTP
+        broadcast mode is not supported.</t>
+      <t>The use of PTP messages requires that protocol rules of IEEE 1588 <xref target="IEEE1588-2019" format="default"/> be followed. NTP over PTP does
+        not require other PTP clocks to be present in the network. It does not
+        disrupt their operation if they are present. If the network uses
+        one-step E2E transparent clocks, NTP clients and peers using PTP for
+        transport can reach the same or better accuracy as PTP clocks using PTP
+        for synchronization. Hosts in a network can use PTP for synchronization
+        in one domain and transport of NTP messages in another domain at the
+        same time.</t>
+      <section numbered="true" toc="default">
+        <name>Comparison with PTP</name>
+        <t>The client-server mode of NTP, even with the PTP transport, has
+          multiple advantages over PTP using multicast or unicast messaging:
+
+        </t>
+        <ul spacing="normal">
+          <li>
+            <t>NTP is more secure. Existing security mechanisms specified for
+              NTP such as Network Time Security <xref target="RFC8915" format="default"/> still
+              work over the PTP transport. It is more difficult to secure
+              PTP against delay attacks because the sync message is not an
+              immediate response to a client request. The PTP unicast mode
+              allows an almost-infinite traffic amplification, which can be
+              exploited for denial-of-service attacks and can only be limited
+              by security mechanisms requiring client authentication.</t>
+          </li>
+          <li>
+            <t>NTP is more resilient to failures. Each client can use multiple
+              servers and detect failed sources in its source selection. In PTP,
+              a single hardware or software failure can disrupt the whole PTP
+              domain. Multiple independent domains have to be used to handle any
+              failure.</t>
+          </li>
+          <li>
+            <t>NTP is better suited for synchronization in networks that do not
+              have full on-path PTP support or where timestamping errors do
+              not have a symmetric distribution (e.g., due to sensitivity to
+              the network load). NTP does not assume network delay is constant
+              and the rate of measurements in opposite directions is symmetric.
+              It can filter the measurements more effectively and is not
+              sensitive to asymmetrically distributed network delays and
+              timestamping errors. PTP has to measure the offset and delay
+              separately to enable multicast messaging, which is needed to reduce
+              the transmit timestamping rate.</t>
+          </li>
+          <li>
+            <t>NTP needs fewer messages to get the same number of timestamps. It
+              uses less network bandwidth than PTP using unicast messaging.</t>
+          </li>
+          <li>
+            <t>NTP provides clients with an estimate of the maximum error of the
+              clock (root distance).</t>
+          </li>
+        </ul>
+        <t>The disadvantage of NTP is that the transmit timestamping rate increases
+          as the number of clients grows. A server that is limited by the hardware
+          timestamping rate cannot provide a highly accurate time service to
+          the same number of clients as with PTP using multicast messaging.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>PTP Transport for NTP</name>
+      <t>A new TLV is defined for PTP to contain NTP messages in the NTP client
+        (3), server (4), and symmetric modes (1 and 2) (see <xref target="RFC5905" format="default"/>). Using other NTP modes in
+        the TLV is not specified. Any transport specified for PTP that supports
+        unicast messaging, and an IPv4 or IPv6 mapping, can be used for NTP
+        over PTP.</t>
+      <t>The NTP TLV <bcp14>MUST</bcp14> be included in a unicast PTP event message. An event
+        message is required to enable the PTP-specific hardware timestamping
+        and corrections of transparent clocks. The PTP message <bcp14>MUST</bcp14> conform to
+        PTP version 2 <xref target="IEEE1588-2008" format="default"/>, PTP version 2.1 <xref target="IEEE1588-2019" format="default"/>, or any future version of
+        the PTP specification that allows the NTP TLV to be included as an
+        organization-specific TLV.</t>
+      <t>The NTP TLV is an organization-specific TLV having the following
+        fields (with octets in network order):
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>type is 0x8000 (ORGANIZATION_EXTENSION_DO_NOT_PROPAGATE) in
+            PTP version 2.1 or 0x0003 (ORGANIZATION_EXTENSION) in PTP version
+            2</t>
+        </li>
+        <li>
+          <t>lengthField is 8 + length of the NTP message</t>
+        </li>
+        <li>
+          <t>organizationId is 00-00-5E (the Organizationally Unique Identifier (OUI) is assigned to IANA by the IEEE
+            Registration Authority)</t>
+        </li>
+        <li>
+          <t>organizationSubType is 0x1</t>
+        </li>
+        <li>
+          <t>dataField contains two zero octets for 32-bit alignment followed
+            by the NTP message, which would normally be the UDP payload</t>
+        </li>
+      </ul>
+      <t>An NTP client or peer using the PTP transport sends NTP requests
+        contained as the NTP TLV in PTP messages.</t>
+      <t>An NTP server or peer responding to an NTP request received over the
+        PTP transport <bcp14>MUST</bcp14> form its response as the NTP TLV using the same PTP
+        transport. To avoid traffic amplification, the server or peer <bcp14>MUST NOT</bcp14>
+        send the response if the PTP message containing the NTP response is
+        longer than the PTP message containing the NTP request. This
+        requirement impacts Autokey <xref target="RFC5906" format="default"/>, where
+        some responses are longer than the requests (e.g., during certificate exchange). The
+        request <bcp14>SHOULD</bcp14> be padded with the PTP PAD TLV (type 0x8008) to the
+        maximum expected length of the response to enable the transmission of
+        the response.</t>
+      <t>If the NTP
+        response is expected to be used for synchronization (e.g., it is not an
+        error message), the PTP message containing the NTP response <bcp14>SHOULD</bcp14> have
+        the same length as the PTP message containing the NTP request, using
+        the PTP PAD TLV if needed, to avoid an asymmetric delay in networks
+        without full on-path PTP support.</t>
+      <t>The PTP version 2.1 <xref target="IEEE1588-2019" format="default"/> specification
+        states the following:</t>
+        <blockquote>
+        A domain shall define the scope of PTP message
+        communication, state, operations, data sets, and timescale. Within a
+        PTP Network, a domain is identified by two attributes: domainNumber and
+        sdoId.
+        </blockquote>
+        <t>
+        In the context of NTP over PTP version 2.1, this means that
+        the NTP servers, clients, and peers <bcp14>MUST</bcp14> verify that received PTP
+        messages have the domainNumber and sdoId that are expected to be used
+        by NTP over PTP in the network. The domainNumber <bcp14>SHOULD</bcp14> be 123 by
+        default, and sdoId <bcp14>SHOULD</bcp14> be 0. The
+        domainNumber 123 is not commonly used by PTP profiles, so it is less
+        likely to interfere with any other PTP operation that might be running
+        in the network. The domainNumber <bcp14>SHOULD</bcp14> be configurable to allow moving
+        NTP over PTP to another domain if a conflict with a PTP profile using
+        this domainNumber and sdoId needs to be avoided. However, all servers,
+        clients, and peers using NTP over PTP in the network need to use the
+        same domainNumber and sdoId to be able to communicate with each
+        other.</t>
+      <t>If the UDP transport is used for PTP, the UDP source and destination
+        port numbers <bcp14>SHOULD</bcp14> be the PTP event port (319). If the client
+        implemented port randomization <xref target="RFC9109" format="default"/>, requests
+        and/or responses would not get a hardware receive timestamp due to the
+        hardware filter matching only the PTP event port.</t>
+      <t>Any authenticator fields included in the NTP messages <bcp14>MUST</bcp14> be
+        calculated only over the NTP message following the header of the NTP
+        TLV. Other data in the PTP message (outside of the NTP TLV) are not
+        protected. With the exception of the PTP correction field requiring
+        special handling as described in the following section, the other PTP
+        fields are used only for the transport of the NTP message and have no
+        impact on the security of NTP, similarly to the IP and UDP headers.</t>
+      <t>Receive and transmit timestamps contained in the NTP messages <bcp14>SHOULD
+        NOT</bcp14> be adjusted for the beginning of the NTP data in the PTP message.
+        To minimize the impact of different link speeds on accuracy in networks
+        without full on-path PTP support, the transmit timestamp <bcp14>SHOULD</bcp14>
+        correspond to the PTP message timestamp point (i.e., the beginning of the
+        first symbol after the Ethernet start of frame delimiter), and the
+        receive timestamp <bcp14>SHOULD</bcp14> be transposed from the PTP message timestamp
+        point to the ending of the reception (e.g., the ending of the last symbol of
+        the Ethernet frame check sequence).</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Network Correction Extension Field</name>
+      <t>One-step E2E PTP transparent clocks modify the correction field in the
+        header of the PTP event messages containing NTP messages. To be able to
+        verify and apply the corrections to an NTP measurement, the client or
+        peer needs to know the correction of both the request and response.
+        The correction of the response is in the PTP header of the message
+        itself. The correction of the request is provided by the server or
+        other peer in a new NTP extension field included in the response.</t>
+      <t>The format of the Network Correction Extension Field is shown in
+        Figure <xref format="counter" target="net-correction-ext-field"/>.
+      </t>
+
+      <figure anchor="net-correction-ext-field">
+        <name>Format of Network Correction Extension Field</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+ 0                   1                   2                   3
+ 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|         Type = 0x010A         |             Length            |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+|                                                               |
++                  Network Correction (64 bits)                 +
+|                                                               |
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+.                                                               .
+.                            Padding                            .
+.                                                               .
++-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+]]></artwork>
+      </figure>
+      <t>The length of the padding is the minimum required to make a valid
+        extension field in the used version of NTP. In NTPv4, it is 16 octets
+        to get a 28-octet extension field conforming to <xref target="RFC7822" format="default"/>.</t>
+      <t>The Network Correction field in the extension field uses the 64-bit
+        NTP timestamp format (with resolution of about 1/4th of a nanosecond). The
+        correction field in the PTP header has a different format (64-bit
+        nanoseconds + 16-bit fraction).</t>
+      <t>The value of the NTP network correction is the sum of PTP
+        corrections provided by transparent clocks and the time it takes to
+        receive the packet (i.e., packet length including the frame check
+        sequence divided by the link speed).</t>
+      <t>The reason for not using the PTP correction alone is to avoid an
+        asymmetric correction when the server and client, or peers, are
+        connected to the network with different link speeds. The receive
+        duration included in the NTP correction cancels out the transposition
+        from the PTP receive timestamp (which corresponds to the beginning of the
+        reception) to NTP receive timestamp (which corresponds to the end of the
+        reception).</t>
+      <t>The Figure <xref format="counter" target="ptp-vs-ntp-correction"/>
+        shows the NTP timestamps, transmit/receive durations, and processing
+        and queuing delays included in PTP corrections for an NTP exchange made
+        over two PTP transparent clocks. The link speed is increasing on the
+        network path from the client to the server. The propagation delays in
+        cables are not shown.</t>
+      <figure anchor="ptp-vs-ntp-correction">
+        <name>PTP Versus NTP Correction</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+NTP server                          T2  T3
+             --------------------|==|----|==|--------------------
+PTP TC #2                      |~|          |~|
+                          |====|              |====|
+PTP TC #1               |~|                        |~|
+             --|========|----------------------------|========|--
+NTP client    T1                                              T4
+
+PTP correction |========|~|====|~|       |==|~|====|~|
+NTP correction |========|~|====|~|==|    |==|~|====|~|========|]]></artwork>
+      </figure>
+      <t>When an NTP server that supports the PTP transport receives an NTP
+        request containing the Network Correction Extension Field, it <bcp14>SHOULD</bcp14>
+        respond with the extension field providing the network correction of
+        the client's request. The server <bcp14>MUST</bcp14> ignore the value of the network
+        correction in the request.</t>
+      <t>An NTP client or peer that supports the PTP transport and is
+        configured to use the network correction for the association <bcp14>SHOULD</bcp14>
+        include the extension field in its NTP requests. In the case of a
+        client, the correction value in the extension field <bcp14>SHOULD</bcp14> be always
+        zero.</t>
+      <t>When the client or peer has the network correction of both the request
+        and response, it can correct the measured NTP peer delay and offset:
+
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>delta_c = delta - (nc_rs + nc_rq - dur_rs - dur_rq) * (1 - freq_tc)</t>
+        </li>
+        <li>
+          <t>theta_c = theta + (nc_rs - nc_rq) / 2</t>
+        </li>
+      </ul>
+      <t>
+
+        where
+
+      </t>
+      <ul spacing="normal">
+        <li>
+          <t>delta is the NTP peer delay from <xref target="RFC5905"/></t>
+        </li>
+        <li>
+          <t>theta is the NTP offset from <xref target="RFC5905"/></t>
+        </li>
+        <li>
+          <t>nc_rq is the network correction of the request</t>
+        </li>
+        <li>
+          <t>nc_rs is the network correction of the response</t>
+        </li>
+        <li>
+          <t>dur_rq is the transmit duration of the request</t>
+        </li>
+        <li>
+          <t>dur_rs is the receive duration of the response</t>
+        </li>
+        <li>
+          <t>freq_tc is the maximum assumed frequency error of transparent
+            clocks</t>
+        </li>
+      </ul>
+      <t>The corrected delay (delta_c) and offset (theta_c) <bcp14>MUST NOT</bcp14> be
+        accepted for synchronization if any of delta_c, nc_rs, and nc_rq is
+        negative. This requirement limits the error caused by faulty
+        transparent clocks and on-path attackers.</t>
+      <t>Root delay (DELTA) <bcp14>MUST NOT</bcp14> be corrected to ensure that the maximum
+        assumed error (root distance) remains independent of network
+        corrections.</t>
+      <t>The scaling by the freq_tc constant (e.g., 100 parts per million (ppm)) is needed to
+        make room for errors in corrections made by transparent clocks running
+        faster than true time and to avoid samples with larger corrections from
+        getting a shorter delay than samples with smaller corrections, which
+        would negatively impact their filtering and weighting.</t>
+      <t>The dur_rq and dur_rs values make the corrected peer delay correspond
+        to a direct connection to the server.  If they were not used, a
+        perfectly corrected delay on a short network path would be too close to
+        zero and frequently negative due to frequency offset between the client
+        and server. Note that NTP peers and PTP clocks using the E2E delay
+        mechanism are more sensitive to frequency offsets due to longer
+        measurement intervals. If dur_rq is unknown, it <bcp14>MAY</bcp14> be assumed to be
+        equal to dur_rs.</t>
+    </section>
+
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section numbered="true" toc="default">
+        <name>New IANA PTP TLV Subtypes Registry</name>
+        <t>IANA has created the "IANA PTP TLV Subtypes" registry under the "IANA OUI Ethernet Numbers" registry group for organizationSubType
+          values of PTP TLVs using 00-00-5E
+          as the organizationId (i.e., the OUI assigned to IANA by the IEEE Registration Authority).</t>
+        <t>The entries in the registry have the following fields, which are <bcp14>REQUIRED</bcp14>:
+        </t>
+        <dl spacing="normal" newline="false">
+          <dt>Subtype:</dt><dd>An integer in the range 0-0xFFFFFF</dd>
+          <dt>Description:</dt><dd>A short text description</dd>
+          <dt>Reference:</dt><dd>A reference to a document describing the
+          IANA PTP TLV</dd>
+        </dl>
+        <t>The subtype range is split into the following three ranges with
+          different allocation policies:</t>
+        <dl spacing="normal" newline="false">
+          <dt>0-0xFFFF:</dt><dd>IETF Review</dd>
+          <dt>0x10000-0x7FFFFF:</dt><dd>Specification Required</dd>
+          <dt>0x800000-0xFFFFFE:</dt><dd>Experimental and Private Use</dd>
+        </dl>
+        <t keepWithNext="true">The initial contents of the registry are as follows:</t>
+        <table align="center">
+          <thead>
+            <tr>
+              <th align="left">Subtype</th>
+              <th align="left">Description</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">0x0</td>
+              <td align="left">Reserved</td>
+              <td align="left">RFC 10030</td>
+            </tr>
+            <tr>
+              <td align="left">0x1</td>
+              <td align="left">Network Time Protocol Message</td>
+              <td align="left">RFC 10030</td>
+            </tr>
+            <tr>
+              <td align="left">0x2-0x7FFFFF</td>
+              <td align="left">Unassigned</td>
+              <td align="left"/>
+            </tr>
+            <tr>
+              <td align="left">0x800000-0xFFFFFE</td>
+              <td align="left">Reserved for Experimental and Private Use</td>
+              <td align="left">RFC 10030</td>
+            </tr>
+            <tr>
+              <td align="left">0xFFFFFF</td>
+              <td align="left">Reserved</td>
+              <td align="left">RFC 10030</td>
+            </tr>
+          </tbody>
+        </table>
+        <t>Changes in the Specification Required range are approved by a
+          designated expert (DE). The DE should be familiar with <xref target="RFC8126" format="default"/> (particularly <xref target="RFC8126" section="5"/>) and the current PTP
+          specifications. The DE should verify that the specification of the
+          organization-specific TLV identified by the assigned subtype exists
+          and is publicly available. The purpose and use of the TLV should be
+          sufficiently clear to enable interoperating implementations, without
+          harming the protocol or the ecosystem.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>NTP Extension Field Registration</name>
+        <t>IANA has allocated the following field in the "NTP Extension Field Types" registry <eref target="https://www.iana.org/assignments/ntp-parameters/" brackets="angle"/> defined by <xref target="RFC5905" format="default"/>:</t>
+        <table align="center">
+          <thead>
+            <tr>
+              <th align="left">Field Type</th>
+              <th align="left">Meaning</th>
+              <th align="left">Reference</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td align="left">0x010A</td>
+              <td align="left">Network Correction</td>
+              <td align="left">RFC 10030</td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+    </section>
+
+    <section anchor="Security" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <t>PTP transport prevents NTP clients from randomizing their source
+        port as described in <xref target="RFC9109" format="default"/> because both requests
+        and responses need to be sent to the PTP port in order to get a
+        hardware receive timestamp and corrections from PTP transparent
+        clocks.</t>
+      <t>The corrections provided by PTP transparent clocks cannot be
+        authenticated. On-path attackers can modify the correction
+        field, but only corrections smaller than the measured delay are
+        accepted by clients. The impact is comparable to the impact of delaying
+        unmodified NTP messages.</t>
+    </section>
+  </middle>
+  <back>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5905.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7822.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8126.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <reference anchor="IEEE1588-2019" target="https://ieeexplore.ieee.org/document/9120376">
+          <front>
+            <title>IEEE Standard for a Precision Clock Synchronization Protocol for Networked Measurement and Control Systems
+            </title>
+            <author>
+              <organization>IEEE
+              </organization>
+            </author>
+            <date month="6" year="2020"/>
+          </front>
+          <seriesInfo name="IEEE Std" value="1588-2019"/>
+          <seriesInfo name="DOI" value="10.1109/IEEESTD.2020.9120376"/>
+        </reference>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.5906.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8915.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9109.xml"/>
+        <reference anchor="IEEE1588-2008" target="https://ieeexplore.ieee.org/document/4579760">
+          <front>
+            <title>IEEE Standard for a Precision Clock Synchronization Protocol for Networked Measurement and Control Systems
+            </title>
+            <author>
+              <organization>IEEE</organization>
+            </author>
+            <date month="7" year="2008"/>
+          </front>
+          <seriesInfo name="IEEE Std" value="1588-2008"/>
+          <seriesInfo name="DOI" value="10.1109/IEEESTD.2008.4579760"/>
+        </reference>
+        <reference anchor="G8265-1" target="https://www.itu.int/rec/T-REC-G.8265.1-202211-I/en">
+          <front>
+            <title>Precision time protocol telecom profile for frequency synchronization</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date month="11" year="2022"/>
+          </front>
+          <refcontent>ITU-T Recommendation G.8265.1/Y.1365.1</refcontent>
+        </reference>
+        <reference anchor="G8275-2" target="https://www.itu.int/rec/T-REC-G.8275.2-202211-I/en">
+          <front>
+            <title>Precision time protocol telecom profile for phase/time synchronization with partial timing support from the network</title>
+            <author>
+              <organization>ITU-T</organization>
+            </author>
+            <date month="11" year="2022"/>
+          </front>
+          <refcontent>ITU-T Recommendation G.8275.2/Y.1369.2</refcontent>
+        </reference>
+      </references>
+    </references>
+
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The author would like to thank <contact fullname="Doug Arnold"/>,
+      <contact fullname="Rodney Cummings"/>, <contact fullname="Martin
+      Langer"/>, and <contact fullname="Robert Sparks"/> for their comments
+      and suggestions.</t>
+    </section>
+  </back>
+</rfc>
