@@ -1,0 +1,909 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                     W. Cheng, Ed.
+Request for Comments: 10038                                       R. Han
+Category: Standards Track                                   China Mobile
+ISSN: 2070-1721                                              C. Lin, Ed.
+                                                    New H3C Technologies
+                                                                D. Voyer
+                                                           Cisco Systems
+                                                                G. Zhang
+                                                            China Mobile
+                                                             August 2026
+
+
+ Distributing the Segment Routing over IPv6 (SRv6) Locator Using DHCPv6
+
+Abstract
+
+   In an SRv6 network, each SRv6 Segment Endpoint Node must be assigned
+   an SRv6 Locator, and segment identifiers (SIDs) are generated within
+   the address space of this SRv6 Locator.  This document describes a
+   method for assigning SRv6 Locators to SRv6 Segment Endpoint Nodes
+   through the Dynamic Host Configuration Protocol for IPv6 (DHCPv6).
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc10038.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+     1.1.  Requirements Language
+   2.  Terminology
+   3.  Motivation
+   4.  DHCPv6 Extensions
+     4.1.  Identity Association for SRv6 Locator Option
+     4.2.  IA Locator Option
+   5.  Process of Assigning the SRv6 Locator
+     5.1.  Procedure of the SRv6 Locator
+     5.2.  DHCPv6 Client Behavior
+     5.3.  DHCPv6 Server Behavior
+     5.4.  DHCPv6 Relay Agent Behavior
+     5.5.  Advertisement of the SRv6 Locator Route
+   6.  Operational Considerations
+   7.  IANA Considerations
+   8.  Security Considerations
+   9.  References
+     9.1.  Normative References
+     9.2.  Informative References
+   Acknowledgements
+   Contributors
+   Authors' Addresses
+
+1.  Introduction
+
+   The Segment Routing (SR) architecture [RFC8402] specifies how a node
+   can steer a packet using an ordered list of instructions called
+   "segments".  These segments are identified using segment identifiers
+   (SIDs).
+
+   SR can be instantiated on the IPv6 data plane using either the
+   Segment Routing Header (SRH) defined in [RFC8754] or compressed
+   segment lists defined in [RFC9800].  SR instantiation on the IPv6
+   data plane is referred to as SRv6.
+
+   [RFC8986] introduces the SRv6 Network Programming concept and
+   specifies the base set of SRv6 behaviors.
+
+   In an SRv6 network, each SRv6 Segment Endpoint Node must be assigned
+   an SRv6 Locator, and SIDs are generated within the address space of
+   this SRv6 Locator.  This document describes a method for assigning
+   SRv6 Locators to SRv6 Segment Endpoint Nodes through the Dynamic Host
+   Configuration Protocol for IPv6 (DHCPv6).
+
+1.1.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+2.  Terminology
+
+   This document leverages the terms defined in [RFC9915] and [RFC8986].
+   The reader is assumed to be familiar with this terminology.
+
+3.  Motivation
+
+   As shown in Figure 1, in the IP backbone network, access network
+   devices are deployed for access users in different regions.  This
+   deployment assumes that all of the relevant components in Figure 1
+   are part of a single trusted SR domain.  The Customer Premises
+   Equipment (CPE) must be managed by the operator providing services or
+   by a trusted partner.  If the CPE is located within the customer
+   premises, it must ensure that the device itself and its ports are
+   under the same operator's administrative domain; otherwise, security
+   risks may arise.
+
+   CPEs for access users are connected to the local metropolitan area
+   network (MAN) in various ways.  CPEs are responsible for assigning
+   addresses to access users by requesting DHCPv6 Prefix Delegation (PD)
+   from a DHCPv6 server, as specified in Section 6.3 of [RFC9915].
+   [RFC7084] and [RFC7368] describe such use in detail.  The DHCPv6
+   server is usually enabled on or relayed by the Broadband Remote
+   Access Server (BRAS).
+
+   After the DHCPv6 server allocates any delegated prefix, the BRAS will
+   add a network route corresponding to the delegated prefix to a local
+   routing table and distribute the network route to the upstream
+   routers.
+
+                               Metropolitan Area Network
+                            +---------------------------+
+                            |                           |
+   +------+     +------+    |  +-----+        +-------+ |
+   |Host1 +-----+ CPE1 +----+--+BRAS1+--------+Router1| |
+   +------+     +------+    |  +-----+        +---+---+ |
+                            |                     |     |
+                            +---------------------+-----+
+                                                  |
+                                         +--------+-------------+
+                                         |                      |
+                                         |   Backbone Network   |
+                                         |                      |
+                                         +--------+-------------+
+                                                  |
+                            +---------------------+-----+
+                            |                     |     |
+   +------+     +------+    |  +-----+         +--+----+|
+   |Host2 +-----+ CPE2 +----+--+BRAS2+---------+Router2||
+   +------+     +------+    |  +-----+         +-------+|
+                            +---------------------------+
+
+                       Figure 1: Telecom IPv6 Network
+
+   In this network, operators hope to achieve interconnection between
+   access users through CPE-to-CPE SRv6 tunnels.  Taking the service
+   traffic from Host1 to Host2 as an example, CPE1 is the SRv6 ingress
+   node and CPE2 is the SRv6 egress node.  The SRv6 Locator should be
+   configured on the CPEs.  Other devices within the operator's network
+   learn the SRv6 Locator routes of the CPEs.
+
+   At the same time, SRv6 policies need to be configured on CPEs to
+   steer the service traffic between CPEs to the specified SRv6
+   forwarding path.  The SRv6 policy can be manually configured
+   statically (via command-line interface (CLI), the Network
+   Configuration Protocol (NETCONF), YANG, APIs, etc.).
+
+   This document proposes a method for allocating SRv6 Locators to CPE
+   via DHCPv6 and distributing SRv6 Locator routes using the DHCPv6
+   workflow.  This approach simplifies network operation and maintains
+   consistency with existing IPv6 address allocation mechanisms already
+   deployed in such networks.
+
+4.  DHCPv6 Extensions
+
+4.1.  Identity Association for SRv6 Locator Option
+
+   The Identity Association for SRv6 Locator (IA_SRV6_LOCATOR) option is
+   used to carry an IA_SRV6_LOCATOR, the parameters associated with the
+   IA_SRV6_LOCATOR, and the SRv6 Locator associated with the
+   IA_SRV6_LOCATOR.
+
+   The IA_SRV6_LOCATOR option can be carried in DHCPv6 Solicit,
+   Advertise, Request, Reply, Renew, Release, and Rebind messages.
+
+   The format of the IA_SRV6_LOCATOR option is:
+
+       0                   1                   2                   3
+       0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |     OPTION_IA_SRV6_LOCATOR    |           Option-Len          |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                           IAID (4 octets)                     |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                              T1                               |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      |                              T2                               |
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+      .                                                               .
+      .                     IA_SRV6_LOCATOR-Options                   .
+      .                                                               .
+      +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+       Figure 2: Identity Association for SRv6 Locator Option Format
+
+   Where:
+
+   Option-Code:  OPTION_IA_SRV6_LOCATOR (149), the option code for the
+      Identity Association for SRv6 Locator option.
+
+   Option-Len:  12 + the length of the IA_SRV6_LOCATOR-Options field in
+      octets.
+
+   IAID:  The unique identifier for this IA_SRV6_LOCATOR.  The IAID MUST
+      be unique among the identifiers for all of this client's
+      IA_SRV6_LOCATORs.  The number space for IA_SRV6_LOCATOR IAIDs is
+      separate from the number space for other IA option types.  A
+      4-octet field containing an unsigned integer.
+
+   T1:  The time interval after which the client should contact the
+      server from which the SRv6 Locators in the IA_SRV6_LOCATOR were
+      obtained to extend the lifetimes of the SRv6 Locators to the
+      IA_SRV6_LOCATOR.  T1 is a time duration relative to the message
+      reception time expressed in units of seconds.  A 4-octet field
+      containing an unsigned integer.
+
+   T2:  The time interval after which the client should contact any
+      available server to extend the lifetimes of the SRv6 Locators
+      assigned to the IA_SRV6_LOCATOR.  T2 is a time duration relative
+      to the message reception time expressed in units of seconds.  A
+      4-octet field containing an unsigned integer.
+
+   IA_SRV6_LOCATOR-Options:  Options associated with this
+      IA_SRV6_LOCATOR.  A variable-length field (12 octets less than the
+      value in the Option-Len field).
+
+   The IA_SRV6_LOCATOR-Options field encapsulates those options that are
+   specific to this IA_SRV6_LOCATOR.  For example, all of the IA Locator
+   options (see Section 4.2) carrying the SRv6 Locators associated with
+   this IA_SRV6_LOCATOR are in the IA_SRV6_LOCATOR-Options field.
+
+   An IA_SRV6_LOCATOR option may only appear in the options area of a
+   DHCP message.  A DHCP message may contain multiple IA_SRV6_LOCATOR
+   options (though each must have a unique IAID).
+
+   The status of any operations involving this IA_SRV6_LOCATOR is
+   indicated in a Status Code option (see Section 21.13 of [RFC9915]) in
+   the IA_SRV6_LOCATOR-Options field.
+
+   Note that an IA_SRV6_LOCATOR has no explicit "lifetime" or "lease
+   length" of its own.  When the valid lifetimes of all of the SRv6
+   Locators in an IA_SRV6_LOCATOR have expired, the IA_SRV6_LOCATOR can
+   be considered as having expired.  The T1 and T2 fields are included
+   to give the server explicit control over when a client should contact
+   the server about a specific IA_SRV6_LOCATOR.
+
+   In a message sent by a client to a server, the T1 and T2 fields
+   SHOULD be set to 0.  The server MUST ignore any values in these
+   fields in messages received from a client.
+
+   In a message sent by a server to a client, the client MUST use the
+   values in the T1 and T2 fields for the T1 and T2 timers, unless
+   values in those fields are 0.  The values in the T1 and T2 fields are
+   the number of seconds until T1 and T2.
+
+   The server selects the T1 and T2 times to allow the client to extend
+   the lifetimes of any SRv6 Locators in the IA_SRV6_LOCATOR before the
+   lifetimes expire, even if the server is unavailable for some short
+   period of time.  Recommended values for T1 and T2 are 0.5 and 0.8
+   times the shortest preferred lifetime of the SRv6 Locators in the
+   IA_SRV6_LOCATOR that the server is willing to extend, respectively.
+   If the time at which the SRv6 Locators in an IA_SRV6_LOCATOR are to
+   be renewed is to be left to the discretion of the client, the server
+   sets T1 and T2 to 0.  The client MUST follow the rules defined in
+   Section 14.2 of [RFC9915].
+
+   If a client receives an IA_SRV6_LOCATOR with T1 greater than T2 and
+   both T1 and T2 are greater than 0, the client discards the
+   IA_SRV6_LOCATOR option and processes the remainder of the message as
+   though the server had not included the IA_SRV6_LOCATOR option.
+
+4.2.  IA Locator Option
+
+   The IA Locator option is used to specify an SRv6 Locator associated
+   with an IA_SRV6_LOCATOR.  The IA Locator option MUST be encapsulated
+   in the IA_SRV6_LOCATOR-Options field of an IA_SRV6_LOCATOR option
+   (see Section 4.1).  The terms "Locator Block" and "Locator Node"
+   correspond to the B and N parts, respectively, of the SRv6 Locator
+   that is defined in Section 3.1 of [RFC8986].
+
+      0                   1                   2                   3
+      0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |     OPTION_IALOCATOR          |           Option-Len          |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                      Preferred-lifetime                       |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |                        Valid-lifetime                         |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     |  Algorithm    |                  Reserved                     |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-|
+     |    LB-Len     |    LN-Len     |   Fun-Len     |    Arg-Len    |
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-|
+     .                         SRv6-Locator                          .
+     .                      (up to 16 octets)                        .
+     .                                                               .
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+     .                                                               .
+     .                       IALocator-Options                       .
+     .                                                               .
+     +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+                     Figure 3: IA Locator Option Format
+
+   Where:
+
+   Option-Code:  OPTION_IALOCATOR (150), the option code for the IA
+      Locator option.
+
+   Option-Len:  16 + the length of SRv6-Locator + the length of the
+      IALocator-Options field in octets.
+
+   Preferred-lifetime:  The preferred lifetime for the SRv6 Locator in
+      the option, expressed in units of seconds.  A value of 0xffffffff
+      represents "infinity" (see Section 7.7 of [RFC9915]).  A 4-octet
+      field containing an unsigned integer.
+
+   Valid-lifetime:  The valid lifetime for the SRv6 Locator in the
+      option, expressed in units of seconds.  A value of 0xffffffff
+      represents "infinity".  A 4-octet field containing an unsigned
+      integer.
+
+   Algorithm:  A 1-octet unsigned integer.  The algorithm associated
+      with the SRv6 Locator from which the SID is allocated.  Algorithm
+      values are defined in the "IGP Algorithm Types" registry
+      [RFC8665].  See also [RFC9350].
+
+   Reserved:  A 3-octet unsigned integer.  MUST be set to zero and
+      ignored when received.
+
+   LB-Len:  SRv6 SID Locator Block (LB) length in bits.  A 1-octet
+      unsigned integer.
+
+   LN-Len:  SRv6 SID Locator Node (LN) length in bits.  A 1-octet
+      unsigned integer.
+
+   Fun-Len:  SRv6 SID function (FUNCT) length in bits.  A 1-octet
+      unsigned integer.
+
+   Arg-Len:  SRv6 SID arguments (ARG) length in bits.  A 1-octet
+      unsigned integer.
+
+   SRv6-Locator:  0-16 octets.  This field encodes the SRv6 Locator.
+      The SRv6 Locator is encoded in the minimal number of octets for
+      the SRv6 SID Locator length that is LB-Len plus LN-Len. Trailing
+      bits MUST be set to zero and ignored when received.
+
+   IALocator-Options:  Options associated with this SRv6 Locator.  A
+      variable-length field (determined by subtracting the length of
+      SRv6-Locator from Option-Len minus 12).  The status code
+      NoSRv6LocatorAvail indicates the server has no locators available
+      to assign to the IA_SRV6_LOCATOR(s).
+
+   The SRv6 SID Locator length (LOC-Len) is LB-Len plus LN-Len.
+
+   The sum of LB-Len, LN-Len, Fun-Len, and Arg-Len MUST NOT exceed 128
+   bits.  The sum of LB-Len and LN-Len MUST NOT be zero.  If either of
+   these conditions are violated, the IA_SRV6_LOCATOR option MUST be
+   marked as invalid, and the remainder of the message SHOULD be
+   processed as if the packet did not include this option.
+
+   The values in the Preferred-lifetime and Valid-lifetime fields are
+   the number of seconds remaining in each lifetime.  The value of
+   0xffffffff for the preferred lifetime or the valid lifetime is taken
+   to mean "infinity" and should be used carefully.  The details about
+   the use of lifetime values for assigned SRv6 Locators are the same as
+   the ones specified for PD in Section 18.2.10.1 of [RFC9915].
+
+   An IA Locator option may appear only in an IA_SRV6_LOCATOR option.
+   More than one IA Locator option can appear in a single
+   IA_SRV6_LOCATOR option.
+
+   The status of any operations involving this IA_SRV6_LOCATOR option is
+   indicated in a Status Code option (see Section 21.13 of [RFC9915]) in
+   the IALocator-Options field.
+
+5.  Process of Assigning the SRv6 Locator
+
+5.1.  Procedure of the SRv6 Locator
+
+   Consistent with the PD mechanism [RFC9915], the DHCPv6 client obtains
+   an SRv6 Locator via DHCPv6.  The key message exchanges involved are
+   Solicit, Request, Advertise, and Reply.  Once the DHCPv6 server
+   assigns an SRv6 Locator to the DHCPv6 client, it automatically adds
+   the associated SRv6 Locator routes.
+
+   Figure 4 illustrates the process of SRv6 Locator allocation through
+   DHCPv6.
+
+               DHCPv6 Client    DHCPv6 Server
+                     v               v
+                     |               |
+                     |               |
+        ____________ |\              |
+        ____________ | +-----------+ |
+                     |   Solicit    \|
+                     | EmptyIALocator|
+                     |               |
+                     |              /|
+                     |  +----------+ |
+                     | /  Advertise  |
+                     |/   IALocator  |
+                     |               |
+                     |\              |
+                     | +-----------+ |
+                     |    Request   \|
+                     |    IALocator  |
+                     |              /|
+                     |  +----------+ |
+                     | /  Reply      |
+                     |/  IALocator   |
+        End of       |               |
+        4-message    |               |
+        exchange     |               |  Issue Locator route locally
+     Use Locator to  |               |  Distribute Locator route
+     alloc SRv6 SID  |               |
+
+                      Figure 4: SRv6 Locator Exchange
+
+   As specified in Section 18.2.1 of [RFC9915], the DHCPv6 client sends
+   a Solicit message containing an IA_SRV6_LOCATOR option to request a
+   locator.  The client may include its preferred locator value within
+   the IA_SRV6_LOCATOR option.
+
+   The DHCPv6 server processes the Solicit message, assigns a locator to
+   the client, and returns the allocated locator in an Advertise message
+   with the IA_SRV6_LOCATOR option.
+
+   As specified in Section 18.2.2 of [RFC9915], upon receiving the
+   Advertise message, the client accepts the assigned locator and sends
+   a Request message with the IA_SRV6_LOCATOR option to confirm the
+   requested locator.
+
+   The server processes the Request message, confirms the locator
+   assignment, and responds with a Reply message containing the
+   IA_SRV6_LOCATOR option with the allocated locator.
+
+   As described in Section 18.2.4 of [RFC9915], the client periodically
+   sends a Renew message with the IA_SRV6_LOCATOR option to refresh the
+   lease.  The server processes the Renew message, updates the lease,
+   and replies with a Reply message containing the IA_SRV6_LOCATOR
+   option.
+
+   As described in Section 18.2.5 of [RFC9915], if the client does not
+   receive a Reply message before the T2 timer expires, it sends a
+   Rebind message with the IA_SRV6_LOCATOR option to attempt lease
+   renewal.
+
+   If the server responds with a Reply message, the client retains its
+   allocated locator.
+
+   If no response is received, the client considers the lease expired
+   and restarts the process by sending a new Solicit message.
+
+   As described in Section 18.2.7 of [RFC9915], if the client is about
+   to go offline, it sends a Release message with the IA_SRV6_LOCATOR
+   option to relinquish the locator.
+
+   Upon receiving a valid Release message, and when the SRv6 Locator in
+   the message is valid, the server MUST remove the lease and free the
+   locator, making it available for allocation to other clients.  For
+   detailed processing procedures, refer to Section 18.3.7 of [RFC9915].
+
+5.2.  DHCPv6 Client Behavior
+
+   A client uses the Solicit message to discover DHCPv6 servers
+   configured to assign leases or return other configuration parameters
+   on the link to which the client is attached.
+
+   A client uses Request, Renew, Rebind, Release, and Decline messages
+   during the normal lifecycle of SRv6 Locator assignment.
+
+   In a message sent by a client to a server, the Preferred-lifetime and
+   Valid-lifetime fields SHOULD be set to 0.  The server MUST ignore any
+   received values in these lifetime fields.
+
+   The client MUST NOT send an IA_SRV6_LOCATOR option with 0 in the LB-
+   Len or LN-Len fields.  The client MAY send non-zero values in the LB-
+   Len and LN-Len fields and the unspecified value (::) in the
+   SRv6-Locator field to indicate a preference for the size of the SRv6
+   Locator to be assigned.  The LOC-Len (LB-Len + LN-Len) hint provided
+   by a client is similar to the prefix-length hint in an IA_PD.
+   Clients and servers are expected to follow the guidance provided in
+   [RFC8168].
+
+   The client MUST discard any SRv6 Locators for which the preferred
+   lifetime is greater than the valid lifetime.
+
+   The process of requesting an SRv6 Locator is the same as that of
+   requesting prefixes.  When requesting an SRv6 Locator, the DHCPv6
+   client sends a Request message carrying the IA_SRV6_LOCATOR option to
+   the DHCPv6 server.
+
+   Upon the receipt of a valid Reply message with the IA_SRV6_LOCATOR
+   option in response to a Solicit with a Rapid Commit option, Request,
+   Renew, or Rebind message, the client MUST process the Reply message
+   according to the requirements of Section 18.2.10 of [RFC9915] and
+   configure the assigned SRv6 Locator in the client device
+   automatically.
+
+   DHCP allows a client to obtain multiple addresses as specified in
+   Section 6.5 of [RFC9915].  The same principle applies to SRv6 Locator
+   assignment.  In scenarios requiring multiple allocations (e.g., when
+   multiple SRv6 Locators are needed for distinct services, such as
+   best-effort and low-latency traffic, each with a different
+   algorithm), the allocation policy between the DHCPv6 client and
+   DHCPv6 server MUST remain consistent.  After obtaining the SRv6
+   Locator assigned by the DHCPv6 server, how to assign local SRv6 SIDs
+   based on this SRv6 Locator, how to use multiple assigned SRv6
+   Locators, and how to advertise these SRv6 SIDs to the rest of the
+   network are not within the scope of this document.  However, and
+   consistent with the guidance in Section 16 of [RFC7227], the client
+   MUST NOT make any assumption about the ordering of locators or infer
+   any service logic from these locators.
+
+   The client uses the SRv6 Locators and associated information from any
+   IAs that do not contain a Status Code option with the
+   NoSRv6LocatorAvail status code.  The client MAY include the IAs for
+   which it received the NoSRv6LocatorAvail status code, with no SRv6
+   Locators, in subsequent Renew and Rebind messages sent to the server,
+   to retry obtaining the SRv6 Locators for these IAs.
+
+   To extend the preferred and valid lifetimes for the assigned SRv6
+   Locators or obtain new assigned SRv6 Locators, the client sends a
+   Renew/Rebind message to the server with the IA_SRV6_LOCATOR option as
+   specified in Sections 18.2.4 and 18.2.5 of [RFC9915].
+
+   If the client no longer uses the SRv6 Locator, the client can
+   actively send a Release message to notify the server to reclaim the
+   SRv6 Locator and delete the corresponding SRv6 Locator.  The client
+   MUST include options containing the IAs for the SRv6 Locators it is
+   releasing in the IA_SRV6_LOCATOR-Options field of the IA_SRV6_LOCATOR
+   option.
+
+   A client can explicitly request multiple SRv6 Locator prefixes by
+   sending multiple IA_SRV6_LOCATOR options.  A client can send multiple
+   IA_SRV6_LOCATOR options in its initial transmissions.  Alternatively,
+   it can send an extra Request message with additional new
+   IA_SRV6_LOCATOR options (or include them in a Renew message).
+
+   DHCP allows a client to request new SRv6 Locators to be assigned by
+   sending additional new IA_SRV6_LOCATOR options.  However, a typical
+   operator usually prefers to assign a single, larger prefix.  In most
+   deployments, it is RECOMMENDED that the client request a larger SRv6
+   Locator in its initial transmissions rather than request additional
+   SRv6 Locators later on.
+
+5.3.  DHCPv6 Server Behavior
+
+   When the server receives a valid Request message or a valid Solicit
+   message with a Rapid Commit option, the server creates the bindings
+   for that client according to the server's policy and configuration
+   information and records the IAs and other information requested by
+   the client.
+
+   The DHCPv6 server treats the SRv6 Locator as the prefix of the prefix
+   pool.  Upon the receipt of the IA_SRV6_LOCATOR option, the server
+   searches the SRv6 Locator prefix pool and allocates appropriate SRv6
+   Locators for the client.
+
+   If there is an assignable SRv6 Locator, the server creates the SRv6
+   Locator binding entry for that client according to the server's
+   policy and configuration information and constructs a Reply message
+   that includes an IA_SRV6_LOCATOR option with the SRv6 Locator
+   information (including LB-Len, LN-Len, Fun-Len, and Arg-Len) assigned
+   to the client.
+
+   The IA_SRV6_LOCATOR option is filled with the SRv6 Locator
+   information assigned to the client.  The IA_SRV6_LOCATOR option
+   populates the LB-Len, LN-Len, Fun-Len, and Arg-Len fields.
+
+   Upon receiving a Release message from the client or when the SRv6
+   Locator lease expires, the server reclaims the SRv6 Locator prefix
+   resource and deletes the corresponding binding entry.
+
+   For any IA_SRV6_LOCATOR option in the Request message to which the
+   server cannot assign any SRv6 Locators, the server MUST return the
+   IA_SRV6_LOCATOR option in the Reply message with no SRv6 Locator
+   prefixes in the IA_SRV6_LOCATOR and with a Status Code option
+   containing status code NoSRv6LocatorAvail in the IA_SRV6_LOCATOR.
+
+   After receiving a DHCP message with multiple IA_SRV6_LOCATOR options
+   at the same time, whether the server can assign multiple SRv6
+   Locators to the client depends on the server policy, which is out of
+   scope for this document.  Note that the configuration behavior of the
+   server and client SHOULD be consistent (e.g., "clients and servers
+   assign a single locator unless explicitly configured").
+
+5.4.  DHCPv6 Relay Agent Behavior
+
+   The allocation of SRv6 Locators to clients that reside on a different
+   link from the server requires a DHCPv6 relay agent.  A DHCPv6 relay
+   agent forwards messages containing IA_SRV6_LOCATOR options in the
+   same way as it would relay addresses (i.e., per Sections 19.1.1 and
+   19.1.2 of [RFC9915]).
+
+        +-------------+       +------------+       +-------------+
+        +DHCPv6 Client+-------+DHCPv6 Relay+-------+DHCPv6 Server|
+        +-------------+       +------+-----+       +-------------+
+                                     |
+                                     |
+                              +------+-----+
+                              |  Backbone  |
+                              |  Network   |
+                              +------------+
+
+            Figure 5: SRv6 Locator Exchange Through DHCPv6 Relay
+
+5.5.  Advertisement of the SRv6 Locator Route
+
+   This section describes the processing of SRv6 Locator routes.
+
+   As shown in Figure 5, when a DHCPv6 Relay or DHCPv6 server receives
+   an SRv6 Locator allocation request from a client, it MAY assign an
+   SRv6 Locator to the client and install a corresponding SRv6 Locator
+   route locally.  The next hop of this route SHOULD point to the
+   requesting client.  Through this route, the DHCPv6 Relay or DHCPv6
+   server can access the Host under the DHCPv6 client, while the DHCPv6
+   Relay or DHCPv6 server MAY then advertise this route via traditional
+   routing protocols (e.g., an IGP) to allow other routers to learn it.
+
+   SRv6 Locators with an Algorithm value of zero can be advertised as
+   normal IP prefix reachability information.  Conversely, SRv6 Locators
+   with a non-zero Algorithm value MUST be advertised using the Locators
+   TLV as defined in [RFC9352] and [RFC9513].
+
+   Upon receiving an SRv6 Locator release request from the client, the
+   DHCPv6 Relay or DHCPv6 server MUST release the allocated SRv6
+   Locator, remove the local SRv6 Locator route, and withdraw the
+   previously advertised SRv6 Locator route via traditional routing
+   protocols.
+
+   DHCPv6 Client-------(DHCPv6 Relay/DHCPv6 Server)-------------Router
+   Alloc Locator  -->  Add SRv6 Locator route
+                       Advertise SRv6 Locator route -->
+   Release Locator-->  Del SRv6 Locator route
+                       Withdraw SRv6 Locator route  -->
+
+             Figure 6: Advertisement of the SRv6 Locator Route
+
+6.  Operational Considerations
+
+   This section outlines some operational considerations for assigning
+   SRv6 Locators through DHCPv6.
+
+   The SRv6 Locator can be used to allocate SIDs with SR Endpoint
+   Behaviors as defined in [RFC8986] and also to allocate SIDs with the
+   NEXT and REPLACE flavors defined in [RFC9800].  Operators can
+   allocate corresponding SIDs based on the LB and LN lengths of the
+   SRv6 Locator, as well as local policies.
+
+   When processing the SRv6 Locator defined in this document, if an
+   error occurs in packet processing, SRv6 Locator allocation fails, or
+   lease aging is handled, the DHCPv6 client and DHCPv6 server SHOULD
+   log or record these SRv6 Locators as required by local policy.
+
+   Section 4.4 of [RFC8987] provides necessary functional requirements
+   for operating DHCPv6 relays with PD.  These requirements also apply
+   to the allocation of SRv6 Locators in DHCPv6 Relay scenarios.
+
+   Routing Stability is an additional operational consideration.
+   Network operators may advertise an aggregated route rather than
+   individual prefixes in certain deployments to optimize Routing
+   Information Base (RIB) performance.  The withdrawal of specific
+   routes triggered by address releases may lead to a reduction in
+   advertised routes.  An alternative approach is to implement a policy
+   that governs this behavior.  In such cases, delegating routers will
+   discard packets destined for specific prefixes that are not
+   "delegated" on the customer-facing interface.
+
+7.  IANA Considerations
+
+   IANA has assigned the following DHCPv6 option codes in the "Option
+   Codes" registry at <https://www.iana.org/assignments/
+   dhcpv6-parameters>:
+
+    +=======+========================+========+===========+===========+
+    | Value | Description            | Client | Singleton | Reference |
+    |       |                        | ORO    | Option    |           |
+    +=======+========================+========+===========+===========+
+    | 149   | OPTION_IA_SRV6_LOCATOR | No     | No        | RFC 10038 |
+    +-------+------------------------+--------+-----------+-----------+
+    | 150   | OPTION_IALOCATOR       | No     | No        | RFC 10038 |
+    +-------+------------------------+--------+-----------+-----------+
+
+                                  Table 1
+
+   IANA has also assigned the following DHCPv6 status code in the
+   "Status Codes" registry at <http://www.iana.org/assignments/
+   dhcpv6-parameters>:
+
+                 +======+====================+===========+
+                 | Code | Name               | Reference |
+                 +======+====================+===========+
+                 | 23   | NoSRv6LocatorAvail | RFC 10038 |
+                 +------+--------------------+-----------+
+
+                                  Table 2
+
+8.  Security Considerations
+
+   See Section 22 of [RFC9915] and Section 23 of [RFC7227] for the DHCP
+   security considerations.  See [RFC8200] for the IPv6 security
+   considerations.
+
+   As discussed in Section 22 of [RFC9915], "DHCP lacks end-to-end
+   encryption between clients and servers; thus, hijacking, tampering,
+   and eavesdropping attacks are all possible as a result."
+
+   In some network environments, it is possible to secure the
+   communication between clients and servers, as discussed in Section 22
+   of [RFC9915].
+
+   If not all parties use this mechanism to obtain an SRv6 Locator from
+   the DHCPv6 server, there is the possibility of the same SRv6 Locator
+   being used by more than one device.  Note that this issue could exist
+   on these networks even if DHCP were not used to obtain the SRv6
+   Locator.  A potential mitigation is to partition the available
+   address prefixes, ensuring that different allocation mechanisms draw
+   from non-overlapping pools.
+
+   Server implementations SHOULD consider configuration options to limit
+   the maximum number of SRv6 Locators to allocate (both in a single
+   request and in total) to a client.  However, note that this does not
+   prevent a bad client actor from pretending to be many different
+   clients and consuming all available SRv6 Locators.
+
+   The SR domain is a trusted domain, as defined in Sections 2 and 8.2
+   of [RFC8402].  Having such a well-defined trust boundary is necessary
+   in order to operate SRv6-based services for internal traffic while
+   preventing any external traffic from accessing or exploiting the
+   SRv6-based services.  Care and rigor in IPv6 address allocation for
+   use for SRv6 SID allocations and network infrastructure addresses, as
+   distinct from IPv6 addresses allocated for end users and systems (as
+   illustrated in Section 5.1 of [RFC8754]), can provide the clear
+   distinction between internal and external address space that is
+   required to maintain the integrity and security of the SRv6 domain.
+
+   When assigning SRv6 Locators to SRv6 Segment Endpoint Nodes using
+   DHCPv6 as specified in this document, DHCPv6 clients and DHCPv6
+   servers MUST operate within a single trusted SR domain.  As a border
+   node device, a DHCPv6 client may reside in customer premises, while
+   the DHCPv6 server is located within the provider network.  Although
+   they belong to the same trusted SR domain, the DHCPv6 client MUST
+   implement appropriate traffic filtering capabilities on both its
+   internal and external interfaces, as required by Section 5.1 of
+   [RFC8754].
+
+9.  References
+
+9.1.  Normative References
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC7227]  Hankins, D., Mrugalski, T., Siodelski, M., Jiang, S., and
+              S. Krishnan, "Guidelines for Creating New DHCPv6 Options",
+              BCP 187, RFC 7227, DOI 10.17487/RFC7227, May 2014,
+              <https://www.rfc-editor.org/info/rfc7227>.
+
+   [RFC8168]  Li, T., Liu, C., and Y. Cui, "DHCPv6 Prefix-Length Hint
+              Issues", RFC 8168, DOI 10.17487/RFC8168, May 2017,
+              <https://www.rfc-editor.org/info/rfc8168>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8200]  Deering, S. and R. Hinden, "Internet Protocol, Version 6
+              (IPv6) Specification", STD 86, RFC 8200,
+              DOI 10.17487/RFC8200, July 2017,
+              <https://www.rfc-editor.org/info/rfc8200>.
+
+   [RFC8402]  Filsfils, C., Ed., Previdi, S., Ed., Ginsberg, L.,
+              Decraene, B., Litkowski, S., and R. Shakir, "Segment
+              Routing Architecture", RFC 8402, DOI 10.17487/RFC8402,
+              July 2018, <https://www.rfc-editor.org/info/rfc8402>.
+
+   [RFC8665]  Psenak, P., Ed., Previdi, S., Ed., Filsfils, C., Gredler,
+              H., Shakir, R., Henderickx, W., and J. Tantsura, "OSPF
+              Extensions for Segment Routing", RFC 8665,
+              DOI 10.17487/RFC8665, December 2019,
+              <https://www.rfc-editor.org/info/rfc8665>.
+
+   [RFC8754]  Filsfils, C., Ed., Dukes, D., Ed., Previdi, S., Leddy, J.,
+              Matsushima, S., and D. Voyer, "IPv6 Segment Routing Header
+              (SRH)", RFC 8754, DOI 10.17487/RFC8754, March 2020,
+              <https://www.rfc-editor.org/info/rfc8754>.
+
+   [RFC8986]  Filsfils, C., Ed., Camarillo, P., Ed., Leddy, J., Voyer,
+              D., Matsushima, S., and Z. Li, "Segment Routing over IPv6
+              (SRv6) Network Programming", RFC 8986,
+              DOI 10.17487/RFC8986, February 2021,
+              <https://www.rfc-editor.org/info/rfc8986>.
+
+   [RFC8987]  Farrer, I., Kottapalli, N., Hunek, M., and R. Patterson,
+              "DHCPv6 Prefix Delegating Relay Requirements", RFC 8987,
+              DOI 10.17487/RFC8987, February 2021,
+              <https://www.rfc-editor.org/info/rfc8987>.
+
+   [RFC9350]  Psenak, P., Ed., Hegde, S., Filsfils, C., Talaulikar, K.,
+              and A. Gulko, "IGP Flexible Algorithm", RFC 9350,
+              DOI 10.17487/RFC9350, February 2023,
+              <https://www.rfc-editor.org/info/rfc9350>.
+
+   [RFC9352]  Psenak, P., Ed., Filsfils, C., Bashandy, A., Decraene, B.,
+              and Z. Hu, "IS-IS Extensions to Support Segment Routing
+              over the IPv6 Data Plane", RFC 9352, DOI 10.17487/RFC9352,
+              February 2023, <https://www.rfc-editor.org/info/rfc9352>.
+
+   [RFC9513]  Li, Z., Hu, Z., Talaulikar, K., Ed., and P. Psenak,
+              "OSPFv3 Extensions for Segment Routing over IPv6 (SRv6)",
+              RFC 9513, DOI 10.17487/RFC9513, December 2023,
+              <https://www.rfc-editor.org/info/rfc9513>.
+
+   [RFC9800]  Cheng, W., Ed., Filsfils, C., Li, Z., Decraene, B., and F.
+              Clad, Ed., "Compressed SRv6 Segment List Encoding",
+              RFC 9800, DOI 10.17487/RFC9800, June 2025,
+              <https://www.rfc-editor.org/info/rfc9800>.
+
+   [RFC9915]  Mrugalski, T., Volz, B., Richardson, M., Jiang, S., and T.
+              Winters, "Dynamic Host Configuration Protocol for IPv6
+              (DHCPv6)", STD 102, RFC 9915, DOI 10.17487/RFC9915,
+              January 2026, <https://www.rfc-editor.org/info/rfc9915>.
+
+9.2.  Informative References
+
+   [RFC7084]  Singh, H., Beebee, W., Donley, C., and B. Stark, "Basic
+              Requirements for IPv6 Customer Edge Routers", RFC 7084,
+              DOI 10.17487/RFC7084, November 2013,
+              <https://www.rfc-editor.org/info/rfc7084>.
+
+   [RFC7368]  Chown, T., Ed., Arkko, J., Brandt, A., Troan, O., and J.
+              Weil, "IPv6 Home Networking Architecture Principles",
+              RFC 7368, DOI 10.17487/RFC7368, October 2014,
+              <https://www.rfc-editor.org/info/rfc7368>.
+
+Acknowledgements
+
+   The authors would like to thank Gunter Van de Velde, Ketan
+   Talaulikar, Mohamed Boucadair, Chongfeng Xie, Joel Halpern, Robert
+   Raszuk, Aihua Liu, Cheng Li, Xuewei Wang, Hao Li, Junjie Wang,
+   Mengxiao Chen, Fang Gao, Aijun Wang, Xinxin Yi, Shenchao Xu, Yisong
+   Liu, Xueshun Wang, Min Xiao, Liyan Gong, Linda Dunbar, Quan Xiong,
+   Adrian Farrel, and Bernie Volz for their comments on this document.
+
+Contributors
+
+   Yuanxiang Qiu
+   New H3C Technologies
+   Email: qiuyuanxiang@h3c.com
+
+
+Authors' Addresses
+
+   Weiqiang Cheng (editor)
+   China Mobile
+   Beijing
+   China
+   Email: chengweiqiang@chinamobile.com
+
+
+   Ruibo Han
+   China Mobile
+   Beijing
+   China
+   Email: hanruibo@chinamobile.com
+
+
+   Changwang Lin (editor)
+   New H3C Technologies
+   Beijing
+   China
+   Email: linchangwang.04414@h3c.com
+
+
+   Daniel Voyer
+   Cisco Systems
+   Montreal
+   Canada
+   Email: davoyer@cisco.com
+
+
+   Geng Zhang
+   China Mobile
+   Beijing
+   China
+   Email: zhanggeng@chinamobile.com
