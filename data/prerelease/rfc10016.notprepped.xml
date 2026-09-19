@@ -1,0 +1,1365 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<!DOCTYPE rfc [
+  <!ENTITY nbsp    "&#160;">
+  <!ENTITY zwsp   "&#8203;">
+  <!ENTITY nbhy   "&#8209;">
+  <!ENTITY wj     "&#8288;">
+]>
+
+<rfc xmlns:xi="http://www.w3.org/2001/XInclude" category="std" docName="draft-ietf-netmod-system-config-20" number="10016" consensus="true" ipr="trust200902" submissionType="IETF" updates="8342" obsoletes="" xml:lang="en" tocInclude="true" tocDepth="4" symRefs="true" sortRefs="true" version="3">
+
+  <front>
+    <title abbrev="System-Defined Configuration">System-Defined
+    Configuration</title>
+    <seriesInfo name="RFC" value="10016"/>
+    <author fullname="Qiufang Ma" initials="Q." role="editor" surname="Ma">
+      <organization>Huawei</organization>
+      <address>
+        <postal>
+          <street>101 Software Avenue, Yuhua District</street>
+          <city>Nanjing</city>
+          <region>Jiangsu</region>
+          <code>210012</code>
+          <country>China</country>
+        </postal>
+        <email>maqiufang1@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Qin Wu" initials="Q." surname="Wu">
+      <organization>Huawei</organization>
+      <address>
+        <postal>
+          <street>101 Software Avenue, Yuhua District</street>
+          <city>Nanjing</city>
+          <region>Jiangsu</region>
+          <code>210012</code>
+          <country>China</country>
+        </postal>
+        <email>bill.wu@huawei.com</email>
+      </address>
+    </author>
+    <author fullname="Chong Feng" initials="C." surname="Feng">
+      <address>
+        <email>fengchongllly@gmail.com</email>
+      </address>
+    </author>
+    <date month="September" year="2026"/>
+    <area>OPS</area>
+    <workgroup>netmod</workgroup>
+
+    <keyword>system config</keyword>
+
+    <abstract>
+      <t>The Network Management Datastore Architecture (NMDA) in RFC 8342
+      defines several configuration datastores holding configuration. The
+      contents of these configuration datastores are controlled by clients.
+      This document introduces the concept of a system configuration datastore
+      holding configuration controlled by the system on which a server is
+      running. The system configuration can be referenced (e.g., leafref) by
+      configuration explicitly created by clients.</t>
+      <t>This document updates RFC 8342.</t>
+    </abstract>
+  </front>
+  <middle>
+    <section anchor="Introduction" numbered="true" toc="default">
+      <name>Introduction</name>
+      <t>The Network Management Datastore Architecture (NMDA) <xref target="RFC8342" format="default"/> defines system configuration as the configuration
+      that is supplied by the device itself and appears in &lt;operational&gt;
+      when it is in use (see Figure 2 in <xref target="RFC8342" format="default"/>).</t>
+      <t>However, there is a desire from operators to enable a server to
+      better expose the system configuration, regardless of whether it is in
+      use. For example, some implementations define the system configuration
+      that must be referenced to be active. Network Configuration Protocol (NETCONF) / RESTCONF clients can
+      benefit from a standard mechanism to retrieve what system configuration
+      is available on a server.</t>
+      <t>Some servers allow the descendant nodes of system-defined
+      configuration to be configured or modified. For example, the system
+      configuration may contain an almost empty physical interface, whose
+      existence in the system configuration is tied to the presence of
+      particular hardware, while the client needs to be able to add, modify,
+      or remove a number of descendant nodes. Some descendant nodes may not be
+      modifiable (e.g., the interface "type" set by the system).</t>
+      <t>This document updates the NMDA defined in <xref target="RFC8342" format="default"/>
+      with a read-only conventional configuration datastore called "system" to
+      expose system-defined configuration. The solution enables configuration
+      explicitly created by the clients to reference nodes defined in
+      &lt;system&gt;, override system-provided values, and configure
+      descendant nodes of system-defined configuration.</t>
+      <t>The solution defined in this document requires the use of NMDA for
+      both clients and servers. Conformance to this document requires NMDA
+      servers implement the "ietf-system-datastore" YANG module (<xref target="system-datastore" format="default"/>).</t>
+      <section anchor="terminology" numbered="true" toc="default">
+        <name>Terminology</name>
+        <t>This document assumes that the reader is familiar with the contents
+        of <xref target="RFC6241" format="default"/>, <xref target="RFC7950" format="default"/>, <xref target="RFC8342" format="default"/>, and <xref target="RFC8525" format="default"/> and uses
+        terminologies from those documents. The terms "device" and "server"
+        are used interchangeably in this document.</t>
+        <t>The following terms are defined in this document:</t>
+        <dl newline="true" spacing="normal">
+          <dt>system configuration: </dt>
+          <dd>
+            <xref target="RFC8342"/> defines it as "Configuration that
+            is supplied by the device itself". The definition herein refines
+            that definition to represent configuration
+            present in the system configuration datastore (regardless of
+            whether it is applied or referenced). It may also be referred to
+            as "system-defined configuration" or "system-provided
+            configuration" throughout this document. The system configuration
+            discussed in this document cannot be deletable; configuration
+            provided by the server that is deletable is outside the scope of
+            this document.</dd>
+          <dt>system configuration datastore: </dt>
+          <dd>This is a configuration
+            datastore holding configuration provided by the system itself.
+            This datastore is referred to as "&lt;system&gt;".</dd>
+        </dl>
+        <t>This document redefines the term "conventional configuration
+        datastore" in <xref section="3" sectionFormat="of" target="RFC8342" format="default"/>
+        to add "system" to the list of conventional configuration
+        datastores:</t>
+        <dl newline="true" spacing="normal">
+          <dt>conventional configuration datastore: </dt>
+          <dd>One of the
+            following set of configuration datastores: &lt;running&gt;,
+            &lt;startup&gt;, &lt;candidate&gt;, &lt;system&gt;, and
+            &lt;intended&gt;. These datastores share a common datastore
+            schema, and protocol operations allow copying data between these
+            datastores. The term "conventional" is chosen as a generic
+            umbrella term for these datastores. Note that while protocol operations
+            allow copying data between conventional datastores, the read-only
+            nature of datastores such as &lt;system&gt; and &lt;intended&gt;
+            restricts clients from copying data into them.</dd>
+          <dt>system node: </dt>
+          <dd>This is an instance in the data tree that is
+            provided by the system itself. System node may also be called
+            "system-defined node" or "system-provided node" throughout this
+            document.</dd>
+          <dt>referenced node: </dt>
+          <dd>
+            <t>A referenced node is one of the following:</t>
+            <ul spacing="normal">
+              <li>
+                <t>Targets of leafref values defined via the "path"
+                statement.</t>
+              </li>
+              <li>
+                <t>Targets of "instance-identifier" type values.</t>
+              </li>
+              <li>
+                <t>Nodes present in an XPath expression of "when"
+                constraints.</t>
+              </li>
+              <li>
+                <t>Nodes present in an XPath expression of "must"
+                constraints.</t>
+              </li>
+              <li>
+                <t>Nodes defined to satisfy the "mandatory true"
+                constraints.</t>
+              </li>
+              <li>
+                <t>Nodes defined to satisfy the "min-elements"
+                constraints.</t>
+              </li>
+            </ul>
+          </dd>
+        </dl>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Requirements Language</name>
+        <t>
+    The key words "<bcp14>MUST</bcp14>", "<bcp14>MUST NOT</bcp14>", "<bcp14>REQUIRED</bcp14>", "<bcp14>SHALL</bcp14>", "<bcp14>SHALL
+    NOT</bcp14>", "<bcp14>SHOULD</bcp14>", "<bcp14>SHOULD NOT</bcp14>", "<bcp14>RECOMMENDED</bcp14>", "<bcp14>NOT RECOMMENDED</bcp14>",
+    "<bcp14>MAY</bcp14>", and "<bcp14>OPTIONAL</bcp14>" in this document are to be interpreted as
+    described in BCP&nbsp;14 <xref target="RFC2119"/> <xref target="RFC8174"/> 
+    when, and only when, they appear in all capitals, as shown here.
+        </t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Updates to RFC 8342</name>
+        <t>This document updates <xref target="RFC8342" format="default"/> to define a
+        configuration datastore called "system" that holds system
+        configuration (<xref target="system-ds-def" format="default"/>). It also
+        redefines the term "conventional configuration datastore" from <xref target="RFC8342"/> to include "system" in
+        the list.</t>
+        <t>To ensure the validity of &lt;intended&gt; when clients interact
+        with system configuration (e.g., configuration provided by clients
+        references system configuration) and allow the existence of
+        system-defined templates and inactive system configuration,
+        configuration in &lt;running&gt; is merged with &lt;system&gt; to
+        create the contents of &lt;intended&gt; after the configuration
+        transformations (e.g., template expansion or removal of inactive
+        configuration defined in <xref target="RFC8342" format="default"/>) have been
+        performed, as described in <xref target="conceptual-model" format="default"/>.
+        Specifications in <xref target="RFC8342" format="default"/> related to the processing
+        of system configuration are updated by the mechanism defined in this
+        document.</t>
+        <t>Additionally, this document also updates the definition of the
+        "intended" origin metadata annotation identity defined in <xref section="5.3.4" sectionFormat="of" target="RFC8342" format="default"/>. The "intended"
+        identity of the origin value defined in <xref target="RFC8342" format="default"/>
+        represents the origin of configuration provided by &lt;intended&gt;.
+        This document updates that definition as the origin source of
+        configuration explicitly provided by clients and allows a subset of
+        configuration in &lt;intended&gt; that flows from &lt;system&gt; yet
+        is not configured or overridden explicitly in &lt;running&gt; to use
+        "system" as its origin value. As per <xref section="5.3.4" sectionFormat="of" target="RFC8342" format="default"/>, all configuration with the origin
+        value being reported as "intended" <bcp14>MUST</bcp14> originate from
+        &lt;running&gt;, which includes any configuration in &lt;system&gt;
+        that has been copied into &lt;running&gt;. Configuration that is in
+        &lt;system&gt; and not also present in &lt;running&gt; <bcp14>MUST</bcp14> be
+        reported as origin "system" in &lt;operational&gt;.</t>
+      </section>
+    </section>
+    <section anchor="categories" numbered="true" toc="default">
+      <name>Kinds of System Configuration</name>
+      <t>This document defines two types of system configuration:
+      configuration that is always present and configuration that is
+      conditionally present. These types of system configuration are described
+      in Sections <xref target="immediate" format="counter"/> and <xref target="conditional" format="counter"/>,
+      respectively.</t>
+      <section anchor="immediate" numbered="true" toc="default">
+        <name>Always Present</name>
+        <t>The always-present system configuration is generated in
+        &lt;system&gt; when the device is powered on, irrespective of whether
+        physical resources are present or whether a special functionality is
+        enabled. An example of an always-present system configuration is an
+        always-existing loopback interface.</t>
+      </section>
+      <section anchor="conditional" numbered="true" toc="default">
+        <name>Conditionally Present</name>
+        <t>The conditionally present system configuration is
+        generated in &lt;system&gt; based on specific conditions being met in
+        a system. For example, if a physical resource is present (e.g., an
+        interface card is inserted), the system automatically detects it and
+        loads the associated configuration; when the physical resource is not
+        present (an interface card is removed), the system configuration will
+        automatically be removed from &lt;system&gt;. Another example is when
+        a special functionality (e.g., a license or feature) is enabled,
+        specific configuration may be created by the system.</t>
+      </section>
+    </section>
+    <section anchor="system-ds-def" numbered="true" toc="default">
+      <name>The System Configuration Datastore (&lt;system&gt;)</name>
+      <t>Following guidelines for defining datastores in <xref section="A" sectionFormat="of" target="RFC8342" format="default"/>, this document introduces a new
+      datastore resource named "system" that represents the system
+      configuration. NMDA servers compliant with this document <bcp14>MUST</bcp14> implement
+      a system configuration datastore, and they <bcp14>SHOULD</bcp14> also implement
+      &lt;intended&gt;.</t>
+      <dl spacing="normal" newline="false">
+        <dt>Name:</dt><dd>"system"</dd>
+        <dt>YANG modules:</dt><dd>all</dd>
+        <dt>YANG nodes:</dt><dd>all "config true" data nodes up to the root
+        node, generated by the system.</dd>
+        <dt>Management operations:</dt><dd>The datastore can be read using
+        network management protocols such as NETCONF and RESTCONF, but its
+        contents cannot be changed by management operations via NETCONF and
+        RESTCONF protocols.</dd>
+        <dt>Origin:</dt><dd>This document does not define any new origin
+        identity.  The "system" identity of origin metadata annotation <xref
+        target="RFC7952" format="default"/> is used to indicate the origin of
+        a data item provided in &lt;system&gt;.</dd>
+        <dt>Protocols:</dt><dd>YANG-driven management protocols, such as
+        NETCONF and RESTCONF.</dd>
+        <dt>Defining YANG module:</dt><dd>"ietf-system-datastore" (<xref
+        target="system-datastore" format="default"/>).</dd>
+      </dl>
+      <t>The system configuration datastore does not persist across
+      reboots.</t>
+    </section>
+    <section anchor="conceptual-model" numbered="true" toc="default">
+      <name>Conceptual Model of Datastores</name>
+      <t>Clients may provide configuration nodes that reference nodes defined
+      in &lt;system&gt;, override system-provided values, and configure
+      descendant nodes of system-defined configuration in &lt;running&gt;, as
+      detailed in <xref target="dynamic" format="default"/>.</t>
+      <t>To ensure the validity of &lt;intended&gt;, configuration in
+      &lt;running&gt; is merged with &lt;system&gt; to become
+      &lt;intended&gt;, in which process, configuration appearing in
+      &lt;running&gt; takes precedence over the same node in &lt;system&gt;.
+      Since it is unspecified how to merge configuration before
+      transformations, if &lt;system&gt; or &lt;running&gt; includes
+      configuration that requires further transformation (e.g., template
+      expansion or removal of inactive configuration defined in <xref target="RFC8342" format="default"/>) before it can be applied, configuration
+      transformations <bcp14>MUST</bcp14> be performed independently on each datastore before
+      &lt;running&gt; is merged with &lt;system&gt;.</t>
+      <t>Whenever configuration in &lt;system&gt; changes, the server <bcp14>MUST</bcp14>
+      also immediately update and validate &lt;intended&gt;.</t>
+      <t>As a result, Figure 2 in <xref section="5" sectionFormat="of" target="RFC8342" format="default"/> is updated with the below conceptual model of
+      datastores that incorporates the system configuration datastore. For
+      completeness, this model also includes &lt;factory-default&gt;
+      introduced in <xref target="RFC8808" format="default"/>. </t>
+      <figure>
+        <name>Architectural Model of Datastores</name>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+                             +-----------------+
+                             |<factory-default>|
+                       +-----|    (ct, ro)     |-----+
+                       |     +-----------------+     |
+  //"factory-reset" RPC|             |               |
+                       v             |               v
+               +-------------+       |         +-----------+
+               | <candidate> |       |         | <startup> |
+               |  (ct, rw)   |<---+  |   +---->| (ct, rw)  |
+               +-------------+    |  |   |     +-----------+
+                      |           |  v   |           |
++-----------+         |        +-----------+         |
+| <system>  |         +------->| <running> |<--------+
+| (ct, ro)  |                  | (ct, rw)  |
++-----------+                  +-----------+
+     |                              |
+     |                              |
+     |                              | // configuration transformations,
+     +--------------+---------------+ // e.g., removal of nodes marked
+                    |                 // as "inactive", expansion of
+                    |                 // templates
+                    v
+              +------------+
+              | <intended> |  // subject to validation
+              | (ct, ro)   |
+              +------------+
+                     |       // changes applied, subject to
+                     |       // local factors, e.g., missing
+                     |       // resources, delays
+ dynamic             |
+ configuration       |   +-------- learned configuration
+ datastores -----+   |   +-------- default configuration
+                 |   |   |
+                 v   v   v
+             +---------------+
+             | <operational> | <-- system state
+             | (ct + cf, ro) |
+             +---------------+
+             
+ct = config true; cf = config false
+rw = read-write; ro = read-only
+boxes denote named datastores]]></artwork>
+      </figure>
+      <t>Configuration in &lt;system&gt; cannot be deleted by clients (e.g., a
+      list entry can never be removed from &lt;system&gt; through protocol
+      operations), even though a node defined in &lt;system&gt; may be
+      overridden in &lt;running&gt;. If the system initializes a value for a
+      particular leaf that is overridden by the client with a different value
+      in &lt;running&gt; (<xref target="modifying" format="default"/>), and if the node in
+      &lt;running&gt; is removed at a later time, the system-initialized value
+      defined in &lt;system&gt; appears in &lt;intended&gt; and may come into
+      use eventually if applied successfully.</t>
+      <t>Configuration may disappear from &lt;system&gt; due to, e.g.,
+      resources no longer available. In such cases, configuration for missing
+      resources can still remain in &lt;running&gt; and &lt;intended&gt;, but
+      it will not be applied and appear in &lt;operational&gt;. This is
+      further clarified in <xref section="5.3.2" sectionFormat="of" target="RFC8342" format="default"/>.</t>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Static Characteristics</name>
+      <section numbered="true" toc="default">
+        <name>Read-Only to Clients</name>
+        <t>The system datastore is read-only (i.e., edits towards
+        &lt;system&gt; directly <bcp14>MUST</bcp14> be denied), though the client may be
+        allowed to provide configuration that overrides the value of a
+        system-initialized node (see <xref target="modifying" format="default"/>).</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>No Changes to &lt;operational&gt;</name>
+        <t>This work does not change the definition of &lt;operational&gt;
+        nor does it impact the contents of &lt;operational&gt;, as specified
+        in <xref target="RFC8342" format="default"/>. It clarifies origin reporting, i.e., the
+        origin of nodes sourced from &lt;system&gt; is reported as "system"
+        unless explicitly configured or overridden in &lt;running&gt;.
+        &lt;system&gt; enables system-defined nodes to be defined like
+        configuration, i.e., made visible to clients in order for being
+        referenced or configurable prior to present in &lt;operational&gt;.
+        "config false" nodes are out of scope; hence, existing "config false"
+        nodes are not impacted by this work.</t>
+      </section>
+    </section>
+    <section anchor="dynamic" numbered="true" toc="default">
+      <name>Dynamic Behaviors</name>
+      <section numbered="true" toc="default">
+        <name>May Change via Software Upgrades or Resource Changes</name>
+        <t>The contents of &lt;system&gt; <bcp14>MAY</bcp14> change dynamically under various
+        conditions, such as license change, software upgrade, and
+        system-controlled resources change (see <xref target="conditional" format="default"/>).
+        The updates of system configuration may be obtained through YANG
+        notifications <xref target="RFC8639" format="default"/> <xref target="RFC8641" format="default"/> (e.g., on-change notification).</t>
+        <t>If system configuration changes (e.g., during a software upgrade),
+        &lt;running&gt; <bcp14>SHOULD</bcp14> remain a valid configuration data tree. Any
+        mechanisms to achieve this are outside the scope of this document.</t>
+      </section>
+      <section anchor="declare" numbered="true" toc="default">
+        <name>Referencing System Configuration</name>
+        <t>Clients may create configuration data in &lt;running&gt; that
+        references nodes in &lt;system&gt;. Some implementations may define
+        system nodes solely as a convenience for clients to reference. It is
+        also possible for the clients to define their customized nodes for
+        reference.</t>
+        <t><xref target="declare-example" format="default"/> provides an example of a client
+        referencing system-defined nodes.</t>
+      </section>
+      <section anchor="modifying" numbered="true" toc="default">
+        <name>Overriding System Configuration</name>
+        <t>Although &lt;system&gt; is read-only, in some cases, a server may
+        allow some parts of system configuration (e.g., a leaf's value) to be
+        overridden (note the distinction between &lt;system&gt; and system
+        configuration). Overriding of system configuration is achieved by the
+        client writing configuration data in &lt;running&gt;, which overrides
+        the values of matched configuration nodes at the corresponding level
+        in &lt;system&gt;. Configurations defined in &lt;running&gt; take
+        precedence over system configuration nodes in &lt;system&gt; if the
+        server allows the nodes to be overridden (some implementations may
+        have immutable system configuration that is identified by the server
+        using an immutable metadata annotation; see <xref target="I-D.ietf-netmod-immutable-flag" format="default"/> for details), regardless of
+        whether a system-instantiated value changes subsequently.</t>
+        <t><xref target="modify-example" format="default"/> provides an example of a client
+        overriding a system-instantiated leaf's value.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Configuring Descendant Nodes of System Configuration</name>
+        <t>A server may also allow a client to add nodes to a list entry in
+        &lt;system&gt; by writing those additional nodes in &lt;running&gt;.
+        Those additional data nodes may not exist in &lt;system&gt; (i.e., an
+        addition rather than an override).</t>
+        <t><xref target="configure-example" format="default"/> provides an example of a client
+        configuring descendant nodes of a system-defined node.</t>
+      </section>
+    </section>
+    <section anchor="system-datastore" numbered="true" toc="default">
+      <name>The "ietf-system-datastore" Module</name>
+      <section numbered="true" toc="default">
+        <name>Data Model Overview</name>
+        <t>This YANG module defines a new YANG identity named "system", which
+        uses the "ds:conventional" identity defined in <xref target="RFC8342" format="default"/> as its base. A client can discover the system
+        configuration datastore support on the server by reading the YANG
+        library information from the operational state datastore.</t>
+        <t>The system datastore is defined as a conventional configuration
+        datastore and shares a common datastore schema with other conventional
+        datastores.</t>
+        <t>The following diagram illustrates the relationship amongst the
+        "identity" statements defined in the "ietf-system-datastore" and
+        "ietf-datastores" YANG modules: </t>
+	
+        <sourcecode type="yangtree"><![CDATA[
+Identities:
+  +--- datastore
+  |  +--- conventional
+  |  |  +--- running
+  |  |  +--- candidate
+  |  |  +--- startup
+  |  |  +--- system
+  |  |  +--- intended
+  |  +--- dynamic
+  |  +--- operational]]></sourcecode>
+
+        <t>The diagram above uses syntax that is similar to but not
+        defined in <xref target="RFC8340" format="default"/>.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>YANG Module</name>
+
+        <sourcecode name="ietf-system-datastore@2026-09-16.yang" type="yang" markers="true"><![CDATA[
+module ietf-system-datastore {
+  yang-version 1.1;
+  namespace "urn:ietf:params:xml:ns:yang:ietf-system-datastore";
+  prefix sysds;
+
+  import ietf-datastores {
+    prefix ds;
+    reference
+      "RFC 8342: Network Management Datastore Architecture (NMDA)";
+  }
+
+  organization
+    "IETF NETMOD (Network Modeling) Working Group";
+
+  contact
+    "WG Web:   <https://datatracker.ietf.org/wg/netmod/>
+     WG List:  <mailto:netmod@ietf.org>
+
+     Author: Qiufang Ma
+             <mailto:maqiufang1@huawei.com>
+     Author: Qin Wu
+             <mailto:bill.wu@huawei.com>
+     Author: Chong Feng
+             <mailto:fengchongllly@gmail.com>";
+
+  description
+    "This module defines a new YANG identity that uses the
+     ds:conventional identity defined in RFC 8342.
+
+     Copyright (c) 2026 IETF Trust and the persons identified
+     as authors of the code.  All rights reserved.
+
+     Redistribution and use in source and binary forms, with
+     or without modification, is permitted pursuant to, and
+     subject to the license terms contained in, the Revised
+     BSD License set forth in Section 4.c of the IETF Trust's
+     Legal Provisions Relating to IETF Documents
+     (https://trustee.ietf.org/license-info).
+
+     This version of this YANG module is part of RFC 10016
+     (https://www.rfc-editor.org/info/rfc10016); see the RFC
+     itself for full legal notices.";
+
+  revision 2026-09-16 {
+    description
+      "Initial version.";
+    reference
+      "RFC 10016: System-Defined Configuration";
+  }
+
+  identity system {
+    base ds:conventional;
+    description
+      "This read-only datastore contains the configuration
+       provided by the system itself.";
+  }
+}]]></sourcecode>
+
+      </section>
+      <section numbered="true" toc="default">
+
+        <name>Example Usage</name>
+        <t>The following example shows how the configuration in &lt;system&gt;
+        could be retrieved in a NETCONF &lt;get-data&gt; RPC operation. The
+        example uses the "example-application" fictional data model defined in
+        <xref target="declare-example" format="default"/> and the Extensible Markup Language (XML) <xref target="W3C.XML1.0"/> encoding.</t>
+
+        <sourcecode type="xml" ><![CDATA[
+<rpc message-id="101"
+     xmlns="urn:ietf:params:xml:ns:netconf:base:1.0">  
+  <get-data xmlns="urn:ietf:params:xml:ns:yang:ietf-netconf-nmda"
+     xmlns:sysds="urn:ietf:params:xml:ns:yang:ietf-system-datastore">  
+    <datastore>sysds:system</datastore>  
+    <subtree-filter> 
+      <applications xmlns="urn:example:application"/> 
+    </subtree-filter> 
+  </get-data> 
+</rpc>]]></sourcecode>
+        <t>When using the RESTCONF protocol, the system configuration
+        datastore can be accessed via the resource:
+        {+restconf}/ds/ietf-system-datastore:system. The following example
+        uses an HTTP GET method to request "applications" configuration:</t>
+        <artwork name="" type="" align="left" alt=""><![CDATA[
+GET /restconf/ds/ietf-system-datastore:system/\
+   example-application:applications HTTP/1.1
+Host: example.com
+Accept: application/yang-data+xml]]></artwork>
+      </section>
+    </section>
+    <section anchor="IANA" numbered="true" toc="default">
+      <name>IANA Considerations</name>
+      <section numbered="true" toc="default">
+        <name>The IETF XML Registry</name>
+        <t>IANA has registered the following XML namespace URI in
+        the "ns" registry within the "IETF XML Registry" group <xref target="RFC3688" format="default"/>:</t>
+	<dl spacing="compact" newline="false">
+	  <dt>URI:</dt><dd>urn:ietf:params:xml:ns:yang:ietf-system-datastore</dd>
+	  <dt>Registrant Contact:</dt><dd>The IESG</dd>
+	  <dt>XML:</dt><dd>N/A; the requested URIs are XML namespaces.</dd>
+	</dl>
+      </section>
+      <section numbered="true" toc="default">
+        <name>The YANG Module Names Registry</name>
+        <t>IANA has registered the following YANG module in the
+        "YANG Module Names" registry within the "YANG Parameters" registry group. <xref target="RFC6020" format="default"/>.</t>
+	<dl spacing="compact" newline="false">
+	  <dt>Name:</dt><dd>ietf-system-datastore</dd>
+    <dt>Maintained by IANA?</dt><dd>N</dd>
+	  <dt>Namespace:</dt><dd>urn:ietf:params:xml:ns:yang:ietf-system-datastore</dd>
+    <dt>Prefix:</dt><dd>sysds</dd>    
+	  <dt>Reference:</dt><dd>RFC 10016</dd>
+	</dl>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Operational Considerations</name>
+      <t>System configuration exists regardless of whether the server
+      implements &lt;system&gt; or not. The introduction of &lt;system&gt;
+      provides a standardized way to expose system configuration within
+      NMDA.</t>
+      <t>NMDA clients that are not aware of &lt;system&gt; will continue to
+      operate correctly. They will interact only with datastores such as
+      &lt;running&gt;, &lt;candidate&gt;, &lt;intended&gt;, and
+      &lt;operational&gt; as before. The presence of &lt;system&gt; does not
+      change the fundamental behavior for such legacy clients. Operators
+      should be aware that to fully leverage the capabilities defined in this
+      document, client applications need to be updated to recognize and
+      interact with &lt;system&gt;.</t>
+    </section>
+    <section anchor="scecurity" numbered="true" toc="default">
+      <name>Security Considerations</name>
+      <section numbered="true" toc="default">
+        <name>Considerations for the "ietf-system-datastore" YANG Module</name>
+        <t>This section is modeled after the template described in <xref section="3.7.1" sectionFormat="of" target="RFC9907" format="default"/>.</t>
+        <t>The "ietf-system-datastore" YANG module defines a data model that
+        is designed to be accessed via YANG-based management protocols, such
+        as the Network Configuration Protocol (NETCONF) <xref target="RFC6241" format="default"/> and RESTCONF <xref target="RFC8040" format="default"/>. These YANG-based management protocols (1) have to use a secure transport layer
+        and (2) have to use mutual authentication (e.g., Secure Shell (SSH) <xref target="RFC4252" format="default"/>, TLS <xref target="RFC9846" format="default"/>, and QUIC <xref target="RFC9000" format="default"/>).</t>
+        <t>The Network Configuration Access Control Model (NACM) <xref target="RFC8341" format="default"/> provides the means to restrict access for
+        particular NETCONF or RESTCONF users to a preconfigured subset of all
+        available NETCONF or RESTCONF protocol operations and content.</t>
+        <t>The YANG module only defines an identity that uses the
+        "ds:conventional" identity as its base. The module by itself does not
+        expose any sensitive data nodes that are writable or that contain
+        read-only state, and there are no particularly sensitive RPC or action
+	operations. As such, there are no additional security
+        issues related to the YANG module that need to be considered.</t>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Considerations for System Configuration</name>
+        <t>The system datastore, while read-only to clients, may contain
+        sensitive information such as hardware identifiers, security policies,
+        and critical system resources. Read access to sensitive system nodes
+        and subtrees within the datastore <bcp14>MUST</bcp14> be controlled to prevent
+        unauthorized disclosure. Implementations are strongly advised to log
+        all access attempts to sensitive system configuration for audit
+        purposes.</t>
+        <t>Furthermore, while &lt;system&gt; cannot be modified directly,
+        system configuration may be overridden as a merging result (<xref target="modifying" format="default"/>). An attacker may configure a leaf that shadows a
+        sensitive node in &lt;system&gt;. Misconfiguration in &lt;running&gt;
+        could lead to unintended system behavior, including security policy
+        bypass and availability risks. Unauthorized modification to sensitive
+        contents <bcp14>MUST</bcp14> be prevented to avoid those negative effects on the
+        network.</t>
+      </section>
+    </section>
+  </middle>
+  <back>
+    <displayreference target="RFC9846" to="TLS1.3"/>
+    <displayreference target="I-D.ietf-netmod-immutable-flag" to="YANG-FLAG"/>
+    <references>
+      <name>References</name>
+      <references>
+        <name>Normative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.2119.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7950.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.7952.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8174.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8341.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8342.xml"/>
+      </references>
+      <references>
+        <name>Informative References</name>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.3688.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.4252.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6020.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.6241.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8040.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8340.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8525.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8639.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8641.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.8808.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9000.xml"/>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9846.xml"/>
+	
+        <reference anchor="I-D.ietf-netmod-immutable-flag" target="https://datatracker.ietf.org/doc/html/draft-ietf-netmod-immutable-flag-08">
+          <front>
+            <title>YANG Metadata Annotation for Immutable Flag</title>
+            <author initials="Q." surname="Ma" fullname="Qiufang Ma" role="editor">
+              <organization>Huawei</organization>
+            </author>
+            <author initials="Q." surname="Wu" fullname="Qin Wu">
+              <organization>Huawei</organization>
+            </author>
+            <author initials="B." surname="Lengyel" fullname="Balázs Lengyel" role="editor">
+              <organization>Ericsson</organization>
+            </author>
+            <author initials="H." surname="Li" fullname="Hongwei Li">
+              <organization>HPE</organization>
+            </author>
+            <date month="February" day="26" year="2026" />
+          </front>
+          <seriesInfo name="Internet-Draft" value="draft-ietf-netmod-immutable-flag-08" />
+          
+        </reference>
+        <xi:include href="https://bib.ietf.org/public/rfc/bibxml/reference.RFC.9907.xml"/>
+	
+         <reference anchor="W3C.XML1.0" target="https://www.w3.org/TR/2008/REC-xml-20081126/">
+          <front>
+            <title>Extensible Markup Language (XML) 1.0 (Fifth Edition)</title>
+            <author initials="T." surname="Bray" fullname="Tim Bray" role="editor"/>
+            <author initials="J." surname="Paoli" fullname="Jean Paoli" role="editor"/>
+            <author initials="C.M." surname="Sperberg-McQueen" fullname="C. M. Sperberg McQueen" role="editor"/>
+            <author initials="E." surname="Maler" fullname="Eve Maler" role="editor"/>
+            <author initials="F." surname="Yergeau" fullname="Francois Yergeau" role="editor"/>
+            <date day="26" month="November" year="2008"/>
+          </front>
+          <refcontent>W3C Recommendation</refcontent>
+          <annotation>Latest version available at <eref brackets="angle" target="https://www.w3.org/TR/xml/"/>.</annotation>
+         </reference>
+	 
+      </references>
+    </references>
+    <section numbered="true" toc="default">
+      <name>Example of Dynamic Behaviors (Informative)</name>
+      <t>This section presents some sample data models and corresponding
+      contents of various datastores with different dynamic behaviors
+      described in <xref target="dynamic" format="default"/>. The XML snippets are used only
+      for illustration purposes. Note that this section does not show the contents
+      of &lt;intended&gt; as they are related to the configuration in
+      &lt;operational&gt;, assuming the intended configuration is applied
+      successfully. Also note that if the "origin" metadata annotation for
+      configuration is unspecified in snippets, it is inherited from its
+      parent node.</t>
+
+      <section anchor="declare-example" numbered="true" toc="default">
+        <name>Referencing System-Defined Nodes</name>
+        <t>In this subsection, the following fictional module is used:</t>
+
+        <sourcecode type="yang"><![CDATA[
+module example-application {
+  yang-version 1.1;
+  namespace "urn:example:application";
+  prefix ex-app;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+  container applications {
+    list application {
+      key "name";
+      leaf name {
+        type string;
+      }
+      leaf app-id {
+        type string;
+      }
+      leaf protocol {
+        type enumeration {
+          enum tcp;
+          enum udp;
+        }
+        mandatory true;
+      }
+      leaf destination-port {
+        default "0";
+        type inet:port-number;
+      }
+      leaf description {
+        type string;
+      }
+      container security-protection {
+        presence "Indicates that security protection is enabled.";
+        leaf risk-level {
+          type enumeration {
+            enum high;
+            enum low;
+          }
+        }
+        //additional leafs for security-specific configuration...
+      }
+    }
+  }
+}]]></sourcecode>
+        <t>A fictional Access Control List (ACL) YANG module is used as follows, which
+        defines a leafref for the leaf-list "application" data node to refer
+        to an existing application name.</t>
+        <sourcecode type="yang"><![CDATA[
+module example-acl {
+  yang-version 1.1;
+  namespace "urn:example:acl";
+  prefix ex-acl;
+
+  import example-application {
+    prefix ex-app;
+  }
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  container acl {
+    list acl-rule {
+      key "name";
+      leaf name {
+        type string;
+      }
+      container matches {
+        choice l3 {
+          container ipv4 {
+            leaf src-address {
+              type inet:ipv4-prefix;
+            }
+            leaf dst-address {
+              type inet:ipv4-prefix;
+            }
+          }
+        }
+        choice applications {
+          leaf-list application {
+            type leafref {
+              path "/ex-app:applications/ex-app:application"
+                 + "/ex-app:name";
+            }
+          }
+        }
+      }
+      leaf packet-action {
+        type enumeration {
+          enum forward;
+          enum drop;
+          enum redirect;
+        }
+      }
+    }
+  }
+}]]></sourcecode>
+        <t>The server may predefine some applications as a convenience for
+        clients; these applications are immediately present system
+        configuration. When the device is powered on, the system-instantiated
+        application entries may be present in &lt;system&gt; as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<applications xmlns="urn:example:application">
+  <application>
+    <name>ftp</name>
+    <app-id>001</app-id>
+    <protocol>tcp</protocol>
+    <destination-port>21</destination-port>
+    <security-protection>
+      <risk-level>low</risk-level>
+    </security-protection>
+  </application>
+  <application>
+    <name>tftp</name>
+    <app-id>002</app-id>
+    <protocol>udp</protocol>
+    <destination-port>69</destination-port>
+    <security-protection>
+      <risk-level>low</risk-level>
+    </security-protection>
+  </application>
+  <application>
+    <name>smtp</name>
+    <app-id>003</app-id>
+    <protocol>tcp</protocol>
+    <destination-port>25</destination-port>
+    <security-protection>
+      <risk-level>low</risk-level>
+    </security-protection>
+  </application>
+</applications>]]></sourcecode>
+        <t>The client may also define customized applications. Those
+        applications may be present in &lt;running&gt; as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<applications xmlns="urn:example:application">
+  <application>
+    <name>my-smtp</name>
+    <app-id>101</app-id>
+    <protocol>tcp</protocol>
+    <destination-port>2345</destination-port>
+    <description>customized smtp application</description>
+    <security-protection>
+      <risk-level>high</risk-level>
+    </security-protection>
+  </application>
+  <application>
+    <name>my-foo</name>
+    <app-id>102</app-id>
+    <protocol>udp</protocol>
+    <destination-port>1024</destination-port>
+    <description>customized application</description>
+  </application>
+</applications>]]></sourcecode>
+        <t>If a client configures an ACL rule referencing some system-provided
+        or customized applications, the configuration of the ACL rule may be shown
+        as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<acl xmlns="urn:example:acl">
+  <acl-rule>
+    <name>allow-access-to-ftp-tftp</name>
+    <matches>
+      <ipv4>
+        <src-address>198.51.100.0/24</src-address>
+        <dst-address>192.0.2.0/24</dst-address>
+      </ipv4>
+      <application>ftp</application>
+      <application>tftp</application>
+      <application>my-smtp</application>
+    </matches>
+    <packet-action>forward</packet-action>
+  </acl-rule>
+</acl>]]></sourcecode>
+        <t>As different entries of application configuration in &lt;system&gt;
+        and &lt;running&gt; are merged to create &lt;intended&gt;, and there
+        are no merging conflicts in the contents between &lt;system&gt; and
+        &lt;running&gt;, &lt;operational&gt; might contain the configuration
+        of applications with the values of origin reflecting the source of
+        entries as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<applications xmlns="urn:example:application"
+              xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+              or:origin="or:intended">
+  <application>
+    <name>my-smtp</name>
+    <app-id>101</app-id>
+    <protocol>tcp</protocol>
+    <destination-port>2345</destination-port>
+    <description>customized smtp application</description>
+    <security-protection>
+      <risk-level>high</risk-level>
+    </security-protection>
+  </application>
+  <application>
+    <name>my-foo</name>
+    <app-id>102</app-id>
+    <protocol>udp</protocol>
+    <destination-port>1024</destination-port>
+    <description>customized application</description>
+  </application>
+  <application or:origin="or:system">
+    <name>ftp</name>
+    <app-id>001</app-id>
+    <protocol>tcp</protocol>
+    <destination-port>21</destination-port>
+    <security-protection>
+      <risk-level>low</risk-level>
+    </security-protection>
+  </application>
+  <application or:origin="or:system">
+    <name>tftp</name>
+    <app-id>002</app-id>
+    <protocol>udp</protocol>
+    <destination-port>69</destination-port>
+    <security-protection>
+      <risk-level>low</risk-level>
+    </security-protection>
+  </application>
+  <application or:origin="or:system">
+    <name>smtp</name>
+    <app-id>003</app-id>
+    <protocol>tcp</protocol>
+    <destination-port>25</destination-port>
+    <security-protection>
+      <risk-level>low</risk-level>
+    </security-protection>
+  </application>
+</applications>]]></sourcecode>
+      </section>
+      <section anchor="modify-example" numbered="true" toc="default">
+        <name>Modifying a System-Instantiated Leaf's Value</name>
+        <t>This subsection uses the following fictional interface YANG
+        module:</t>
+        <sourcecode type="yang"><![CDATA[
+module example-interface {
+  yang-version 1.1;
+  namespace "urn:example:interface";
+  prefix ex-if;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  container interfaces {
+    list interface {
+      key "name";
+      leaf name {
+        type string;
+      }
+      leaf description {
+        type string;
+      }
+      leaf mtu {
+        type uint32;
+      }
+      leaf-list ip-address {
+        type inet:ip-address;
+      }
+    }
+  }
+}]]></sourcecode>
+        <t>Suppose the system provides an always-present loopback interface
+        (named "lo0") with an MTU value "65536", a default IPv4 address of
+        "127.0.0.1", and a default IPv6 address of "::1". The configuration of
+        the "lo0" interface may be present in &lt;system&gt; as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interface">
+  <interface>
+    <name>lo0</name>
+    <mtu>65536</mtu>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>A client modifies the value of MTU to 9216 by adding the following
+        configuration into &lt;running&gt;:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interface">
+  <interface>
+    <name>lo0</name>
+    <mtu>9216</mtu>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>Since the MTU value provided by the client takes precedence over
+        the system-provided value, and the "origin" value of configuration
+        provided by the client is set to "intended", the configuration of
+        interfaces that is present in &lt;operational&gt; may be as
+        follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interface"
+            xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+            or:origin="or:intended">
+  <interface>
+    <name>lo0</name>
+    <mtu>9216</mtu>
+    <ip-address or:origin="or:system">127.0.0.1</ip-address>
+    <ip-address or:origin="or:system">::1</ip-address>
+  </interface>
+</interfaces>]]></sourcecode>
+      </section>
+      <section anchor="configure-example" numbered="true" toc="default">
+        <name>Configuring Descendant Nodes of a System-Defined Node</name>
+        <t>Based on the example in <xref target="modify-example" format="default"/>, imagine
+        the client further adds the description node of a "lo0" interface in
+        &lt;running&gt; as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interface">
+  <interface>
+    <name>lo0</name>
+    <description>loopback</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>The configuration of interface "lo0" is present in
+        &lt;operational&gt; as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interface"
+            xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+            or:origin="or:intended">
+  <interface>
+    <name>lo0</name>
+    <description>loopback</description>
+    <mtu>9216</mtu>
+    <ip-address or:origin="or:system">127.0.0.1</ip-address>
+    <ip-address or:origin="or:system">::1</ip-address>
+  </interface>
+</interfaces>]]></sourcecode>
+      </section>
+    </section>
+    <section numbered="true" toc="default">
+      <name>Key Use Cases (Informative)</name>
+      <t>This section updates the "Interface Example" supplied in <xref section="C.3" sectionFormat="of" target="RFC8342" format="default"/>.</t>
+      <t>This section provides several use cases related to how &lt;system&gt;
+      interacts with other datastores (e.g., &lt;candidate&gt;,
+      &lt;running&gt;, &lt;intended&gt;, and &lt;operational&gt;). The
+      following fictional interface data model is used:</t>
+      <sourcecode type="yang"><![CDATA[
+module example-interface-management {
+  yang-version 1.1;
+  namespace "urn:example:interfacemgmt";
+  prefix ex-ifm;
+
+  import ietf-inet-types {
+    prefix inet;
+  }
+
+  container interfaces {
+    list interface {
+      key "name";
+      leaf name {
+        type string;
+      }
+      leaf type {
+        type enumeration {
+          enum ethernet;
+          enum atm;
+          enum loopback;
+        }
+      }
+      leaf enabled {
+        type boolean;
+        default "true";
+      }
+      leaf-list ip-address {
+        type inet:ip-address;
+      }
+      leaf speed {
+        when "../type = 'ethernet'";
+        type enumeration {
+          enum 10Mb;
+          enum 100Mb;
+        }
+      }
+      leaf description {
+        type string;
+      }
+    }
+  }
+}]]></sourcecode>
+      <t>For each use case, corresponding sample configuration in
+      &lt;running&gt;, &lt;system&gt;, &lt;intended&gt;, and
+      &lt;operational&gt; is shown. The XML snippets are used only for
+      illustration purposes.</t>
+      <section numbered="true" toc="default">
+        <name>Device Powers On</name>
+        <t>When the device is powered on, assume the system provides an
+        always-present loopback interface named "lo0" that is not
+        explicitly configured in &lt;running&gt;. As a result, no interface configuration
+        appears in &lt;running&gt;, and the content of &lt;system&gt; is as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>In this case, the configuration of loopback interface is only
+        present in &lt;system&gt;, and the configuration of interface in
+        &lt;intended&gt; would be identical to the one in &lt;system&gt; shown
+        above.</t>
+        <t>In addition, &lt;operational&gt; will show the system-provided loopback
+        interface. Note that &lt;operational&gt; also includes the default
+        value specified in the YANG module:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt"
+            xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+            or:origin="or:system">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <enabled or:origin="or:default">true</enabled>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Client Commits Configuration</name>
+        <t>If a client creates an interface "et-0/0/0" but the interface does
+        not physically exist at this point, the content of &lt;running&gt; appears
+        as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>et-0/0/0</name>
+    <ip-address>192.168.10.10</ip-address>
+    <description>pre-provisioned interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>And the content of &lt;system&gt; remains unchanged, only
+        containing the "lo0" loopback interface since the interface
+        "et-0/0/0" is not physically present:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>The content of &lt;intended&gt; represents the merged data of
+        &lt;system&gt; and &lt;running&gt;:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+  <interface>
+    <name>et-0/0/0</name>
+    <ip-address>192.168.10.10</ip-address>
+    <description>pre-provisioned interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>Since the interface named "et-0/0/0" does not exist, the associated
+        configuration is not present in &lt;operational&gt;, which appears as
+        follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt"
+            xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+            or:origin="or:intended">
+  <interface or:origin="or:system">
+    <name>lo0</name>
+    <type>loopback</type>
+    <enabled or:origin="or:default">true</enabled>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Operator Installs Card into a Chassis</name>
+        <t>When the interface is installed by the operator, the system will
+        detect it and generate the associated conditionally present interface
+        configuration in &lt;system&gt;. The content of &lt;running&gt; remains
+        unchanged:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>et-0/0/0</name>
+    <ip-address>192.168.10.10</ip-address>
+    <description>pre-provisioned interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>And &lt;system&gt; might appear as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+  <interface>
+    <name>et-0/0/0</name>
+    <type>ethernet</type>
+    <description>system-defined interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>Then, &lt;intended&gt; contains the merged configuration of
+        &lt;system&gt; and &lt;running&gt;:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+  <interface>
+    <name>et-0/0/0</name>
+    <type>ethernet</type>
+    <ip-address>192.168.10.10</ip-address>
+    <description>pre-provisioned interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>And the content of &lt;operational&gt; appears as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt"
+            xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+            or:origin="or:intended">
+  <interface or:origin="or:system">
+    <name>lo0</name>
+    <type>loopback</type>
+    <enabled or:origin="or:default">true</enabled>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+  <interface>
+    <name>et-0/0/0</name>
+    <type or:origin="or:system">ethernet</type>
+    <enabled or:origin="or:default">true</enabled>
+    <ip-address>192.168.10.10</ip-address>
+    <description>pre-provisioned interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+      </section>
+      <section numbered="true" toc="default">
+        <name>Client Further Commits Configuration</name>
+        <t>If the client further sets the speed of interface "et-0/0/0" in
+        &lt;running&gt;:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>et-0/0/0</name>
+    <speed>10Mb</speed>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>The content of &lt;system&gt; remains unchanged:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+  <interface>
+    <name>et-0/0/0</name>
+    <type>ethernet</type>
+    <description>system-defined interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>And the content of &lt;intended&gt;, which represents the merged
+        result of &lt;running&gt; and &lt;system&gt;, is as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt">
+  <interface>
+    <name>lo0</name>
+    <type>loopback</type>
+    <ip-address>127.0.0.1</ip-address>
+    <ip-address>::1</ip-address>
+    <description>system-defined interface</description>
+  </interface>
+  <interface>
+    <name>et-0/0/0</name>
+    <type>ethernet</type>
+    <ip-address>192.168.10.10</ip-address>
+    <speed>10Mb</speed>
+    <description>pre-provisioned interface</description>
+  </interface>
+</interfaces>]]></sourcecode>
+        <t>And &lt;operational&gt; would appear as follows:</t>
+        <sourcecode type="xml"><![CDATA[
+<interfaces xmlns="urn:example:interfacemgmt"
+           xmlns:or="urn:ietf:params:xml:ns:yang:ietf-origin"
+           or:origin="or:intended">
+ <interface or:origin="or:system">
+   <name>lo0</name>
+   <type>loopback</type>
+   <enabled or:origin="or:default">true</enabled>
+   <ip-address>127.0.0.1</ip-address>
+   <ip-address>::1</ip-address>
+   <description>system-defined interface</description>
+ </interface>
+ <interface>
+   <name>et-0/0/0</name>
+   <type or:origin="or:system">ethernet</type>
+   <enabled or:origin="or:default">true</enabled>
+   <ip-address>192.168.10.10</ip-address>
+   <speed>10Mb</speed>
+   <description>pre-provisioned interface</description>
+ </interface>
+</interfaces>]]></sourcecode>
+      </section>
+    </section>
+    <section anchor="Acknowledgements" numbered="false" toc="default">
+      <name>Acknowledgements</name>
+      <t>The authors would like to thank the following for discussions and
+      providing input to this document: <contact fullname="Balázs Lengyel"/>,
+      <contact fullname="Robert Wilton"/>, <contact fullname="Jürgen
+      Schönwälder"/>, <contact fullname="Andy Bierman"/>, <contact
+      fullname="Martin Björklund"/>, <contact fullname="Mohamed Boucadair"/>,
+      <contact fullname="Michal Vaško"/>, <contact fullname="Alexander
+      Clemm"/>, and <contact fullname="Timothy Carey"/>.</t>
+    </section>
+    <section numbered="false" toc="default">
+      <name>Contributors</name>
+
+<contact fullname="Kent Watsen">
+  <organization>Watsen Networks</organization>
+  <address><email>kent+ietf@watsen.net</email></address>
+</contact>
+<contact fullname="Jan Lindblad">
+  <organization>Cisco Systems</organization>
+  <address><email>jlindbla@cisco.com</email></address>
+</contact>
+<contact fullname="Jason Sterne">
+  <organization>Nokia</organization>
+  <address><email>jason.sterne@nokia.com</email></address>
+</contact>
+<contact fullname="Chongfeng Xie">
+  <organization>China Telecom</organization>
+  <address>
+    <postal>
+      <city>Beijing</city>
+      <country>China</country>
+    </postal>
+    <email>xiechf@chinatelecom.cn</email>
+  </address>
+</contact>
+    </section>
+</back>
+</rfc>
