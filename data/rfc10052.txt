@@ -1,0 +1,837 @@
+﻿
+
+
+
+Internet Engineering Task Force (IETF)                         G. Mirsky
+Request for Comments: 10052                            Ciena Corporation
+Category: Standards Track                                     E. Ruffini
+ISSN: 2070-1721                                                   OutSys
+                                                               H. Nydell
+                                                           Cisco Systems
+                                                                R. Foote
+                                                                   Nokia
+                                                              W. Hawkins
+                                                University of Cincinnati
+                                                          September 2026
+
+
+Performance Measurement with Asymmetrical Traffic Using the Simple Two-
+                Way Active Measurement Protocol (STAMP)
+
+Abstract
+
+   This document defines an optional extension to the Simple Two-way
+   Active Measurement Protocol (STAMP) that enables a Session-Reflector
+   to send asymmetrical packets, that is, response packets whose size or
+   quantity differs from those sent by the Session-Sender.  While
+   standard STAMP exchanges are symmetrical, certain measurement
+   scenarios benefit from reflected packets of different lengths or
+   additional responses to better approximate application traffic
+   conditions.  The extension specifies the Reflected Test Packet
+   Control TLV and associated procedures, analyzes challenges in active
+   performance measurement (including in multicast environments), and
+   describes STAMP behaviors to improve measurement efficiency and
+   reduce network impact.
+
+Status of This Memo
+
+   This is an Internet Standards Track document.
+
+   This document is a product of the Internet Engineering Task Force
+   (IETF).  It represents the consensus of the IETF community.  It has
+   received public review and has been approved for publication by the
+   Internet Engineering Steering Group (IESG).  Further information on
+   Internet Standards is available in Section 2 of RFC 7841.
+
+   Information about the current status of this document, any errata,
+   and how to provide feedback on it may be obtained at
+   https://www.rfc-editor.org/info/rfc10052.
+
+Copyright Notice
+
+   Copyright (c) 2026 IETF Trust and the persons identified as the
+   document authors.  All rights reserved.
+
+   This document is subject to BCP 78 and the IETF Trust's Legal
+   Provisions Relating to IETF Documents
+   (https://trustee.ietf.org/license-info) in effect on the date of
+   publication of this document.  Please review these documents
+   carefully, as they describe your rights and restrictions with respect
+   to this document.  Code Components extracted from this document must
+   include Revised BSD License text as described in Section 4.e of the
+   Trust Legal Provisions and are provided without warranty as described
+   in the Revised BSD License.
+
+Table of Contents
+
+   1.  Introduction
+   2.  Conventions Used in This Document
+     2.1.  Terminology
+     2.2.  Acronyms
+     2.3.  Requirements Language
+   3.  Reflected Test Packet Control TLV
+     3.1.  Address Group Sub-TLVs
+       3.1.1.  Layer 2 Address Group Sub-TLV
+       3.1.2.  Layer 3 Address Group Sub-TLV
+   4.  Operational Considerations
+     4.1.  Rate Measurement
+       4.1.1.  Operational Considerations for Performing Rate
+               Measurement
+     4.2.  Active Performance Measurement in a Multicast Environment
+     4.3.  Using Reflected Test Packet Control TLV in Combination with
+           Other TLVs
+   5.  Security Considerations
+   6.  IANA Considerations
+     6.1.  Reflected Test Packet Control TLV Type
+     6.2.  Conformant Reflected Packet STAMP TLV Flag
+     6.3.  Layer 2 and Layer 3 Address Group Sub-TLV Types
+   7.  References
+     7.1.  Normative References
+     7.2.  Informative References
+   Acknowledgments
+   Authors' Addresses
+
+1.  Introduction
+
+   The Simple Two-way Active Measurement Protocol (STAMP) [RFC8762]
+   defines the base STAMP functionalities.  STAMP Optional Extensions
+   [RFC8972] introduces a TLV structure that allows a Session-Sender to
+   include optional instructions for Session-Reflectors to extend the
+   functionality of the base STAMP protocol.  New STAMP TLVs can be
+   defined to support scenarios like the ones described in [RFC7497],
+   which discusses the coordination of messaging between the source and
+   destination to help deliver one of the fundamental principles of IP
+   performance metric measurements, minimizing the test traffic effect
+   on user flows.
+
+   By default, a STAMP Session-Sender and a Session-Reflector exchange
+   packets symmetrically: The number of packets sent by the Session-
+   Reflector and the Session-Sender are the same, and the length of the
+   packets sent by the Session-Reflector and the Session-Sender are the
+   same.  However, in some scenarios, e.g., rate measurements discussed
+   in [RFC7497], it would be beneficial for a Session-Reflector to
+   respond with asymmetrical test packets: packets whose length is not
+   symmetrical to the test packet sent by the Session-Sender and/or
+   packets that are not sent in direct response to a packet received
+   from a Session-Sender.  The optional extension defined in this
+   document gives operators the tools to create such asymmetrical
+   packets between a Session-Sender and a Session-Reflector.
+
+   Measurement of performance metrics in a multicast network using an
+   active measurement method (Section 3.4 of [RFC7799]) has specific
+   challenges compared to what operators experience monitoring in a
+   unicast network.  This document analyzes these challenges and
+   specifies procedures and STAMP extensions to achieve more efficient
+   measurements with a lesser impact on a network.
+
+2.  Conventions Used in This Document
+
+2.1.  Terminology
+
+   This document uses terms defined in [RFC8762], specifically Session-
+   Sender, Session-Reflector, and symmetrical packets.
+
+   This document uses terms defined in [RFC8972], specifically STAMP
+   Session Identifier (SSID), STAMP TLV Flags, and Sub-TLVs.
+
+   This document uses terms defined in [RFC7497], specifically In-
+   Service and Out-of-Service.
+
+   In this document, "asymmetrical packets" has two meanings, depending
+   on the context.  The first aspect is asymmetry in packet size between
+   a packet sent by a Session-Reflector and the packet it received from
+   the Session-Sender.  The second aspect is asymmetry in the number of
+   packets the Session-Reflector transmits in response to receiving a
+   single STAMP-Test packet.
+
+   In this document, a multicast network means a communication network
+   model where a sender transmits a single packet addressed to a
+   multicast group, and the network delivers copies of that packet to
+   multiple receivers that have joined the group.
+
+2.2.  Acronyms
+
+   CE:  Congestion Experienced
+
+   ECN:  Explicit Congestion Notification
+
+   EUI:  Extended Unique Identifier
+
+   MAC:  Media Access Control
+
+   STAMP:  Simple Two-way Active Measurement Protocol
+
+   TLV:  Type-Length-Value
+
+2.3.  Requirements Language
+
+   The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
+   "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and
+   "OPTIONAL" in this document are to be interpreted as described in
+   BCP 14 [RFC2119] [RFC8174] when, and only when, they appear in all
+   capitals, as shown here.
+
+3.  Reflected Test Packet Control TLV
+
+   This section defines an additional optional STAMP extension, the
+   Reflected Test Packet Control TLV, and an additional bit flag in the
+   STAMP TLV Flags field.  The format of this TLV is presented in
+   Figure 1.
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |STAMP TLV Flags|      Type     |           Length              |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Length of the Reflected Packet |Number of the Reflected Packets|
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |             Interval Between the Reflected Packets            |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~                            Sub-TLVs                           ~
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+             Figure 1: Reflected Test Packet Control TLV Format
+
+   The descriptions of the fields are as follows:
+
+   STAMP TLV Flags:  A one-octet field [RFC8972].
+
+   Type:  A one-octet field that identifies the Reflected Test Packet
+      Control TLV.  This field is set to 12 (Section 6.1).
+
+   Length:  A two-octet field.  The value is variable and MUST NOT be
+      smaller than 12 octets.
+
+   Length of the Reflected Packet:  A two-octet field.  The value is an
+      unsigned integer that is the requested length of a reflected test
+      packet in octets.
+
+   Number of the Reflected Packets:  A two-octet field.  The value is an
+      unsigned integer that is the number of reflected test packets that
+      the Session-Reflector is requested to transmit in response to
+      receiving a STAMP-Test packet with the Reflected Test Packet
+      Control TLV.
+
+   Interval Between the Reflected Packets:  A four-octet field.  The
+      value is an unsigned integer set to the interval in nanoseconds
+      between the transmission of the consecutive reflected test packets
+      in response to receiving a STAMP-Test packet with the Reflected
+      Test Packet Control TLV.
+
+   Sub-TLVs:  An optional field that includes additional information
+      communicated by a Session-Sender.
+
+   Also, an additional STAMP TLV flag [RFC8972], the Conformant
+   Reflected Packet, has been allocated by IANA in the "STAMP TLV Flags"
+   registry (Section 6.2): the one-bit C flag (3).  A Session-Sender
+   MUST zero this flag on transmission, and the Session-Reflector MUST
+   ignore its value on the receipt of a STAMP-Test packet with a STAMP
+   TLV.
+
+   A Session-Sender MAY include the Reflected Test Packet Control TLV in
+   a STAMP test packet.  If the received STAMP-Test packet includes the
+   Reflected Test Packet Control TLV, the Session-Reflector MUST
+   transmit a sequence of reflected test packets according to the
+   following rules:
+
+   *  The length of the reflected test packet MUST be the largest of:
+
+      a.  The length of a base Session-Reflector packet in the mode
+          (unauthenticated or authenticated) of the received STAMP-Test
+          packet, as defined in Section 4.3 of [RFC8762], including all
+          STAMP extension TLVs [RFC8972] present in the received STAMP-
+          Test packet but excluding any Extra Padding TLVs.  The
+          rationale to exclude any Extra Padding TLVs present in
+          combination with the Reflected Test Packet Control TLV is to
+          support a scenario in which a Session-Reflector is requested
+          to transmit a sequence of packets shorter than the received
+          STAMP packet.
+      b.  The value in the Length of the Reflected Packet field of the
+          Reflected Test Packet Control TLV aligned at a four-octet
+          boundary.
+
+   In a case where the length of the reflected packet calculated by this
+   rule is longer than the length of the reflected packet calculated by
+   the rules in Section 4 of [RFC8972], the Session-Reflector MUST use
+   the Extra Padding TLV (Section 4.1 of [RFC8972]) to increase the
+   length of the reflected test packet.  If the calculated length of the
+   reflected packet exceeds the maximum transmission unit (MTU) of the
+   interface to reach the Session-Sender, the Session-Reflector MUST set
+   the Conformant Reflected Packet STAMP TLV flag (Section 6.2) to 1 and
+   MUST transmit a single reflected packet of the length equal to the
+   MTU of the egress interface.  Otherwise, the Session-Reflector MUST
+   set the C flag to 0 in each reflected test packet.
+
+   The number of reflected test packets in the sequence MUST equal the
+   value of the Number of the Reflected Packets field.
+
+   If the value of the Number of the Reflected Packets field is greater
+   than 1, the interval between the transmission of two consecutive
+   reflected packets in the sequence MUST be equal to the value in the
+   Interval Between the Reflected Packets field in nanoseconds.  To
+   prevent excessive congestion caused by reflected packets, a Session-
+   Reflector that supports the Reflected Test Packet Control TLV MUST
+   enforce limits on both the data rate (bytes per second) and the total
+   data volume (bytes) of the STAMP payload it generates in response to
+   an incoming test packet.  If a test packet is received that would
+   generate traffic that exceeds either of these limits, the Session-
+   Reflector MUST set the C flag (Section 6.2) to 1 and MUST transmit a
+   single reflected packet of the length calculated by the rules listed
+   above.  Otherwise, the Session-Reflector MUST set the C flag to 0 in
+   each reflected test packet.
+
+   If the Number of the Reflected Packets field is set to 0, the
+   Session-Reflector MUST NOT send any reflected packets.  Furthermore,
+   in this case, the Session-Reflector SHOULD discard the received
+   STAMP-Test packet.  However, a local policy MAY override this default
+   behavior and specify an alternative handling.  Note that this
+   behavior of the Session-Reflector is demonstrated when the Control
+   Code Flags field of the Return Path Control Code sub-TLV
+   (Section 4.1.1 of [RFC9503]) is set to No Reply Requested.  If this
+   is the intended behavior, use of the Return Path TLV is preferable.
+
+   Each reflected test packet in the sequence is formed according to
+   Section 4.3 of [RFC8762].
+
+   As defined above, there are two cases when a Session-Reflector will
+   set the C flag in the reflected packet.  To disambiguate which case
+   led to the C flag being set to 1, an implementation of a Session-
+   Sender can determine the cause as follows:
+
+   *  If the length of the received reflected STAMP packet is less than
+      the value of the Length of the Reflected Packet field, the
+      requested length exceeds the MTU of the egress interface of the
+      Session-Reflector.
+
+   *  If the length of the received reflected STAMP packet equals the
+      value of the Length of the Reflected Packet field, the requested
+      data rate and/or the data volume exceed the limits set at the
+      Session-Reflector.
+
+3.1.  Address Group Sub-TLVs
+
+   A multicast network that uses an active performance measurement
+   method for In-Service rate estimation MUST include a rate control
+   mechanism that bounds and regulates the generation of measurement
+   packets.  Because multicast replication can amplify probe traffic
+   across the distribution tree, uncontrolled probe emission risks
+   introducing congestion, altering traffic asymmetry, or otherwise
+   perturbing the conditions being measured.  The rate control mechanism
+   MUST ensure that probe traffic remains non-intrusive, predictable,
+   and consistent with the operational characteristics of the multicast
+   topology.  Aligning probe generation behavior with the timing and
+   packet selection semantics of the asymmetric packet measurement
+   method makes it possible for observations collected at receivers to
+   remain valid and comparable.  To allow for deployment on networks
+   with different characteristics (i.e., latency, throughput, etc.),
+   implementations SHOULD provide operators with the ability to
+   configure rate limits and pacing parameters that prevent excessive or
+   uneven probe replication while still enabling statistically
+   meaningful measurement samples.
+
+3.1.1.  Layer 2 Address Group Sub-TLV
+
+   An optional Layer 2 Address Group sub-TLV is a variable-length sub-
+   TLV that includes a Layer 2 Address Group Mask and Address Group
+   fields used by the Session-Sender to select the Session-Reflectors
+   for a response.  The Layer 2 Address Group sub-TLV can convey EUI-48
+   (Extended Unique Identifier), EUI-64 [IEEE-802.3-2022], and a 16-bit
+   short address for local identification within a Personal Area Network
+   [IEEE-802.15.4-2024].  The format of the Layer 2 Address Group sub-
+   TLV is presented in Figure 2.
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   |Sub-TLV Flags| Sub-TLV Type  |         Sub-TLV Length          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~           Layer 2 Address Group Mask (variable length)        ~
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~           Layer 2 Address Group (variable length)             ~
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+               Figure 2: Layer 2 Address Group Sub-TLV Format
+
+   Where:
+
+   Sub-TLV Flags:  An eight-bit field.  The format, values, and
+      interpretation of flags are as defined for STAMP TLV Flags
+      [RFC8972].  Flag values are taken from the "STAMP TLV Flags"
+      registry [IANA-STAMP].
+
+   Sub-TLV Type:  A one-octet field.  IANA has assigned value 10
+      (Section 6.3).
+
+   Sub-TLV Length:  A two-octet field whose value equals the length of
+      the Value field of the Layer 2 Address Group sub-TLV in octets.
+      Because the lengths of the Layer 2 Address Group Mask and Layer 2
+      Address Group fields MUST be equal, valid values for the Sub-TLV
+      Length are 4, 12, and 16.  Any other value MUST be considered by
+      the Session-Reflector as a malformed sub-TLV.
+
+   The Value field of the Layer 2 Address Group sub-TLV consists of the
+   following fields:
+
+   Layer 2 Address Group Mask:  A field that represents the bitmask to
+      be applied to all MAC addresses associated with the Session-
+      Reflector.  The length of the field is 1/2 the value of the sub-
+      TLV Length field.
+
+   Layer 2 Address Group:  A field that represents the group to which
+      this TLV is addressed.  The length of the field is 1/2 the value
+      of the sub-TLV Length field.
+
+   If the Session-Reflector applies the value of the Layer 2 Address
+   Group Mask field (using a bitwise AND) to any of its MAC addresses
+   with the same length and the result is equal to the value of the
+   Layer 2 Address Group field, then the Session-Reflector MUST stop
+   processing the Layer 2 Address Group sub-TLV and continue processing
+   the received test packet.  If no matches are found, the Session-
+   Reflector MUST stop processing the received packet.
+
+3.1.2.  Layer 3 Address Group Sub-TLV
+
+   An optional Layer 3 Address Group sub-TLV is a variable-length sub-
+   TLV that includes the IP Prefix and IP Prefix Length fields used by
+   the Session-Sender to select the Session-Reflectors for a response.
+   The format of the Layer 3 Address Group sub-TLV is presented in
+   Figure 3.
+
+    0                   1                   2                   3
+    0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   | Sub-TLV Flags | Sub-TLV Type  |       Sub-TLV Length          |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   | Prefix Length |                   Reserved                    |
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+   ~                       IP Prefix                               ~
+   +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+
+               Figure 3: Layer 3 Address Group Sub-TLV Format
+
+   Where:
+
+   Sub-TLV Flags:  An eight-bit field.  The format, values, and
+      interpretation of flags are as defined for STAMP TLV Flags
+      [RFC8972].  Flag values are taken from the "STAMP TLV Flags"
+      registry [IANA-STAMP].
+
+   Sub-TLV Type:  A one-octet field.  IANA has assigned value 11
+      (Section 6.3).
+
+   Sub-TLV Length:  A two-octet field whose value equals either 8 (if
+      the IP Prefix is the prefix for an IPv4 address) or 20 (if the IP
+      Prefix is the prefix for an IPv6 address).  Any other value MUST
+      be considered by the Session-Reflector as a malformed sub-TLV.
+
+   The Value field of the Layer 3 Address Group sub-TLV consists of the
+   following fields:
+
+   Prefix Length:  A one-octet unsigned integer field that contains the
+      length, in bits, of the prefix of the value in the IP Prefix
+      field.
+
+   Reserved:  A three-octet field.  The field MUST be zeroed on
+      transmission and ignored on receipt.
+
+   IP Prefix:  A variable-length field.  The length of the field is four
+      octets if the IP Prefix is the prefix for an IPv4 address or 16 if
+      the IP Prefix is the prefix for an IPv6 address.
+
+   When processing this sub-TLV, the Session-Reflector will construct an
+   IP mask according to the value, n, in the Prefix Length field.  The
+   IP mask will be an IP address (of the family specified by the value
+   of the sub-TLV Length field, according to the semantics above) where
+   the n most-significant bits are set to 1 and all other bits are set
+   to 0.  Once the mask is constructed, if the Session-Reflector applies
+   it (using a bitwise AND) to any of its IP addresses of the same
+   family and the result is equal to the value in the IP Prefix field,
+   then the Session-Reflector MUST stop processing the Layer 3 Address
+   Group sub-TLV and continue processing the received test packet.  If
+   no matches are found, the Session-Reflector MUST stop processing the
+   received packet.
+
+4.  Operational Considerations
+
+4.1.  Rate Measurement
+
+   [RFC7497] defines the problem of access rate measurement in access
+   networks.  One of the essential requirements identified for a test
+   protocol is the ability to control packet characteristics on the
+   tested path, such as asymmetric rate and asymmetric packet size.  The
+   Reflected Test Packet Control TLV, defined in Section 3, conforms to
+   the requirements for measuring access rate by providing optional
+   controls of the number of reflected test packets, the size of the
+   reflected packet(s), and the time interval, i.e., rate, in
+   transmitting the sequence of the reflected test packets.  The access
+   rate metric and method of access rate measurement are out of the
+   scope of this document.  The UDP Speed Test (see [RFC9097] and
+   [RFC9946]) also allows for the measurement of access bandwidth.
+
+4.1.1.  Operational Considerations for Performing Rate Measurement
+
+   General considerations for using a testing protocol for rate
+   measurement are documented in Section 7 of [RFC7497].  These
+   considerations are specific for In-Service and Out-of-Service rate
+   measurement.  In the Out-of-Service testing, an operator may use a
+   very high traffic rate and/or volume (i.e., high values for the
+   Length of the Reflected Packet and/or Number of the Reflected Packets
+   fields, and/or low values for the Interval Between the Reflected
+   Packets field of the Reflected Test Packet Control TLV) to create
+   congestion in the bottleneck.  However, when performing In-Service
+   rate testing, an operator may start with a low rate and/or volume and
+   gradually increase them with each transmitted Reflected Test Packet
+   Control TLV.
+
+   A service subscriber performing extensive rate measurements on the
+   operational network SHOULD consider bullet item 6 in Section 11 of
+   [RFC9946] and be mindful of limits placed on their service by the
+   Service Provider.  In particular, active measurement can lead to the
+   generation of data volumes that may cause those performing the test
+   to violate service-level agreements with their Service Provider.
+
+4.2.  Active Performance Measurement in a Multicast Environment
+
+   For performance measurements using STAMP in a multicast environment,
+   a Session-Sender is expected to be the root and Session-Reflectors
+   are the leaves of the same multicast distribution tree.  The
+   mechanism of constructing the multicast tree is outside the scope of
+   this document.
+
+   According to [RFC8972], a STAMP Session is demultiplexed by a
+   Session-Reflector by the tuple that consists of source and
+   destination IP addresses, source and destination UDP port numbers, or
+   the source IP address and STAMP Session Identifier.  That is also the
+   case when monitoring the performance of a multicast flow, despite the
+   fact that the destination IP address is a multicast address.
+   Therefore, there is no special behavior defined for a Session-
+   Reflector upon receiving a STAMP-Test packet over a multicast tree.
+   It processes the packet according to [RFC8762] and [RFC8972].  The
+   Session-Reflector MUST use the source IP address of the received
+   STAMP-Test packet as the destination IP address of the reflected test
+   packet and MUST use one of the IP addresses associated with the node
+   as the source IP address for that packet.  As a result, a Session-
+   Sender may receive multiple replies from multiple counterpart
+   Session-Reflectors.  Such a Session-Sender may include a Reflected
+   Test Packet Control TLV and include either a Layer 2 Address Group
+   sub-TLV or a Layer 3 Address Group sub-TLV to limit the Session-
+   Reflectors that respond.
+
+   The multicast environment itself could be configured to help
+   alleviate the possibility that network congestion may occur if a
+   single test packet generates a large number of concurrent replies,
+   all directed to the same endpoint.  Depending on the multicast
+   implementation, adding the Reflected Test Packet Control TLV could
+   allow the multicast environment to limit the number of replies by
+   modifying the Reflected Test Packet Control TLV sub-TLV values of any
+   STAMP packets it sees, allowing replies only from reflectors that
+   are:
+
+   *  Randomly selected, by specifying a Layer 2 Address Group sub-TLV:
+      for example, setting the EUI-48 Address Group Mask to 0xF and the
+      EUI-48 Address Group to 0x1.  As a result, only 1 out of 16
+      reflectors will reply;
+
+   *  Hosted on a specific vendor Network Interface Card, by specifying
+      a Layer 2 Address Group sub-TLV with the EUI-48 Address Group Mask
+      set to 0xFFFFFF000000; and
+
+   *  Belonging to specific IP networks, for example, a subnet dedicated
+      to IPv6-over-IPv4 encapsulation, by specifying the appropriate
+      Layer 3 Address Group sub-TLV.
+
+   Multicast traffic is also intrinsically asymmetrical.  The upstream
+   (source-to-receiver) direction typically dominates, while the return
+   path receives limited attention because multicast communication is
+   primarily one-to-many and generates comparatively little downstream
+   or receiver-to-source traffic.  The value of the Length of the
+   Reflected Packet field can be used to ensure that the reflected
+   packet transports all the timestamps and requested information, which
+   are crucial for the underlying measurement, but is as short as
+   possible so as not to flood the network with useless data.
+
+4.3.  Using Reflected Test Packet Control TLV in Combination with Other
+      TLVs
+
+   [RFC9503] defines the Return Path TLV that, when used in combination
+   with the Return Address Sub-TLV, allows a Session-Sender to request
+   the reflected packet be sent to a different address from the Session-
+   Sender one.  These STAMP extensions could be used in combination with
+   the Reflected Test Packet Control TLV, defined in this document, to
+   direct the reflected STAMP-Test packets to a collector of measurement
+   data (according to [RFC7594]) for further processing and network
+   analytics.  An example of the use case is a multicast scenario when,
+   for example, the Session-Sender is close to the actual multicast
+   source (such as a camera transmitting live video) so that the test
+   packets follow the same path as the video stream packets in one
+   direction but the reflected test packets follow another to a
+   destination where the data would be analyzed.
+
+   For compatibility with [RFC9503], a Session-Sender MUST NOT include a
+   Return Path Control Code sub-TLV with the Control Code Flags set to
+   No Reply Requested in a test packet that also contains a Reflected
+   Test Packet Control TLV with a non-zero value.  A Session-Reflector
+   that supports both TLVs MUST set the U flag to 1 in both the Return
+   Path and Reflected Test Packet Control TLVs within the reflected
+   STAMP packet.  Furthermore, the Session-Reflector SHOULD log a
+   notification to inform an operator about the misconstructed STAMP
+   packet.
+
+   The Reflected Test Packet Control TLV can be combined with the Class
+   of Service TLV [RFC8972] to augment rate testing or testing in a
+   multicast network that monitors the consistency of Differentiated
+   Services Code Point and ECN values in forward and reverse directions
+   of the particular STAMP-Test session.
+
+5.  Security Considerations
+
+   Security considerations discussed in [RFC7497], [RFC8762], [RFC8972],
+   and [RFC9503] apply to this document.  Furthermore, spoofed STAMP-
+   Test packets with the Reflected Test Packet Control TLV can be
+   exploited to conduct a Denial-of-Service (DoS) attack.  Hence,
+   implementations MUST use an identity protection mechanism.  For
+   example, the Session-Reflector may verify the information about the
+   source of the STAMP packet against a pre-defined list of trusted
+   nodes.  Furthermore, an implementation that supports this
+   specification MUST provide administrative control of support of the
+   Reflected Test Packet Control TLV on a Session-Reflector with it
+   being disabled by default.  Also, either the STAMP authentication
+   mode [RFC8762] or the HMAC (Hashed Message Authentication Code) TLV
+   [RFC8972] SHOULD be used for a STAMP-Test session containing the
+   Reflected Test Packet Control TLV.  Note that if integrity protection
+   is enabled, any in-path modification will cause verification to fail
+   unless the modifying element is within the trust boundary and can
+   recompute the integrity check.
+
+   Furthermore, a DoS attack using the Reflected Test Packet Control TLV
+   might target the STAMP Session-Reflector by overloading it with test
+   packet reflection, e.g., minuscule intervals and/or an excessive
+   number of concurrent test sessions.  To mitigate that, a Session-
+   Reflector implementation that supports the new TLV MUST provide a
+   mechanism to limit the reflection rate and volume of STAMP-Test
+   packets (see Section 3 for a detailed discussion).
+
+   Considering the potential number of reflected packets generated by a
+   single test packet sent to a multicast address, parameters in the
+   first STAMP-Test packet with the Reflected Test Packet Control TLV
+   MUST be selected conservatively.  Consider the Number of the
+   Reflected Packets field value set to one.  As a result, a Session-
+   Sender, by counting the packets reflected after originating a first
+   STAMP-Test packet with the Reflected Test Packet Control TLV, can
+   evaluate the load caused by using the Reflected Test Packet Control
+   TLV in which more than a single reflected packet to the same
+   multicast destination is requested.  To further mitigate the risk of
+   using the Reflected Test Packet Control TLV in a multicast network, a
+   Session-Sender SHOULD sign packets using the HMAC TLV when sending
+   such messages in unauthenticated mode [RFC8762].  But even with the
+   HMAC TLV, the Reflected Test Packet Control TLV could be exploited by
+   a replay attack.  To mitigate that risk, a STAMP Session-Reflector
+   SHOULD use the value of the Sequence Number field [RFC8762] of the
+   received STAMP-Test packet.  If that value compared to the received
+   value in the previous test packet of the same STAMP-Test session is
+   not monotonically increasing, then the Session-Reflector MUST respond
+   with a single reflected packet, setting the U flag to 1 [RFC8972].
+   That may not indicate a replay attack, but there is packet re-
+   ordering or packet duplication in the network.  An operator can use
+   other diagnostic methods to characterize and localize the problem.
+   An implementation of the Session-Reflector can use the Serial Number
+   Arithmetic [RFC1982] or any of the other methods to verify the
+   correct ordering of test packets.
+
+   A Session-Sender SHOULD NOT send the next STAMP-Test packet with the
+   Reflected Test Packet Control TLV before the Session-Reflector is
+   expected to complete the transmission of all reflected packets in
+   response to the Reflected Test Packet Control TLV in the previous
+   test packet.  In some scenarios, the Reflected Test Packet Control
+   TLV might induce congestion on the transient bottleneck.  Section 10
+   of [RFC9097] specifies security requirements for capacity
+   measurements with asymmetric UDP loads.
+
+   When planning In-Service capacity measurement, operators SHOULD
+   follow recommendations formulated in Sections 3 and 7 of [RFC7497].
+   If the underlay network is ECN-capable, a Session-Reflector may
+   receive STAMP-Test packets with the ECN field marked as Congestion
+   Experienced (CE).  ECN markings provide an indication of incipient
+   congestion rather than packet loss.  However, the interpretation of
+   what constitutes "significant congestion" and the operational
+   thresholds for reacting to ECN-CE depend on the specific deployment,
+   service objectives, and operator policy.  Operators should be aware
+   that In-Service capacity measurements may influence congestion
+   conditions, potentially contributing to ECN-CE marking in the
+   network.  Implementations and operational procedures SHOULD ensure
+   that the use of STAMP for In-Service measurement does not
+   unintentionally degrade data traffic or lead to misinterpretation of
+   ECN-related congestion signals.  Appropriate thresholds and
+   mitigation actions remain deployment-specific and SHOULD be guided by
+   operator policy and network performance objectives.
+
+   Furthermore, Section 3.1.5 of [RFC8085] determines that a UDP
+   congestion control SHOULD respond quickly to experienced congestion
+   and account for loss rate and response time when choosing a new rate.
+   And Section 8.1 of [RFC9097] specifies the load rate adjustment
+   algorithm with its sample pseudocode offered in Appendix A of
+   [RFC9097].
+
+6.  IANA Considerations
+
+6.1.  Reflected Test Packet Control TLV Type
+
+   IANA has assigned a new value for the Reflected Test Packet Control
+   TLV in the "STAMP TLV Types" registry under the "Simple Two-way
+   Active Measurement Protocol (STAMP) TLV Types" registry group as
+   follows:
+
+           +=======+===============================+===========+
+           | Value | Description                   | Reference |
+           +=======+===============================+===========+
+           | 12    | Reflected Test Packet Control | RFC 10052 |
+           +-------+-------------------------------+-----------+
+
+              Table 1: Reflected Test Packet Control TLV Type
+
+6.2.  Conformant Reflected Packet STAMP TLV Flag
+
+   IANA has allocated a bit position for the Conformant Reflected Packet
+   STAMP TLV flag in the "STAMP TLV Flags" registry under the "Simple
+   Two-way Active Measurement Protocol (STAMP) TLV Types" registry group
+   as follows:
+
+            +==============+========+=============+===========+
+            | Bit position | Symbol | Description | Reference |
+            +==============+========+=============+===========+
+            | 3            | C      | Conformant  | RFC 10052 |
+            +--------------+--------+-------------+-----------+
+
+            Table 2: Conformant Reflected Packet STAMP TLV Flag
+
+6.3.  Layer 2 and Layer 3 Address Group Sub-TLV Types
+
+   IANA has assigned values for the Layer 2 Address Group and Layer 3
+   Address Group sub-TLV Types in the "STAMP Sub-TLV Types" registry
+   under the "Simple Two-way Active Measurement Protocol (STAMP) TLV
+   Types" registry group as follows:
+
+      +=======+=======================+================+===========+
+      | Value | Description           | TLV Used       | Reference |
+      +=======+=======================+================+===========+
+      | 10    | Layer 2 Address Group | Reflected Test | RFC 10052 |
+      |       |                       | Packet Control |           |
+      +-------+-----------------------+----------------+-----------+
+      | 11    | Layer 3 Address Group | Reflected Test | RFC 10052 |
+      |       |                       | Packet Control |           |
+      +-------+-----------------------+----------------+-----------+
+
+        Table 3: STAMP Sub-TLV Types for the Reflected Test Packet
+                               Control TLV
+
+7.  References
+
+7.1.  Normative References
+
+   [IANA-STAMP]
+              IANA, "STAMP Sub-TLV Types",
+              <https://www.iana.org/assignments/stamp-tlv-types>.
+
+   [RFC1982]  Elz, R. and R. Bush, "Serial Number Arithmetic", RFC 1982,
+              DOI 10.17487/RFC1982, August 1996,
+              <https://www.rfc-editor.org/info/rfc1982>.
+
+   [RFC2119]  Bradner, S., "Key words for use in RFCs to Indicate
+              Requirement Levels", BCP 14, RFC 2119,
+              DOI 10.17487/RFC2119, March 1997,
+              <https://www.rfc-editor.org/info/rfc2119>.
+
+   [RFC7497]  Morton, A., "Rate Measurement Test Protocol Problem
+              Statement and Requirements", RFC 7497,
+              DOI 10.17487/RFC7497, April 2015,
+              <https://www.rfc-editor.org/info/rfc7497>.
+
+   [RFC8174]  Leiba, B., "Ambiguity of Uppercase vs Lowercase in RFC
+              2119 Key Words", BCP 14, RFC 8174, DOI 10.17487/RFC8174,
+              May 2017, <https://www.rfc-editor.org/info/rfc8174>.
+
+   [RFC8762]  Mirsky, G., Jun, G., Nydell, H., and R. Foote, "Simple
+              Two-Way Active Measurement Protocol", RFC 8762,
+              DOI 10.17487/RFC8762, March 2020,
+              <https://www.rfc-editor.org/info/rfc8762>.
+
+   [RFC8972]  Mirsky, G., Min, X., Nydell, H., Foote, R., Masputra, A.,
+              and E. Ruffini, "Simple Two-Way Active Measurement
+              Protocol Optional Extensions", RFC 8972,
+              DOI 10.17487/RFC8972, January 2021,
+              <https://www.rfc-editor.org/info/rfc8972>.
+
+   [RFC9503]  Gandhi, R., Ed., Filsfils, C., Chen, M., Janssens, B., and
+              R. Foote, "Simple Two-Way Active Measurement Protocol
+              (STAMP) Extensions for Segment Routing Networks",
+              RFC 9503, DOI 10.17487/RFC9503, October 2023,
+              <https://www.rfc-editor.org/info/rfc9503>.
+
+   [RFC9946]  Morton, A., Ciavattone, L., and R. Geib, Ed., "The UDP
+              Speed Test Protocol (UDPSTP) for One-Way IP Capacity
+              Metric Measurement", RFC 9946, DOI 10.17487/RFC9946, April
+              2026, <https://www.rfc-editor.org/info/rfc9946>.
+
+7.2.  Informative References
+
+   [IEEE-802.3-2022]
+              IEEE, "IEEE Standard for Ethernet", IEEE Std 802.3-2022,
+              DOI 10.1109/IEEESTD.2022.9844436, July 2022,
+              <https://doi.org/10.1109/IEEESTD.2022.9844436>.
+
+   [IEEE-802.15.4-2024]
+              IEEE, "IEEE Standard for Low-Rate Wireless Networks",
+              IEEE Std 802.15.4-2024, DOI 10.1109/IEEESTD.2024.10794632,
+              December 2024,
+              <https://doi.org/10.1109/IEEESTD.2024.10794632>.
+
+   [RFC7594]  Eardley, P., Morton, A., Bagnulo, M., Burbridge, T.,
+              Aitken, P., and A. Akhter, "A Framework for Large-Scale
+              Measurement of Broadband Performance (LMAP)", RFC 7594,
+              DOI 10.17487/RFC7594, September 2015,
+              <https://www.rfc-editor.org/info/rfc7594>.
+
+   [RFC7799]  Morton, A., "Active and Passive Metrics and Methods (with
+              Hybrid Types In-Between)", RFC 7799, DOI 10.17487/RFC7799,
+              May 2016, <https://www.rfc-editor.org/info/rfc7799>.
+
+   [RFC8085]  Eggert, L., Fairhurst, G., and G. Shepherd, "UDP Usage
+              Guidelines", BCP 145, RFC 8085, DOI 10.17487/RFC8085,
+              March 2017, <https://www.rfc-editor.org/info/rfc8085>.
+
+   [RFC9097]  Morton, A., Geib, R., and L. Ciavattone, "Metrics and
+              Methods for One-Way IP Capacity", RFC 9097,
+              DOI 10.17487/RFC9097, November 2021,
+              <https://www.rfc-editor.org/info/rfc9097>.
+
+Acknowledgments
+
+   The authors thank Zhang Li, Ruediger Geib, Rakesh Gandhi, Giuseppe
+   Fioccola, Xiao Min, Greg White, and Rohan Bhosle for their thorough
+   reviews and helpful suggestions, which improved the document.
+
+Authors' Addresses
+
+   Greg Mirsky
+   Ciena Corporation
+   Email: gregimirsky@gmail.com
+
+
+   Ernesto Ruffini
+   OutSys
+   Email: eruffini@outsys.org
+
+
+   Henrik Nydell
+   Cisco Systems
+   Email: hnydell@cisco.com
+
+
+   Richard Foote
+   Nokia
+   Email: footer.foote@nokia.com
+
+
+   Will Hawkins
+   University of Cincinnati
+   Email: hawkinsw@obs.cr
